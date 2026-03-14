@@ -26,4 +26,4 @@ def get_client() -> anthropic.Anthropic:
 
 
 # Default model for AIda agents
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-6"

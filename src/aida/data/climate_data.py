@@ -1,8 +1,11 @@
 """Generic climate data for building components.
 
-Based on Boverket's climate database, NollCO2 methodology, and publicly available EPD data.
-Values represent typical CO2e per unit for conventional (baseline) and climate-optimized alternatives.
+Data source priority (same hierarchy used in LLM fallback):
+1. EPD:er (environdec.com, EPD Norge, product-specific) — always first choice
+2. Boverkets klimatdatabas — when no specific EPD exists
+3. Estimates — last resort, clearly marked
 
+Values represent typical CO2e per unit for conventional (baseline) and climate-optimized alternatives.
 All values are approximations for decision support, not certified calculations.
 """
 

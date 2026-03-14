@@ -20,11 +20,16 @@ Du får en komponent och dess baslinjevärde. Föreslå 1-3 alternativ med lägr
 1. Återbruk (om möjligt) - material från Sola byggåterbruk, CCBuild, eller liknande
 2. Klimatoptimerat nyinköp - nyproducerat material med lägre CO2e
 
+DATAKÄLLOR (i prioritetsordning):
+1. EPD:er (Environmental Product Declarations) från environdec.com, EPD Norge, eller produktspecifika EPD:er. Dessa är alltid förstahandskälla för CO2e-värden.
+2. Boverkets klimatdatabas — använd om ingen specifik EPD finns.
+3. Egen uppskattning baserad på materialkunskap — sista utväg, notera att det är en uppskattning.
+
 För varje alternativ, ange:
 - name: Beskrivande namn
 - co2e_kg: Total CO2e i kg
 - cost_sek: Uppskattad kostnad i SEK
-- source: Datakälla (EPD, Boverket, etc.)
+- source: Datakälla (EPD-referens med nummer/produktnamn om möjligt, annars Boverket)
 - reasoning: Varför detta alternativ har lägre klimatpåverkan
 - alternative_type: "reuse" eller "climate_optimized"
 
@@ -35,8 +40,16 @@ Svara med giltig JSON-array av alternativ-objekt.
 """
 
 
-def find_alternatives(project: Project, baseline: Baseline) -> AlternativesResult:
-    """Find climate-optimized alternatives for each component."""
+def find_alternatives(
+    project: Project,
+    baseline: Baseline,
+    user_feedback: str | None = None,
+) -> AlternativesResult:
+    """Find climate-optimized alternatives for each component.
+
+    If user_feedback is provided, the LLM is called for all components
+    to incorporate the user's specific requests (e.g. more material options).
+    """
     component_results = []
 
     for bl_comp in baseline.components:
@@ -48,7 +61,7 @@ def find_alternatives(project: Project, baseline: Baseline) -> AlternativesResul
         if not proj_comp:
             continue
 
-        # Try local data first
+        # Always try local data first
         local_alts = get_alternatives_for_component(proj_comp.name)
         alternatives = []
 
@@ -60,15 +73,18 @@ def find_alternatives(project: Project, baseline: Baseline) -> AlternativesResul
                 name=mat.name,
                 co2e_kg=round(co2e, 1),
                 cost_sek=round(cost),
-                source=mat.source,
+                source=f"[Verifierad] {mat.source}",
                 reasoning=reasoning,
                 alternative_type=mat.category,
             ))
 
-        # If no local alternatives, use LLM
-        if not alternatives:
-            llm_alts = _estimate_alternatives_llm(proj_comp, bl_comp)
-            alternatives.extend(llm_alts)
+        # Use LLM if no local alternatives OR if user gave feedback
+        if not alternatives or user_feedback:
+            llm_alts = _estimate_alternatives_llm(proj_comp, bl_comp, user_feedback)
+            existing_names = {a.name.lower() for a in alternatives}
+            for alt in llm_alts:
+                if alt.name.lower() not in existing_names:
+                    alternatives.append(alt)
 
         # If still no alternatives (shouldn't happen with LLM), note it
         if not alternatives:
@@ -92,24 +108,35 @@ def find_alternatives(project: Project, baseline: Baseline) -> AlternativesResul
     return AlternativesResult(components=component_results)
 
 
-def _estimate_alternatives_llm(proj_comp, bl_comp) -> list[Alternative]:
-    """Use LLM for components without local data."""
+def _estimate_alternatives_llm(proj_comp, bl_comp, user_feedback: str | None = None) -> list[Alternative]:
+    """Use LLM for components without local data, or when user requests more options."""
     client = get_client()
+
+    prompt = f"""Komponent: {proj_comp.name}
+Antal: {proj_comp.quantity} {proj_comp.unit}
+Baslinje CO2e: {bl_comp.co2e_kg} kg
+Baslinje kostnad: {bl_comp.cost_sek} SEK
+
+Föreslå klimatsmartare alternativ. Om återbruk inte är realistiskt, säg det explicit."""
+
+    if user_feedback:
+        prompt += f"\n\nAnvändarens önskemål: {user_feedback}"
+
+    prompt += """
+
+VIKTIGT om datakällor:
+- Använd EPD-värden (environdec.com, EPD Norge) om du har tillförlitlig kunskap om dem.
+- Annars, använd Boverkets klimatdatabas.
+- Om du inte har specifika värden: uppskatta, men ange "Uppskattning baserad på generisk materialdata" som source.
+- Var ärlig om osäkerheten. Ange INTE specifika EPD-nummer du inte är säker på.
+
+Svara med JSON-array."""
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
         max_tokens=2000,
         system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": f"""Komponent: {proj_comp.name}
-Antal: {proj_comp.quantity} {proj_comp.unit}
-Baslinje CO2e: {bl_comp.co2e_kg} kg
-Baslinje kostnad: {bl_comp.cost_sek} SEK
-
-Föreslå klimatsmartare alternativ. Om återbruk inte är realistiskt, säg det explicit.
-Svara med JSON-array."""
-        }],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     text = response.content[0].text
@@ -126,11 +153,12 @@ Svara med JSON-array."""
 
     results = []
     for item in data:
+        raw_source = item.get("source", "Generisk uppskattning")
         results.append(Alternative(
             name=item.get("name", "Okänt alternativ"),
             co2e_kg=item.get("co2e_kg", bl_comp.co2e_kg),
             cost_sek=item.get("cost_sek", bl_comp.cost_sek),
-            source=item.get("source", "LLM-uppskattning"),
+            source=f"[Uppskattning] {raw_source}",
             reasoning=item.get("reasoning", ""),
             alternative_type=item.get("alternative_type", "climate_optimized"),
         ))

@@ -1,0 +1,7 @@
+bin/
+ui-mockup/
+__pycache__/
+*.pyc
+tests/
+screenshot-of-mockup.png
+agent-flow-openai.ts

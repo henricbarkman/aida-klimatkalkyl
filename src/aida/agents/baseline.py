@@ -15,14 +15,19 @@ SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare. Du beräknar klimatpåverka
 NollCO2-metoden: Baslinjen representerar ett scenario där alla material köps nytt utan klimathänsyn.
 Detta ger det "värsta fallet" som jämförelse för klimatsmarta alternativ.
 
-Du får en projektbeskrivning med komponenter och en uppsättning klimatdata.
+Du får en projektbeskrivning med komponenter.
 Din uppgift:
 1. Matcha varje komponent mot klimatdata
 2. Beräkna CO2e (kg) = klimatdata per enhet × antal
 3. Beräkna kostnad (SEK) = kostnad per enhet × antal
 4. Välj det alternativ med HÖGST CO2e (worst-case, per NollCO2-principen)
 
-Om en komponent inte hittas i datan, uppskatta baserat på liknande material och notera osäkerheten.
+DATAKÄLLOR (i prioritetsordning):
+1. EPD:er (Environmental Product Declarations) från environdec.com, EPD Norge, eller produktspecifika EPD:er. Dessa är alltid förstahandskälla.
+2. Boverkets klimatdatabas — använd om ingen specifik EPD finns.
+3. Egen uppskattning baserad på materialkunskap — sista utväg, notera alltid att det är en uppskattning.
+
+Ange alltid vilken datakälla du använt i "source"-fältet. Om du använder en specifik EPD, ange EPD-nummer eller produktnamn.
 
 Svara med giltig JSON:
 {
@@ -35,7 +40,7 @@ Svara med giltig JSON:
       "cost_sek": number,
       "method": "NollCO2",
       "description": "Beskrivning av baslinjeberäkningen",
-      "source": "Datakälla"
+      "source": "Datakälla (EPD-referens, Boverket, eller uppskattning)"
     }
   ]
 }
@@ -62,7 +67,7 @@ def calculate_baseline(project: Project) -> Baseline:
                 cost_sek=round(cost),
                 method="NollCO2",
                 description=f"Baslinje (NollCO2): {material.name}, {material.co2e_per_unit} kg CO2e/{material.unit} × {comp.quantity} {comp.unit}. {REASONING['conventional']}",
-                source=material.source,
+                source=f"[Verifierad] {material.source}",
             ))
         else:
             unknown_components.append(comp)
@@ -95,7 +100,12 @@ Följande komponenter finns inte i vår standarddatabas. Uppskatta baslinje (Nol
 
 {comp_list}
 
-Använd dina kunskaper om byggmaterial och EPD-data. Var tydlig med att detta är uppskattningar.
+VIKTIGT om datakällor:
+- Använd EPD-värden (environdec.com, EPD Norge) om du har tillförlitlig kunskap om dem.
+- Annars, använd Boverkets klimatdatabas.
+- Om du inte har specifika värden: uppskatta, men ange "Uppskattning baserad på generisk materialdata" som source.
+- Var ärlig om osäkerheten. Ange INTE specifika EPD-nummer eller databaskällor du inte är säker på.
+
 Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_sek, method, description, source."""
         }],
     )
@@ -112,6 +122,7 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
 
     results = []
     for item in data:
+        raw_source = item.get("source", "Generisk uppskattning")
         results.append(BaselineResult(
             component_id=item["component_id"],
             component_name=item["component_name"],
@@ -119,7 +130,7 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
             cost_sek=item["cost_sek"],
             method="NollCO2",
             description=item.get("description", "LLM-uppskattning (ej i standarddatabas)"),
-            source=item.get("source", "Uppskattning baserad på generiska EPD-data"),
+            source=f"[Uppskattning] {raw_source}",
         ))
 
     return results
