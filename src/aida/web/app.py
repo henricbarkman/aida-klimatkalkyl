@@ -631,7 +631,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
     <div class="progress-line"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
     <div class="step-item" data-step="planering">
       <div class="step-circle" id="sc-planering">1</div>
-      <div class="step-label" id="sl-planering">Tidig planering</div>
+      <div class="step-label" id="sl-planering">Projektbeskrivning</div>
     </div>
     <div class="step-item" data-step="baslinje">
       <div class="step-circle" id="sc-baslinje">2</div>
