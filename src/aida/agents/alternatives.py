@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 
-from aida.api_client import get_client, DEFAULT_MODEL
-from aida.models import (
-    Project, Baseline, Alternative, ComponentAlternatives, AlternativesResult,
-)
+from aida.api_client import DEFAULT_MODEL, get_client
 from aida.data.climate_data import (
-    get_alternatives_for_component, normalize_component_name, REASONING,
+    REASONING,
+    get_alternatives_for_component,
+)
+from aida.models import (
+    Alternative,
+    AlternativesResult,
+    Baseline,
+    ComponentAlternatives,
+    Project,
 )
 
 SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent. Du hittar klimatsmartare alternativ till konventionella byggmaterial.
 
-Du får en komponent och dess baslinjevärde. Föreslå 1-3 alternativ med lägre klimatpåverkan:
-1. Återbruk (om möjligt) - material från Sola byggåterbruk, CCBuild, eller liknande
-2. Klimatoptimerat nyinköp - nyproducerat material med lägre CO2e
+Du får en komponent och dess baslinjevärde. Föreslå minst 3 alternativ med lägre klimatpåverkan:
+1. Återbruk (om möjligt) - material från Sola byggåterbruk, CCBuild, eller liknande. Notera att live-sökning i marknadsplatser inte är tillgängligt ännu, så ange rimliga uppskattningar.
+2. Klimatoptimerat nyinköp - minst 2 olika nyproducerade material med lägre CO2e. Ge konkreta produktnamn/materialtyper, inte generiska beskrivningar.
 
 DATAKÄLLOR (i prioritetsordning):
 1. EPD:er (Environmental Product Declarations) från environdec.com, EPD Norge, eller produktspecifika EPD:er. Dessa är alltid förstahandskälla för CO2e-värden.
