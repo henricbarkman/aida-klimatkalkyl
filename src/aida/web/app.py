@@ -406,7 +406,7 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .topbar { background: white; color: var(--kk-charcoal); height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; border-bottom: 3px solid var(--kk-gold-light); }
 .topbar-logo { display: flex; align-items: center; gap: 10px; }
 .topbar-logo svg { width: 28px; height: 28px; color: var(--kk-red-orange); }
-.topbar-logo span { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; color: var(--kk-charcoal); font-family: Georgia, 'Times New Roman', serif; }
+.topbar-logo span { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: var(--kk-charcoal); }
 .topbar-center { font-size: 14px; color: var(--kk-gray-500); }
 .topbar-right { font-size: 12px; color: var(--kk-gray-400); }
 
@@ -430,7 +430,7 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .chat-panel { width: 40%; display: flex; flex-direction: column; flex-shrink: 0; }
 .chat-container { flex: 1; display: flex; flex-direction: column; background: var(--kk-warm-bg); border-radius: 12px; border: 1px solid var(--kk-gray-200); overflow: hidden; min-height: 0; }
 .chat-header { padding: 10px 16px; border-bottom: 1px solid var(--kk-gray-200); background: var(--kk-cream); display: flex; justify-content: space-between; align-items: center; }
-.chat-header h2 { font-size: 16px; font-weight: 700; color: var(--kk-charcoal); font-family: Georgia, 'Times New Roman', serif; letter-spacing: 0.5px; }
+.chat-header h2 { font-size: 15px; font-weight: 600; color: var(--kk-charcoal); }
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .msg { padding: 10px 14px; border-radius: 16px; max-width: 85%; font-size: 13px; line-height: 1.5; }
 .msg.user { background: #FFF0D4; color: var(--kk-text); align-self: flex-end; border-bottom-right-radius: 4px; }
