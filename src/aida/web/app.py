@@ -1,33 +1,117 @@
-"""AIda Web UI — Flask app with split chat/results layout."""
+"""AIda Web UI. Flask app with split chat/results layout."""
 
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import sys
-import os
 from functools import wraps
-from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from aida.models import Project, Baseline, Selections
-from aida.agents.intake import run_intake
-from aida.agents.baseline import calculate_baseline
-from aida.agents.alternatives import find_alternatives
 from aida.agents.aggregate import compute_aggregate
+from aida.agents.alternatives import find_alternatives
+from aida.agents.baseline import calculate_baseline
+from aida.agents.intake import run_intake
 from aida.agents.report import generate_report_markdown
+from aida.models import Baseline, Project, Selections
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('AIDA_SECRET_KEY', secrets.token_hex(32))
 
 AIDA_PASSWORD = os.environ.get('AIDA_PASSWORD', '')
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
+SUPABASE_JWT_SECRET = os.environ.get('SUPABASE_JWT_SECRET', '')
+
+try:
+    import jwt as pyjwt
+    from jwt import PyJWKClient
+except ImportError:
+    pyjwt = None
+    PyJWKClient = None
+
+# JWKS client for ES256 token verification (cached, Supabase default since 2026)
+_jwks_client = None
+
+
+def _get_jwks_client():
+    global _jwks_client
+    if _jwks_client is None and PyJWKClient and SUPABASE_URL:
+        _jwks_client = PyJWKClient(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json")
+    return _jwks_client
+
+
+def get_user_from_token():
+    """Extract user_id from Supabase JWT in Authorization header."""
+    if not pyjwt or not SUPABASE_URL:
+        return None
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header[7:]
+    try:
+        jwks = _get_jwks_client()
+        if jwks:
+            signing_key = jwks.get_signing_key_from_jwt(token)
+            payload = pyjwt.decode(
+                token, signing_key.key,
+                algorithms=['ES256'], audience='authenticated'
+            )
+        elif SUPABASE_JWT_SECRET:
+            # Fallback for legacy HS256 projects
+            payload = pyjwt.decode(
+                token, SUPABASE_JWT_SECRET,
+                algorithms=['HS256'], audience='authenticated'
+            )
+        else:
+            return None
+        return payload.get('sub')
+    except Exception:
+        return None
+
+
+def supabase_request(method, path, data=None, token=None, params=None):
+    """Make a request to Supabase REST API (PostgREST)."""
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    if params:
+        url += '?' + urlencode(params)
+    headers = {
+        'apikey': SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+    }
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    body = json.dumps(data).encode() if data else None
+    req = Request(url, data=body, headers=headers, method=method)
+    try:
+        with urlopen(req) as resp:
+            resp_data = resp.read().decode()
+            return json.loads(resp_data) if resp_data else None
+    except HTTPError as e:
+        error_body = e.read().decode()
+        raise Exception(f"Supabase error {e.code}: {error_body}")
 
 
 def require_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Supabase JWT auth
+        if SUPABASE_URL:
+            user_id = get_user_from_token()
+            if not user_id:
+                return jsonify({'error': 'Ej inloggad'}), 401
+            request.user_id = user_id
+            return f(*args, **kwargs)
+        # Legacy password auth
         if not AIDA_PASSWORD:
             return f(*args, **kwargs)
         if session.get('authenticated'):
@@ -38,12 +122,26 @@ def require_auth(f):
     return decorated
 
 
+def require_supabase_auth(f):
+    """Like require_auth but only allows Supabase JWT (for CRUD endpoints)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not SUPABASE_URL:
+            return jsonify({'error': 'Supabase ej konfigurerat'}), 501
+        user_id = get_user_from_token()
+        if not user_id:
+            return jsonify({'error': 'Ej inloggad'}), 401
+        request.user_id = user_id
+        return f(*args, **kwargs)
+    return decorated
+
+
 LOGIN_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="sv">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIda — Logga in</title>
+<title>AIda | Logga in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -90,9 +188,16 @@ def login():
 
 
 @app.route('/')
-@require_auth
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    if SUPABASE_URL:
+        return render_template_string(HTML_TEMPLATE,
+            supabase_url=SUPABASE_URL,
+            supabase_anon_key=SUPABASE_ANON_KEY,
+            has_supabase=True)
+    if AIDA_PASSWORD and not session.get('authenticated'):
+        return redirect(url_for('login'))
+    return render_template_string(HTML_TEMPLATE,
+        supabase_url='', supabase_anon_key='', has_supabase=False)
 
 
 @app.route('/api/intake', methods=['POST'])
@@ -175,16 +280,102 @@ def api_report():
         return jsonify({'error': str(e)}), 500
 
 
+# === Analyses CRUD (Supabase) ===
+
+@app.route('/api/analyses', methods=['POST'])
+@require_supabase_auth
+def create_analysis():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    data = request.json or {}
+    row = {
+        'user_id': request.user_id,
+        'name': data.get('name', 'Nytt projekt'),
+        'status': data.get('status', 'intake'),
+        'project_data': data.get('project_data'),
+        'baseline_data': data.get('baseline_data'),
+        'alternatives_data': data.get('alternatives_data'),
+        'selections_data': data.get('selections_data'),
+        'report_markdown': data.get('report_markdown'),
+    }
+    result = supabase_request('POST', 'analyses', data=row, token=token)
+    return jsonify(result[0] if isinstance(result, list) else result)
+
+
+@app.route('/api/analyses', methods=['GET'])
+@require_supabase_auth
+def list_analyses():
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    params = {
+        'select': 'id,name,status,created_at,updated_at',
+        'user_id': f'eq.{request.user_id}',
+        'order': 'updated_at.desc',
+        'limit': '20',
+    }
+    result = supabase_request('GET', 'analyses', token=token, params=params)
+    return jsonify(result or [])
+
+
+@app.route('/api/analyses/<analysis_id>', methods=['GET'])
+@require_supabase_auth
+def get_analysis(analysis_id):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    params = {
+        'id': f'eq.{analysis_id}',
+        'user_id': f'eq.{request.user_id}',
+    }
+    result = supabase_request('GET', 'analyses', token=token, params=params)
+    if not result:
+        return jsonify({'error': 'Ej hittad'}), 404
+    return jsonify(result[0])
+
+
+@app.route('/api/analyses/<analysis_id>', methods=['PUT'])
+@require_supabase_auth
+def update_analysis(analysis_id):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    data = request.json or {}
+    update = {}
+    for key in ('name', 'status', 'project_data', 'baseline_data',
+                'alternatives_data', 'selections_data', 'report_markdown'):
+        if key in data:
+            update[key] = data[key]
+    params = {
+        'id': f'eq.{analysis_id}',
+        'user_id': f'eq.{request.user_id}',
+    }
+    result = supabase_request('PATCH', 'analyses', data=update, token=token, params=params)
+    if not result:
+        return jsonify({'error': 'Ej hittad'}), 404
+    return jsonify(result[0] if isinstance(result, list) else result)
+
+
+@app.route('/api/analyses/<analysis_id>', methods=['DELETE'])
+@require_supabase_auth
+def delete_analysis(analysis_id):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    params = {
+        'id': f'eq.{analysis_id}',
+        'user_id': f'eq.{request.user_id}',
+    }
+    result = supabase_request('DELETE', 'analyses', token=token, params=params)
+    if not result:
+        return jsonify({'error': 'Ej hittad'}), 404
+    return jsonify({'ok': True})
+
+
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="sv">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIda — Klimatkalkyl för ombyggnationer</title>
+<title>AIda | Klimatkalkyl för ombyggnationer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E84E0D' stroke-width='1.5' stroke-linecap='round'><circle cx='12' cy='12' r='5'/><path d='M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+{% if has_supabase %}<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>{% endif %}
 <style>
 /* === Karlstads kommun färgpalett (karlstad.se-manér) === */
 :root {
@@ -215,18 +406,18 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .topbar { background: white; color: var(--kk-charcoal); height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; border-bottom: 3px solid var(--kk-gold-light); }
 .topbar-logo { display: flex; align-items: center; gap: 10px; }
 .topbar-logo svg { width: 28px; height: 28px; color: var(--kk-red-orange); }
-.topbar-logo span { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: var(--kk-charcoal); }
+.topbar-logo span { font-size: 16px; font-weight: 700; letter-spacing: 1.5px; color: var(--kk-charcoal); }
 .topbar-center { font-size: 14px; color: var(--kk-gray-500); }
 .topbar-right { font-size: 12px; color: var(--kk-gray-400); }
 
 /* === Progress tracker (mockup: numbered circles with line) === */
 .progress-bar { padding: 24px 48px 16px; flex-shrink: 0; }
 .progress-track { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
-.progress-line { position: absolute; top: 16px; left: 48px; right: 48px; height: 2px; background: var(--kk-gray-200); }
+.progress-line { position: absolute; top: 16px; left: 40px; right: 40px; height: 2px; background: var(--kk-gray-200); }
 .progress-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--kk-charcoal); transition: width 0.5s ease; }
 .step-item { display: flex; flex-direction: column; align-items: center; z-index: 1; min-width: 80px; }
 .step-circle { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; transition: all 0.3s; background: white; color: var(--kk-gray-400); border: 2px solid var(--kk-gray-200); }
-.step-circle.active { background: var(--kk-dark-red); color: white; border-color: var(--kk-dark-red); box-shadow: 0 2px 8px rgba(181,32,31,0.3); transform: scale(1.1); }
+.step-circle.active { background: var(--kk-charcoal); color: white; border-color: var(--kk-charcoal); box-shadow: 0 2px 8px rgba(68,68,68,0.4); transform: scale(1.1); }
 .step-circle.done { background: var(--kk-charcoal); color: white; border-color: var(--kk-charcoal); }
 .step-label { margin-top: 6px; font-size: 11px; font-weight: 500; color: var(--kk-gray-500); text-align: center; }
 .step-label.active { color: var(--kk-charcoal); font-weight: 700; }
@@ -338,6 +529,32 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .empty-state { color: var(--kk-gray-400); text-align: center; margin-top: 80px; }
 .empty-state p { font-size: 14px; }
 
+/* === Auth overlay === */
+#authOverlay { display: flex; align-items: center; justify-content: center; flex: 1; background: var(--kk-warm-bg); }
+#authOverlay .login-box { background: white; border-radius: 12px; padding: 40px; width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border-top: 3px solid var(--kk-gold-light); }
+#authOverlay .login-box h1 { font-size: 24px; color: var(--kk-charcoal); margin-bottom: 8px; }
+#authOverlay .login-box p { font-size: 13px; color: var(--kk-gray-400); margin-bottom: 24px; }
+#authOverlay .login-box input { width: 100%; padding: 12px 16px; border: 1px solid var(--kk-gray-200); border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 8px; }
+#authOverlay .login-box input:focus { border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.15); }
+#authOverlay .login-box button { width: 100%; padding: 12px; background: var(--kk-charcoal); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 4px; font-family: inherit; }
+#authOverlay .login-box button:hover { background: var(--kk-dark-red); }
+#authOverlay .login-box button:disabled { opacity: 0.4; cursor: not-allowed; }
+#authOverlay .error { color: var(--kk-dark-red); font-size: 12px; margin: 4px 0; }
+#appContainer { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+/* === Dropdown menus === */
+.project-btn { background: none; border: none; color: var(--kk-gray-500); font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-family: inherit; }
+.project-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
+.user-btn { background: none; border: none; color: var(--kk-gray-400); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; }
+.user-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
+.dropdown-menu { position: absolute; top: calc(100% + 4px); background: white; border: 1px solid var(--kk-gray-200); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 220px; z-index: 100; padding: 4px 0; }
+.dropdown-right { right: 0; }
+.dropdown-header { padding: 8px 16px; font-size: 11px; font-weight: 600; color: var(--kk-gray-400); text-transform: uppercase; }
+.dropdown-divider { border-top: 1px solid var(--kk-gray-200); margin: 4px 0; }
+.dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 16px; border: none; background: none; font-size: 13px; color: var(--kk-charcoal); cursor: pointer; font-family: inherit; text-align: left; }
+.dropdown-item:hover { background: var(--kk-gray-50); }
+.dropdown-item.active { background: var(--kk-gold-light); }
+
 /* === Results tabs === */
 .results-tabs { display: flex; border-bottom: 2px solid var(--kk-gray-200); flex-shrink: 0; background: white; border-radius: 8px 8px 0 0; }
 .tab { padding: 10px 20px; background: none; border: none; font-size: 13px; font-weight: 500; color: var(--kk-gray-400); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-family: inherit; transition: all 0.2s; }
@@ -354,39 +571,87 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 </head>
 <body>
 
+{% if has_supabase %}
+<!-- Auth overlay -->
+<div id="authOverlay">
+  <div class="login-box">
+    <h1>AIda</h1>
+    <p>Klimatkalkyl och beslutsstöd för ombyggnationer</p>
+    <input type="email" id="authEmail" placeholder="E-post" autofocus>
+    <input type="password" id="authPassword" placeholder="Lösenord" onkeydown="if(event.key==='Enter')handleAuth()">
+    <div id="authError" class="error" style="display:none"></div>
+    <button onclick="handleAuth()" id="authSubmitBtn">Logga in</button>
+    <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--kk-gray-400)">
+      <span id="authToggleText">Inget konto?</span>
+      <a href="#" onclick="toggleAuthMode(event)" id="authToggleLink" style="color:var(--kk-dark-red)">Skapa konto</a>
+    </div>
+  </div>
+</div>
+<div id="appContainer">
+{% endif %}
+
 <!-- Top bar -->
 <div class="topbar">
   <div class="topbar-logo">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
     <span>AIda</span>
   </div>
-  <div class="topbar-center">Klimatkalkyl och beslutsstöd for ombyggnationer</div>
-  <div class="topbar-right">Tidig prototyp under arbete</div>
+  {% if has_supabase %}
+  <div class="topbar-center" id="projectDropdown" style="position:relative">
+    <button class="project-btn" onclick="toggleProjectMenu()" id="projectBtn">
+      <span id="projectName">Nytt projekt</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <div class="dropdown-menu" id="projectMenu" style="display:none;left:50%;transform:translateX(-50%)">
+      <div class="dropdown-header">Senaste projekt</div>
+      <div id="projectList"></div>
+      <div class="dropdown-divider"></div>
+      <button class="dropdown-item" onclick="createNewProject()">+ Skapa nytt projekt</button>
+    </div>
+  </div>
+  <div class="topbar-right" id="userDropdown" style="position:relative">
+    <button class="user-btn" onclick="toggleUserMenu()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </button>
+    <div class="dropdown-menu dropdown-right" id="userMenu" style="display:none">
+      <div class="dropdown-header" id="userEmail"></div>
+      <div class="dropdown-divider"></div>
+      <button class="dropdown-item" onclick="handleLogout()">Logga ut</button>
+    </div>
+  </div>
+  {% else %}
+  <div class="topbar-center"></div>
+  <div class="topbar-right">Prototyp</div>
+  {% endif %}
 </div>
 
 <!-- Progress tracker -->
 <div class="progress-bar">
   <div class="progress-track">
     <div class="progress-line"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-    <div class="step-item" data-step="intake">
-      <div class="step-circle" id="sc-intake">1</div>
-      <div class="step-label" id="sl-intake">Beskrivning</div>
+    <div class="step-item" data-step="planering">
+      <div class="step-circle" id="sc-planering">1</div>
+      <div class="step-label" id="sl-planering">Tidig planering</div>
     </div>
-    <div class="step-item" data-step="baseline">
-      <div class="step-circle" id="sc-baseline">2</div>
-      <div class="step-label" id="sl-baseline">Baslinje</div>
+    <div class="step-item" data-step="baslinje">
+      <div class="step-circle" id="sc-baslinje">2</div>
+      <div class="step-label" id="sl-baslinje">Baslinje</div>
     </div>
-    <div class="step-item" data-step="alternatives">
-      <div class="step-circle" id="sc-alternatives">3</div>
-      <div class="step-label" id="sl-alternatives">Alternativ</div>
+    <div class="step-item" data-step="aterbruk">
+      <div class="step-circle" id="sc-aterbruk">3</div>
+      <div class="step-label" id="sl-aterbruk">\u00c5terbruk</div>
     </div>
-    <div class="step-item" data-step="select">
-      <div class="step-circle" id="sc-select">4</div>
-      <div class="step-label" id="sl-select">Valda alternativ</div>
+    <div class="step-item" data-step="nyproduktion">
+      <div class="step-circle" id="sc-nyproduktion">4</div>
+      <div class="step-label" id="sl-nyproduktion">Nyproduktion</div>
     </div>
-    <div class="step-item" data-step="report">
-      <div class="step-circle" id="sc-report">5</div>
-      <div class="step-label" id="sl-report">Rapport</div>
+    <div class="step-item" data-step="sammanstallning">
+      <div class="step-circle" id="sc-sammanstallning">5</div>
+      <div class="step-label" id="sl-sammanstallning">Sammanst\u00e4llning</div>
+    </div>
+    <div class="step-item" data-step="uppfoljning">
+      <div class="step-circle" id="sc-uppfoljning">6</div>
+      <div class="step-label" id="sl-uppfoljning">Uppf\u00f6ljning</div>
     </div>
   </div>
 </div>
@@ -431,6 +696,8 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 <!-- Footer -->
 <div class="footer"></div>
 
+{% if has_supabase %}</div><!-- /appContainer -->{% endif %}
+
 <script>
 // Configure marked
 if (typeof marked !== 'undefined') {
@@ -444,13 +711,17 @@ let state = {
 };
 let activeTab = null;
 
+function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 function renderMd(text) {
   text = text.replace(/(\d+)\)\s/g, (match, num, offset) => {
     return '\n' + num + '. ';
   }).trim();
-  if (typeof marked !== 'undefined') return marked.parse(text);
-  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  let html;
+  if (typeof marked !== 'undefined') html = marked.parse(text);
+  else html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+  return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
 }
 
 function addMsg(text, cls) {
@@ -480,7 +751,7 @@ function removeConfirmButtons() {
 }
 
 function setProgressStep(name) {
-  const order = ['intake','baseline','alternatives','select','report'];
+  const order = ['planering','baslinje','aterbruk','nyproduktion','sammanstallning','uppfoljning'];
   const ni = order.indexOf(name);
   const pct = order.length > 1 ? (ni / (order.length - 1)) * 100 : 0;
   document.getElementById('progressFill').style.width = pct + '%';
@@ -567,9 +838,9 @@ function confirmStep() {
 // === Pipeline: Intake ===
 async function runIntake(desc) {
   addMsg('Analyserar projektbeskrivning...', 'system');
-  setProgressStep('intake');
+  setProgressStep('planering');
   try {
-    const r = await fetch('/api/intake', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({description: desc})});
+    const r = await authFetch('/api/intake', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({description: desc})});
     const d = await r.json();
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
 
@@ -593,6 +864,8 @@ async function runIntake(desc) {
     state.selections = {};
     state.reportMarkdown = null;
     state.step = 'intake_done';
+    if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.building_type || d.name || 'Nytt projekt'; }
+    scheduleAutoSave();
 
     enableTab('projekt');
     switchTab('projekt');
@@ -612,10 +885,10 @@ async function runIntake(desc) {
 // === Pipeline: Baseline ===
 async function runBaseline() {
   addMsg('Ber\u00e4knar baslinje (NollCO2)...', 'system');
-  setProgressStep('baseline');
+  setProgressStep('baslinje');
   setLoading(true);
   try {
-    const r = await fetch('/api/baseline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project})});
+    const r = await authFetch('/api/baseline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project})});
     const d = await r.json();
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
     state.baseline = d;
@@ -623,6 +896,7 @@ async function runBaseline() {
     state.selections = {};
     state.reportMarkdown = null;
     state.step = 'baseline_done';
+    scheduleAutoSave();
 
     enableTab('baslinje');
     switchTab('baslinje');
@@ -640,20 +914,26 @@ async function runBaseline() {
 
 // === Pipeline: Alternatives ===
 async function runAlternatives(userFeedback) {
-  addMsg('S\u00f6ker klimatsmarta alternativ...', 'system');
-  setProgressStep('alternatives');
+  addMsg('S\u00f6ker \u00e5terbruksalternativ...', 'system');
+  setProgressStep('aterbruk');
   setLoading(true);
+  const subStepTimer = setTimeout(() => {
+    setProgressStep('nyproduktion');
+    addMsg('S\u00f6ker klimatoptimerade alternativ...', 'system');
+  }, 2000);
   try {
     const body = {project: state.project, baseline: state.baseline};
     if (userFeedback) body.user_feedback = userFeedback;
-    const r = await fetch('/api/alternatives', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const r = await authFetch('/api/alternatives', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const d = await r.json();
+    clearTimeout(subStepTimer);
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
     state.alternatives = d;
     state.selections = {};
     state.reportMarkdown = null;
     state.step = 'alternatives_done';
-    setProgressStep('select');
+    scheduleAutoSave();
+    setProgressStep('sammanstallning');
 
     enableTab('alternativ');
     switchTab('alternativ');
@@ -661,22 +941,23 @@ async function runAlternatives(userFeedback) {
 
     addMsg('Alternativ klara! V\u00e4lj per komponent i resultatpanelen.\n\nSkriv i chatten om du vill ha fler alternativ, t.ex. *"fler materialval f\u00f6r v\u00e4ggar"*.', 'bot');
     setLoading(false);
-  } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
+  } catch(e) { clearTimeout(subStepTimer); addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
 }
 
 // === Pipeline: Report ===
 async function generateReport() {
-  setProgressStep('report');
+  setProgressStep('uppfoljning');
   addMsg('Genererar rapport...', 'system');
   document.getElementById('reportBtn').disabled = true;
   setLoading(true);
   try {
     const sels = {components: Object.values(state.selections)};
-    const r = await fetch('/api/report', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project, selections: sels})});
+    const r = await authFetch('/api/report', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project, selections: sels})});
     const d = await r.json();
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
     state.reportMarkdown = d.markdown;
     state.step = 'report_done';
+    scheduleAutoSave();
     addMsg('Rapport klar!', 'bot');
     enableTab('rapport');
     switchTab('rapport');
@@ -702,14 +983,14 @@ function getTypeBadge(alt) {
 function renderProjektContent() {
   const d = state.project;
   let html = '<div class="section-title">Projektinformation</div>';
-  html += '<div class="comp-card"><div class="comp-card-header"><h3>' + d.building_type + ' \u2014 ' + d.area_bta + ' m\u00b2 BTA' + (d.name ? ' (' + d.name + ')' : '') + '</h3></div>';
+  html += '<div class="comp-card"><div class="comp-card-header"><h3>' + esc(d.building_type) + ', ' + esc(d.area_bta) + ' m\u00b2 BTA' + (d.name ? ' (' + esc(d.name) + ')' : '') + '</h3></div>';
   html += '<table class="comp-table"><thead><tr><th>Komponent</th><th>Antal</th><th>Enhet</th><th>Kategori</th></tr></thead><tbody>';
   d.components.forEach(c => {
-    html += '<tr><td style="font-weight:500">' + c.name + '</td><td>' + c.quantity + '</td><td>' + c.unit + '</td><td>' + (c.category || '\u2013') + '</td></tr>';
+    html += '<tr><td style="font-weight:500">' + esc(c.name) + '</td><td>' + esc(c.quantity) + '</td><td>' + esc(c.unit) + '</td><td>' + esc(c.category || '\u2013') + '</td></tr>';
   });
   html += '</tbody></table></div>';
   if (d.description) {
-    html += '<div class="comp-card" style="margin-top:12px"><div class="comp-card-header"><h3>Beskrivning</h3></div><div style="padding:12px 16px;font-size:13px;color:var(--kk-gray-500);line-height:1.5">' + d.description + '</div></div>';
+    html += '<div class="comp-card" style="margin-top:12px"><div class="comp-card-header"><h3>Beskrivning</h3></div><div style="padding:12px 16px;font-size:13px;color:var(--kk-gray-500);line-height:1.5">' + esc(d.description) + '</div></div>';
   }
   document.getElementById('resultContent').innerHTML = html;
 }
@@ -728,7 +1009,7 @@ function renderBaslinjeContent() {
   html += '<div class="comp-card"><div class="comp-card-header"><h3>Per komponent</h3></div>';
   html += '<table class="comp-table"><thead><tr><th>Komponent</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad (SEK)</th><th>K\u00e4lla</th></tr></thead><tbody>';
   d.components.forEach(c => {
-    html += '<tr><td style="font-weight:500">' + c.component_name + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="text-align:right">' + Math.round(c.cost_sek).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + '</td></tr>';
+    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="text-align:right">' + Math.round(c.cost_sek).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + '</td></tr>';
   });
   html += '</tbody></table></div>';
   document.getElementById('resultContent').innerHTML = html;
@@ -739,7 +1020,7 @@ function renderAlternativContent() {
   let html = '<div class="section-title">J\u00e4mf\u00f6relse per komponent</div>';
   html += '<div class="source-legend"><span><span class="source-badge source-verified">EPD</span> Verifierad k\u00e4lla</span><span><span class="source-badge source-estimate">Est.</span> Uppskattning</span></div>';
   data.components.forEach(comp => {
-    html += '<div class="comp-card"><div class="comp-card-header"><h3>' + comp.component_name + '</h3></div>';
+    html += '<div class="comp-card"><div class="comp-card-header"><h3>' + esc(comp.component_name) + '</h3></div>';
     html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th></tr></thead><tbody>';
     const blSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === 'Baslinje';
     html += '<tr class="alt-row' + (blSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="baseline">' +
@@ -754,7 +1035,7 @@ function renderAlternativContent() {
       html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="' + i + '">' +
         '<td><input type="radio" name="' + comp.component_id + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
-        '<td style="font-weight:500">' + alt.name + '</td>' +
+        '<td style="font-weight:500">' + esc(alt.name) + '</td>' +
         '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
         '<td style="text-align:right">' + Math.round(alt.co2e_kg) + ' <span style="color:var(--green-saving);font-size:11px">\u2193' + saving + '%</span></td>' +
         '<td style="text-align:right">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr</td></tr>';
@@ -798,6 +1079,7 @@ function selectAlt(compId, altIdx, row) {
       baseline_co2e_kg: comp.baseline_co2e_kg, baseline_cost_sek: comp.baseline_cost_sek };
   }
   updateSummary();
+  scheduleAutoSave();
 }
 
 function updateSummary() {
@@ -815,6 +1097,262 @@ function updateSummary() {
     '</div>';
   const allSelected = state.alternatives.components.every(c => state.selections[c.component_id]);
   document.getElementById('reportBtn').disabled = !allSelected;
+}
+
+// === Supabase auth + persistence ===
+const HAS_SUPABASE = {{ 'true' if has_supabase else 'false' }};
+const SUPABASE_URL = {{ supabase_url|tojson }};
+const SUPABASE_ANON_KEY = {{ supabase_anon_key|tojson }};
+let supabaseClient = null;
+let currentUser = null;
+let currentAnalysisId = null;
+let isSignup = false;
+let saveTimeout = null;
+let saveInProgress = false;
+
+// Auth-aware fetch wrapper
+async function authFetch(url, options) {
+  options = options || {};
+  options.headers = options.headers || {};
+  if (supabaseClient) {
+    const sess = await supabaseClient.auth.getSession();
+    if (sess.data.session) {
+      options.headers['Authorization'] = 'Bearer ' + sess.data.session.access_token;
+    }
+  }
+  return fetch(url, options);
+}
+
+// No-op when Supabase not configured
+function scheduleAutoSave() {
+  if (!HAS_SUPABASE || !currentUser) return;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(autoSave, 2000);
+}
+
+async function autoSave() {
+  if (!supabaseClient || !currentUser || saveInProgress) return;
+  saveInProgress = true;
+  const analysisData = {
+    name: state.project ? (state.project.name || state.project.building_type || 'Nytt projekt') : 'Nytt projekt',
+    status: state.step,
+    project_data: state.project,
+    baseline_data: state.baseline,
+    alternatives_data: state.alternatives,
+    selections_data: Object.keys(state.selections).length > 0 ? state.selections : null,
+    report_markdown: state.reportMarkdown,
+  };
+  try {
+    if (currentAnalysisId) {
+      const r = await authFetch('/api/analyses/' + currentAnalysisId, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(analysisData),
+      });
+      await r.json();
+    } else {
+      const r = await authFetch('/api/analyses', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(analysisData),
+      });
+      const result = await r.json();
+      if (result && result.id) {
+        currentAnalysisId = result.id;
+        await loadAnalysesList();
+      }
+    }
+  } catch (e) { console.error('Auto-save failed:', e); }
+  finally { saveInProgress = false; }
+}
+
+if (HAS_SUPABASE && SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  initAuth();
+}
+
+async function initAuth() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) { onLogin(session); }
+  else { showAuth(); }
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) onLogin(session);
+    else if (event === 'SIGNED_OUT') showAuth();
+  });
+}
+
+function showAuth() {
+  document.getElementById('authOverlay').style.display = 'flex';
+  document.getElementById('appContainer').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('authOverlay').style.display = 'none';
+  document.getElementById('appContainer').style.display = '';
+}
+
+async function onLogin(session) {
+  currentUser = session.user;
+  document.getElementById('userEmail').textContent = currentUser.email;
+  showApp();
+  const list = await loadAnalysesList();
+  if (list && list.length > 0) { await loadAnalysis(list[0].id); }
+}
+
+async function handleAuth() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errorEl = document.getElementById('authError');
+  errorEl.style.display = 'none';
+  if (!email || !password) {
+    errorEl.textContent = 'Fyll i e-post och lösenord';
+    errorEl.style.display = 'block';
+    return;
+  }
+  document.getElementById('authSubmitBtn').disabled = true;
+  try {
+    const result = isSignup
+      ? await supabaseClient.auth.signUp({ email, password })
+      : await supabaseClient.auth.signInWithPassword({ email, password });
+    if (result.error) {
+      errorEl.textContent = result.error.message;
+      errorEl.style.display = 'block';
+    } else if (isSignup && !result.data.session) {
+      errorEl.textContent = 'Kolla din e-post för bekräftelselänk';
+      errorEl.style.display = 'block';
+      errorEl.style.color = 'var(--green-saving)';
+    }
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.style.display = 'block';
+  }
+  document.getElementById('authSubmitBtn').disabled = false;
+}
+
+function toggleAuthMode(e) {
+  e.preventDefault();
+  isSignup = !isSignup;
+  document.getElementById('authSubmitBtn').textContent = isSignup ? 'Skapa konto' : 'Logga in';
+  document.getElementById('authToggleText').textContent = isSignup ? 'Har redan konto?' : 'Inget konto?';
+  document.getElementById('authToggleLink').textContent = isSignup ? 'Logga in' : 'Skapa konto';
+  document.getElementById('authError').style.display = 'none';
+}
+
+async function handleLogout() {
+  await supabaseClient.auth.signOut();
+  currentUser = null;
+  currentAnalysisId = null;
+  showAuth();
+}
+
+// === Project dropdown ===
+function toggleProjectMenu() {
+  const m = document.getElementById('projectMenu');
+  const u = document.getElementById('userMenu');
+  if (u) u.style.display = 'none';
+  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleUserMenu() {
+  const m = document.getElementById('userMenu');
+  const p = document.getElementById('projectMenu');
+  if (p) p.style.display = 'none';
+  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+
+document.addEventListener('click', (e) => {
+  const pd = document.getElementById('projectDropdown');
+  const ud = document.getElementById('userDropdown');
+  if (pd && !e.target.closest('#projectDropdown')) document.getElementById('projectMenu').style.display = 'none';
+  if (ud && !e.target.closest('#userDropdown')) document.getElementById('userMenu').style.display = 'none';
+});
+
+async function loadAnalysesList() {
+  if (!supabaseClient || !currentUser) return null;
+  try {
+    const r = await authFetch('/api/analyses');
+    const list = await r.json();
+    const container = document.getElementById('projectList');
+    if (!container) return list;
+    container.innerHTML = '';
+    if (list && list.length > 0) {
+      list.forEach(a => {
+        const item = document.createElement('button');
+        item.className = 'dropdown-item' + (a.id === currentAnalysisId ? ' active' : '');
+        item.textContent = a.name || 'Nytt projekt';
+        item.onclick = () => { loadAnalysis(a.id); toggleProjectMenu(); };
+        container.appendChild(item);
+      });
+    } else {
+      container.innerHTML = '<div style="padding:8px 16px;font-size:12px;color:var(--kk-gray-400)">Inga projekt ännu</div>';
+    }
+    return list;
+  } catch(e) { console.error('Failed to load list:', e); return null; }
+}
+
+async function loadAnalysis(id) {
+  if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
+  try {
+    const r = await authFetch('/api/analyses/' + id);
+    const data = await r.json();
+    if (!data || data.error) return;
+    currentAnalysisId = id;
+    state.project = data.project_data;
+    state.baseline = data.baseline_data;
+    state.alternatives = data.alternatives_data;
+    state.selections = data.selections_data || {};
+    state.reportMarkdown = data.report_markdown;
+    state.step = data.status || 'idle';
+    document.getElementById('projectName').textContent = data.name || 'Nytt projekt';
+    restoreUI();
+    await loadAnalysesList();
+  } catch(e) { console.error('Failed to load analysis:', e); }
+}
+
+function restoreUI() {
+  ['projekt','baslinje','alternativ','rapport'].forEach(t => {
+    const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
+  });
+  document.getElementById('progressFill').style.width = '0%';
+  document.querySelectorAll('.step-circle').forEach((c, i) => { c.className = 'step-circle'; c.textContent = i + 1; });
+  document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
+
+  if (state.project) { enableTab('projekt'); setProgressStep('planering'); }
+  if (state.baseline) { enableTab('baslinje'); setProgressStep('baslinje'); }
+  if (state.alternatives) { enableTab('alternativ'); setProgressStep('sammanstallning'); }
+  if (state.reportMarkdown) { enableTab('rapport'); setProgressStep('uppfoljning'); switchTab('rapport'); }
+  else if (state.alternatives) { switchTab('alternativ'); }
+  else if (state.baseline) { switchTab('baslinje'); }
+  else if (state.project) { switchTab('projekt'); }
+
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  if (!state.project) {
+    addMsg('Hej! Beskriv ditt ombyggnadsprojekt. Ange byggnadstyp, ungefärlig yta och vilka åtgärder som ska göras.', 'bot');
+  } else {
+    addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
+    if (state.step === 'intake_done') addMsg('Bekräfta och beräkna baslinje, eller skriv korrigeringar.', 'bot');
+    else if (state.step === 'baseline_done') addMsg('Baslinje klar. Bekräfta för att söka alternativ.', 'bot');
+    else if (state.step === 'alternatives_done') addMsg('Välj alternativ per komponent i resultatpanelen.', 'bot');
+    else if (state.step === 'report_done') addMsg('Rapporten är klar.', 'bot');
+  }
+}
+
+function createNewProject() {
+  toggleProjectMenu();
+  currentAnalysisId = null;
+  state = { project: null, baseline: null, alternatives: null, selections: {}, pendingDesc: null, reportMarkdown: null, step: 'idle' };
+  document.getElementById('projectName').textContent = 'Nytt projekt';
+  ['projekt','baslinje','alternativ','rapport'].forEach(t => {
+    const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
+  });
+  document.getElementById('resultTabs').style.display = 'none';
+  document.getElementById('resultContent').innerHTML = '<div class="empty-state"><p>Beskriv ditt projekt i chatten till vänster för att börja.</p></div>';
+  document.getElementById('progressFill').style.width = '0%';
+  document.querySelectorAll('.step-circle').forEach((c, i) => { c.className = 'step-circle'; c.textContent = i + 1; });
+  document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  addMsg('Hej! Beskriv ditt ombyggnadsprojekt. Ange byggnadstyp, ungefärlig yta och vilka åtgärder som ska göras.', 'bot');
+  setLoading(false);
 }
 </script>
 </body>
