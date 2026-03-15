@@ -1087,13 +1087,18 @@ function updateSummary() {
   const totalCo2 = sels.reduce((s,c) => s + c.selected_alternative.co2e_kg, 0);
   const totalCost = sels.reduce((s,c) => s + c.selected_alternative.cost_sek, 0);
   const blCo2 = sels.reduce((s,c) => s + c.baseline_co2e_kg, 0);
-  const saving = blCo2 - totalCo2;
-  const pct = blCo2 > 0 ? Math.round(saving / blCo2 * 100) : 0;
+  const blCost = sels.reduce((s,c) => s + c.baseline_cost_sek, 0);
+  const co2Diff = totalCo2 - blCo2;
+  const co2Pct = blCo2 > 0 ? Math.round(Math.abs(co2Diff) / blCo2 * 100) : 0;
+  const co2Arrow = co2Diff <= 0 ? '\u2193' : '\u2191';
+  const costDiff = totalCost - blCost;
+  const costPct = blCost > 0 ? Math.round(Math.abs(costDiff) / blCost * 100) : 0;
+  const costArrow = costDiff <= 0 ? '\u2193' : '\u2191';
   document.getElementById('summaryArea').innerHTML =
     '<div class="summary">' +
-    '<div class="card"><div class="card-title">Baslinje</div><div class="value">' + Math.round(blCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e</div></div>' +
-    '<div class="card saving"><div class="card-title">Besparing</div><div class="value">\u2193 ' + Math.round(saving).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e (' + pct + '%)</div></div>' +
-    '<div class="card"><div class="card-title">Valda alternativ</div><div class="value">' + Math.round(totalCost).toLocaleString('sv') + '</div><div class="sublabel">SEK total kostnad</div></div>' +
+    '<div class="card' + (co2Diff <= 0 ? ' saving' : '') + '"><div class="card-title">Klimatp\u00e5verkan</div><div class="value">' + Math.round(totalCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e (' + co2Arrow + co2Pct + '% vs baslinje)</div></div>' +
+    '<div class="card' + (costDiff <= 0 ? ' saving' : '') + '"><div class="card-title">Kostnad</div><div class="value">' + Math.round(totalCost).toLocaleString('sv') + '</div><div class="sublabel">SEK (' + costArrow + costPct + '% vs baslinje)</div></div>' +
+    '<div class="card"><div class="card-title">Baslinje</div><div class="value">' + Math.round(blCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e | ' + Math.round(blCost).toLocaleString('sv') + ' SEK</div></div>' +
     '</div>';
   const allSelected = state.alternatives.components.every(c => state.selections[c.component_id]);
   document.getElementById('reportBtn').disabled = !allSelected;
