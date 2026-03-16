@@ -835,8 +835,8 @@ async function sendMessage() {
       await runAlternatives(text);
       break;
     case 'report_done':
-      addMsg('Rapporten är klar. Ladda om sidan för att starta ett nytt projekt.', 'bot');
-      setLoading(false);
+      addMsg('Uppdaterar projektet och genererar ny rapport...', 'system');
+      await runIntake(state.project.description + '\n\nKorrigering: ' + text);
       break;
     default:
       setLoading(false);
