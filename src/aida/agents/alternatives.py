@@ -109,7 +109,62 @@ def find_alternatives(
             alternatives=alternatives,
         ))
 
-    return AlternativesResult(components=component_results)
+    result = AlternativesResult(components=component_results)
+    result.commentary = _generate_commentary(project, baseline, result)
+    return result
+
+
+COMMENTARY_PROMPT = """Du är AIda. Du har just tagit fram alternativ för ett ombyggnadsprojekt.
+
+Skriv en kort kommentar (3-6 meningar) om förslagen. Kommentaren ska:
+- Lyfta de mest intressanta alternativen och varför de sticker ut
+- Nämna om det finns återbruksmöjligheter och vad det innebär
+- Peka på eventuella avvägningar (t.ex. lägre CO2 men högre kostnad, eller tvärtom)
+- Ge ett helhetsintryck av besparingspotentialen
+
+Skriv på svenska. Var konkret, inte generisk. Referera till faktiska materialnamn och siffror från datan.
+Skriv som en kunnig rådgivare som pratar med en projektledare.
+Inte som en lista, utan som en sammanhängande kommentar."""
+
+
+def _generate_commentary(
+    project: Project,
+    baseline: Baseline,
+    result: AlternativesResult,
+) -> str:
+    """Generate a natural language commentary about the alternatives found."""
+    client = get_client()
+
+    # Build a summary of the alternatives for the LLM
+    summary_lines = []
+    for comp in result.components:
+        bl_co2 = comp.baseline_co2e_kg
+        bl_cost = comp.baseline_cost_sek
+        summary_lines.append(f"\n{comp.component_name} (baslinje: {bl_co2:.0f} kg CO2e, {bl_cost:.0f} SEK):")
+        for alt in comp.alternatives:
+            pct = ((bl_co2 - alt.co2e_kg) / bl_co2 * 100) if bl_co2 > 0 else 0
+            summary_lines.append(
+                f"  - {alt.name} ({alt.alternative_type}): {alt.co2e_kg:.0f} kg CO2e, "
+                f"{alt.cost_sek:.0f} SEK ({pct:+.0f}% CO2e) | {alt.source}"
+            )
+
+    prompt = f"""Projekt: {project.building_type}, {project.area_bta} m2
+
+Alternativ som hittats:
+{''.join(summary_lines)}
+
+Skriv din kommentar."""
+
+    try:
+        response = client.messages.create(
+            model=DEFAULT_MODEL,
+            max_tokens=500,
+            system=COMMENTARY_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
+    except Exception:
+        return ""
 
 
 def _estimate_alternatives_llm(proj_comp, bl_comp, user_feedback: str | None = None) -> list[Alternative]:

@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIda Arkitekturöversikt</title>
+<style>
+:root {
+  --kk-gold: #FFCC01;
+  --kk-dark-red: #B5201F;
+  --kk-burgundy: #890200;
+  --kk-charcoal: #444;
+  --kk-warm-bg: #FFFBF5;
+  --kk-cream: #FFF9DE;
+  --kk-gray-200: #e5e5e5;
+  --kk-gray-400: #a3a3a3;
+  --kk-gold-light: #FFF1B6;
+  --kk-green: #2D8B5E;
+  --kk-blue: #3B7DD8;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--kk-warm-bg); color: var(--kk-charcoal); line-height: 1.5; }
+
+header {
+  background: linear-gradient(135deg, var(--kk-burgundy) 0%, var(--kk-dark-red) 100%);
+  color: white; padding: 32px 24px; text-align: center;
+}
+header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+header p { font-size: 14px; opacity: 0.85; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+/* Pipeline overview */
+.pipeline { display: flex; gap: 0; align-items: stretch; margin: 32px 0; flex-wrap: wrap; justify-content: center; }
+.pipeline-step {
+  flex: 1; min-width: 140px; max-width: 200px;
+  background: white; border: 2px solid var(--kk-gray-200); border-radius: 10px;
+  padding: 16px 12px; text-align: center; position: relative; cursor: pointer;
+  transition: all 0.2s;
+}
+.pipeline-step:hover { border-color: var(--kk-dark-red); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.pipeline-step.active { border-color: var(--kk-dark-red); background: #FFF5F5; }
+.pipeline-step .step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--kk-gold); color: var(--kk-charcoal);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px; margin-bottom: 8px;
+}
+.pipeline-step h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.pipeline-step .sub { font-size: 11px; color: var(--kk-gray-400); }
+.pipeline-arrow {
+  display: flex; align-items: center; font-size: 20px; color: var(--kk-gray-400);
+  padding: 0 4px; user-select: none;
+}
+
+/* Agent detail cards */
+.agent-detail {
+  display: none; background: white; border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06); margin: 24px 0; overflow: hidden;
+  border-top: 3px solid var(--kk-gold);
+}
+.agent-detail.visible { display: block; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.agent-header {
+  padding: 20px 24px; border-bottom: 1px solid var(--kk-gray-200);
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.agent-header h2 { font-size: 20px; }
+.agent-header .badge {
+  font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 600;
+}
+.badge-llm { background: #E8F0FE; color: var(--kk-blue); }
+.badge-local { background: #E8F5E9; color: var(--kk-green); }
+.badge-both { background: var(--kk-gold-light); color: #7D6600; }
+.badge-pure { background: #F3E8FF; color: #6B21A8; }
+
+.agent-body { padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 700px) { .agent-body { grid-template-columns: 1fr; } }
+
+.agent-section h4 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--kk-gray-400); margin-bottom: 8px;
+}
+.agent-section p, .agent-section li {
+  font-size: 14px; margin-bottom: 6px;
+}
+.agent-section ul { padding-left: 18px; }
+.agent-section code {
+  background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 13px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.json-example {
+  background: #1e1e2e; color: #cdd6f4; border-radius: 8px; padding: 14px 16px;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+  overflow-x: auto; line-height: 1.6; grid-column: 1 / -1;
+}
+.json-example .key { color: #89b4fa; }
+.json-example .str { color: #a6e3a1; }
+.json-example .num { color: #fab387; }
+.json-example .comment { color: #6c7086; }
+
+/* Data flow diagram */
+.flow-section { margin: 40px 0 24px; }
+.flow-section h2 { font-size: 20px; margin-bottom: 16px; border-bottom: 2px solid var(--kk-gold); padding-bottom: 8px; display: inline-block; }
+
+.dataflow {
+  display: flex; flex-direction: column; gap: 0; align-items: center; margin: 24px 0;
+}
+.flow-node {
+  background: white; border: 2px solid var(--kk-gray-200); border-radius: 10px;
+  padding: 12px 20px; min-width: 280px; text-align: center;
+}
+.flow-node.user { border-color: var(--kk-blue); background: #F0F6FF; }
+.flow-node.agent { border-color: var(--kk-dark-red); background: #FFF5F5; }
+.flow-node.data { border-color: var(--kk-green); background: #F0FFF4; }
+.flow-node.ui { border-color: #7C3AED; background: #FAF5FF; }
+.flow-node h4 { font-size: 14px; margin-bottom: 2px; }
+.flow-node .desc { font-size: 12px; color: var(--kk-gray-400); }
+.flow-arrow { font-size: 18px; color: var(--kk-gray-400); padding: 4px 0; }
+.flow-label { font-size: 11px; color: var(--kk-gray-400); margin-top: -2px; margin-bottom: 2px; }
+
+/* Tech stack */
+.tech-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px; margin: 16px 0;
+}
+.tech-card {
+  background: white; border-radius: 8px; padding: 16px;
+  border: 1px solid var(--kk-gray-200);
+}
+.tech-card h4 { font-size: 14px; margin-bottom: 6px; }
+.tech-card p { font-size: 13px; color: #666; }
+
+/* Summary table */
+.summary-table {
+  width: 100%; border-collapse: collapse; margin: 16px 0;
+  background: white; border-radius: 8px; overflow: hidden;
+}
+.summary-table th {
+  background: #f8f8f8; text-align: left; padding: 10px 14px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px;
+  color: var(--kk-gray-400); border-bottom: 2px solid var(--kk-gray-200);
+}
+.summary-table td {
+  padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+.summary-table tr:last-child td { border-bottom: none; }
+
+.prompt-block {
+  background: #FFFBF0; border: 1px solid var(--kk-gold-light); border-radius: 8px;
+  padding: 14px 16px; font-size: 13px; line-height: 1.6;
+  grid-column: 1 / -1; white-space: pre-wrap;
+}
+.prompt-block .label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: #7D6600; font-weight: 600; margin-bottom: 8px; display: block;
+}
+
+footer {
+  text-align: center; padding: 32px 24px; font-size: 12px; color: var(--kk-gray-400);
+  border-top: 1px solid var(--kk-gray-200); margin-top: 40px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AIda</h1>
+  <p>Arkitekturöversikt &middot; Klimatkalkyl för ombyggnationer &middot; Karlstads kommun</p>
+</header>
+
+<div class="container">
+
+<!-- Pipeline overview -->
+<div class="pipeline" id="pipeline">
+  <div class="pipeline-step active" data-agent="intake" onclick="showAgent('intake')">
+    <div class="step-num">1</div>
+    <h3>Intake</h3>
+    <div class="sub">Projektbeskrivning</div>
+  </div>
+  <div class="pipeline-arrow">&#x2192;</div>
+  <div class="pipeline-step" data-agent="baseline" onclick="showAgent('baseline')">
+    <div class="step-num">2</div>
+    <h3>Baslinje</h3>
+    <div class="sub">NollCO2 worst-case</div>
+  </div>
+  <div class="pipeline-arrow">&#x2192;</div>
+  <div class="pipeline-step" data-agent="alternatives" onclick="showAgent('alternatives')">
+    <div class="step-num">3</div>
+    <h3>Alternativ</h3>
+    <div class="sub">&#x00c5;terbruk + klimatopt.</div>
+  </div>
+  <div class="pipeline-arrow">&#x2192;</div>
+  <div class="pipeline-step" data-agent="aggregate" onclick="showAgent('aggregate')">
+    <div class="step-num">4</div>
+    <h3>Sammanst&#xe4;llning</h3>
+    <div class="sub">Totaler + besparingar</div>
+  </div>
+  <div class="pipeline-arrow">&#x2192;</div>
+  <div class="pipeline-step" data-agent="report" onclick="showAgent('report')">
+    <div class="step-num">5</div>
+    <h3>Rapport</h3>
+    <div class="sub">Beslutsunderlag</div>
+  </div>
+</div>
+
+<!-- Agent 1: Intake -->
+<div class="agent-detail visible" id="detail-intake">
+  <div class="agent-header">
+    <h2>1. Intake-agenten</h2>
+    <span class="badge badge-llm">LLM (Sonnet 4.6)</span>
+  </div>
+  <div class="agent-body">
+    <div class="agent-section">
+      <h4>Uppgift</h4>
+      <p>Extraherar projektinformation fr&#xe5;n fri textbeskrivning p&#xe5; svenska. Identifierar byggnadstyp, area (BTA) och renoveringskomponenter.</p>
+    </div>
+    <div class="agent-section">
+      <h4>Nyckelregler</h4>
+      <ul>
+        <li>Fr&#xe5;gar <strong>INTE</strong> om materialval. Fokus p&#xe5; behov, inte material.</li>
+        <li>F&#xe5;r fr&#xe5;ga om: byggnads&#xe5;r, s&#xe4;rskilda krav (Milj&#xf6;byggnad, ljud, fukt), om renoveringen &#xe4;r total/partiell, budget/tidplan.</li>
+        <li>Skattar quantity om den inte anges.</li>
+        <li>Max 1&#x2013;2 f&#xf6;rtydligande-fr&#xe5;gor, bara n&#xe4;r det v&#xe4;sentligt f&#xf6;rb&#xe4;ttrar analysen.</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Input</h4>
+      <p>Fri text fr&#xe5;n anv&#xe4;ndaren, t.ex.:<br>
+      <em>&#x201c;Vi ska renovera en skola p&#xe5; 500 kvm. Nya golv i hela byggnaden, byta f&#xf6;nster och ny ventilation.&#x201d;</em></p>
+    </div>
+    <div class="agent-section">
+      <h4>Output</h4>
+      <p>JSON med <code>building_type</code>, <code>area_bta</code>, <code>components[]</code>, <code>clarification_needed</code>.</p>
+      <p>Kategorier: golv, v&#xe4;gg, tak, f&#xf6;nster, d&#xf6;rr, installation, isolering, &#xf6;vrigt.</p>
+    </div>
+    <div class="prompt-block">
+      <span class="label">Systemprompt (sammanfattning)</span>Du &#xe4;r AIda, en assistent f&#xf6;r klimatkalkylering av ombyggnationer i Karlstads kommun.
+
+Identifiera: byggnadstyp, area BTA, renoveringskomponenter.
+
+Fr&#xe5;ga INTE om materialval &#x2014; materialval &#xe4;r alternativ-stegets uppgift. AIda kan komma med b&#xe4;ttre f&#xf6;rslag &#xe4;n anv&#xe4;ndaren t&#xe4;nkt sig. Fr&#xe5;ga d&#xe4;remot g&#xe4;rna om byggnads&#xe5;r, s&#xe4;rskilda krav, total/partiell renovering, budget/tidplan.
+
+Svara med JSON. Komponent-ID: c1, c2... Enheter: m2, st, lm.</div>
+  </div>
+</div>
+
+<!-- Agent 2: Baseline -->
+<div class="agent-detail" id="detail-baseline">
+  <div class="agent-header">
+    <h2>2. Baslinje-agenten</h2>
+    <span class="badge badge-both">Lokal data + LLM-fallback</span>
+  </div>
+  <div class="agent-body">
+    <div class="agent-section">
+      <h4>Uppgift</h4>
+      <p>Ber&#xe4;knar klimatp&#xe5;verkan enligt <strong>NollCO2-metodens baslinjeprincip</strong>: alla material k&#xf6;ps nytt utan klimath&#xe4;nsyn. Ger det &#x201c;v&#xe4;rsta fallet&#x201d; som referenspunkt.</p>
+    </div>
+    <div class="agent-section">
+      <h4>Datahierarki</h4>
+      <ul>
+        <li><strong>F&#xf6;rst:</strong> Lokal databas (<code>climate_data.py</code>) &#x2014; f&#xf6;rdefinierade v&#xe4;rden per komponenttyp</li>
+        <li><strong>Sedan (LLM-fallback):</strong></li>
+        <li>1. EPD:er (environdec.com, EPD Norge)</li>
+        <li>2. Boverkets klimatdatabas</li>
+        <li>3. Uppskattning (markeras tydligt)</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Input</h4>
+      <p><code>Project</code>-objekt med komponenter, byggnadstyp och area.</p>
+    </div>
+    <div class="agent-section">
+      <h4>Output</h4>
+      <p><code>Baseline</code> med per komponent: <code>co2e_kg</code>, <code>cost_sek</code>, <code>method</code>, <code>source</code>.</p>
+      <p>K&#xe4;llm&#xe4;rkning: <code>[Verifierad]</code> f&#xf6;r lokal data, <code>[Uppskattning]</code> f&#xf6;r LLM.</p>
+    </div>
+    <div class="prompt-block">
+      <span class="label">Systemprompt (sammanfattning)</span>NollCO2-metoden: Baslinjen = alla material k&#xf6;ps nytt utan klimath&#xe4;nsyn (worst-case).
+
+F&#xf6;r varje komponent: v&#xe4;lj det alternativ med H&#xd6;GST CO2e.
+
+Datakällor i ordning: EPD:er &#x2192; Boverkets klimatdatabas &#x2192; Egen uppskattning.
+
+Svara med JSON. Ange alltid k&#xe4;lla. Var &#xe4;rlig om os&#xe4;kerhet.</div>
+  </div>
+</div>
+
+<!-- Agent 3: Alternatives -->
+<div class="agent-detail" id="detail-alternatives">
+  <div class="agent-header">
+    <h2>3. Alternativ-agenten</h2>
+    <span class="badge badge-both">Lokal data + LLM + Kommentar</span>
+  </div>
+  <div class="agent-body">
+    <div class="agent-section">
+      <h4>Uppgift</h4>
+      <p>Hittar klimatsmartare alternativ f&#xf6;r varje komponent. Minst 3 alternativ per komponent. Genererar ocks&#xe5; en <strong>sammanhängande kommentar</strong> om f&#xf6;rslagen som visas i chatten.</p>
+    </div>
+    <div class="agent-section">
+      <h4>Alternativtyper</h4>
+      <ul>
+        <li><strong>&#x00c5;terbruk</strong> &#x2014; Sola bygg&#xe5;terbruk, CCBuild m.fl. Om ej tillg&#xe4;ngligt, s&#xe4;gs det explicit.</li>
+        <li><strong>Klimatoptimerat</strong> &#x2014; Minst 2 nyproducerade material med l&#xe4;gre CO2e. Konkreta produktnamn.</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Kommentar (ny)</h4>
+      <p>Efter att alternativ hittats g&#xf6;rs ett extra LLM-anrop som skriver en kort (3&#x2013;6 meningar) kommentar:</p>
+      <ul>
+        <li>Lyfter intressanta alternativ</li>
+        <li>N&#xe4;mner &#xe5;terbruksm&#xf6;jligheter</li>
+        <li>Pekar p&#xe5; avv&#xe4;gningar (CO2 vs kostnad)</li>
+        <li>Helhetsintryck av besparingspotentialen</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Output</h4>
+      <p><code>AlternativesResult</code> med per komponent: alternativ-lista + <code>commentary</code> (str&#xe4;ng).</p>
+      <p>St&#xf6;djer <code>user_feedback</code> f&#xf6;r att beg&#xe4;ra fler alternativ.</p>
+    </div>
+    <div class="prompt-block">
+      <span class="label">Systemprompt (sammanfattning)</span>F&#xf6;resl&#xe5; minst 3 alternativ med l&#xe4;gre klimatp&#xe5;verkan per komponent:
+1. &#x00c5;terbruk (om m&#xf6;jligt)
+2. Klimatoptimerat nyk&#xf6;p &#x2014; minst 2 olika
+
+Datakällor: EPD:er &#x2192; Boverket &#x2192; Uppskattning.
+Om inga &#xe5;terbruksalternativ finns, s&#xe4;g det explicit.
+
+Kommentarsprompt: Skriv som kunnig r&#xe5;dgivare till projektledare. Konkret, inte generiskt. Referera till faktiska material och siffror.</div>
+  </div>
+</div>
+
+<!-- Agent 4: Aggregate -->
+<div class="agent-detail" id="detail-aggregate">
+  <div class="agent-header">
+    <h2>4. Sammanst&#xe4;llningsagenten</h2>
+    <span class="badge badge-pure">Ren Python (ingen LLM)</span>
+  </div>
+  <div class="agent-body">
+    <div class="agent-section">
+      <h4>Uppgift</h4>
+      <p>Summerar anv&#xe4;ndarens val: total CO2e, total kostnad, j&#xe4;mf&#xf6;relse mot baslinje, besparing per komponent. Rent deterministisk &#x2014; inget LLM-anrop.</p>
+    </div>
+    <div class="agent-section">
+      <h4>Ber&#xe4;kningar</h4>
+      <ul>
+        <li>Total CO2e + kostnad f&#xf6;r valda alternativ</li>
+        <li>Total CO2e + kostnad f&#xf6;r baslinjen</li>
+        <li>CO2e-besparing (kg + %)</li>
+        <li>Kostnadsskillnad (SEK)</li>
+        <li>Per komponent: valt alternativ, besparing, k&#xe4;lla</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Input</h4>
+      <p><code>Project</code> + <code>Selections</code> (anv&#xe4;ndarens val per komponent).</p>
+    </div>
+    <div class="agent-section">
+      <h4>Output</h4>
+      <p><code>AggregateResult</code> med totaler och komponentdetaljer. Varnar om n&#xe5;gon komponent saknar val.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Agent 5: Report -->
+<div class="agent-detail" id="detail-report">
+  <div class="agent-header">
+    <h2>5. Rapportagenten</h2>
+    <span class="badge badge-llm">LLM (Sonnet 4.6)</span>
+  </div>
+  <div class="agent-body">
+    <div class="agent-section">
+      <h4>Uppgift</h4>
+      <p>Genererar strukturerat beslutsunderlag i markdown, l&#xe4;mpligt f&#xf6;r tj&#xe4;nsteskrivelser och upphandlingsunderlag.</p>
+    </div>
+    <div class="agent-section">
+      <h4>Rapportinneh&#xe5;ll</h4>
+      <ul>
+        <li>Sammanfattning &#xf6;verst</li>
+        <li>Komponenttabell med alla siffror + k&#xe4;llor</li>
+        <li>J&#xe4;mf&#xf6;relse baslinje vs valt</li>
+        <li>Os&#xe4;kerheter och begr&#xe4;nsningar</li>
+        <li>Disclaimer: uppskattningar f&#xf6;r beslutsst&#xf6;d</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Stilregler</h4>
+      <ul>
+        <li>Formell svenska</li>
+        <li>Inga anglicismer</li>
+        <li>Inga AI-typiska fraser (&#x201c;delve into&#x201d;, &#x201c;game-changer&#x201d;)</li>
+        <li>Inga em-dashes</li>
+        <li>Siffror med enheter (kg CO2e, SEK)</li>
+      </ul>
+    </div>
+    <div class="agent-section">
+      <h4>Format</h4>
+      <p>Markdown (prim&#xe4;rt). PDF via Pandoc/XeLaTeX om tillg&#xe4;ngligt, annars markdown-fallback.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Data flow -->
+<div class="flow-section">
+  <h2>Datafl&#xf6;de</h2>
+</div>
+
+<div class="dataflow">
+  <div class="flow-node user">
+    <h4>Anv&#xe4;ndare</h4>
+    <div class="desc">Fri textbeskrivning p&#xe5; svenska i chattpanelen</div>
+  </div>
+  <div class="flow-arrow">&#x2193;</div>
+  <div class="flow-label"><code>POST /api/intake</code></div>
+  <div class="flow-node agent">
+    <h4>Intake</h4>
+    <div class="desc">Extraherar byggnadstyp, area, komponenter &#x2192; <code>Project</code></div>
+  </div>
+  <div class="flow-arrow">&#x2193;</div>
+  <div class="flow-label">Anv&#xe4;ndaren bekr&#xe4;ftar eller korrigerar</div>
+  <div class="flow-node agent">
+    <h4>Baslinje</h4>
+    <div class="desc">NollCO2 worst-case per komponent &#x2192; <code>Baseline</code></div>
+  </div>
+  <div class="flow-arrow">&#x2193;</div>
+  <div class="flow-label"><code>POST /api/alternatives</code></div>
+  <div class="flow-node agent">
+    <h4>Alternativ</h4>
+    <div class="desc">&#x00c5;terbruk + klimatoptimerat per komponent &#x2192; <code>AlternativesResult</code> + kommentar</div>
+  </div>
+  <div class="flow-arrow">&#x2193;</div>
+  <div class="flow-label">Anv&#xe4;ndaren v&#xe4;ljer alternativ i resultatpanelen</div>
+  <div class="flow-node ui">
+    <h4>V&#xe4;lj alternativ</h4>
+    <div class="desc">Radioknappar per komponent: baslinje, &#xe5;terbruk, klimatopt.</div>
+  </div>
+  <div class="flow-arrow">&#x2193;</div>
+  <div class="flow-label"><code>POST /api/aggregate</code> &#x2192; <code>POST /api/report</code></div>
+  <div class="flow-node agent">
+    <h4>Sammanst&#xe4;llning + Rapport</h4>
+    <div class="desc">Totaler, besparingar, beslutsunderlag i markdown</div>
+  </div>
+</div>
+
+<!-- Tech stack -->
+<div class="flow-section">
+  <h2>Teknik</h2>
+</div>
+
+<div class="tech-grid">
+  <div class="tech-card">
+    <h4>Backend</h4>
+    <p>Flask (Python). REST API med 5 endpoints. Supabase JWT-auth (ES256/JWKS).</p>
+  </div>
+  <div class="tech-card">
+    <h4>Frontend</h4>
+    <p>Inline HTML/CSS/JS i Flask-template. Split-layout: 40% chatt, 60% resultat. Inga externa JS-beroenden.</p>
+  </div>
+  <div class="tech-card">
+    <h4>LLM</h4>
+    <p>Claude Sonnet 4.6 via Anthropic API. 4 av 5 agenter anv&#xe4;nder LLM. Aggregate &#xe4;r ren Python.</p>
+  </div>
+  <div class="tech-card">
+    <h4>Klimatdata</h4>
+    <p><code>climate_data.py</code> &#x2014; lokalt uppslagsverk f&#xf6;r baslinjer + alternativ. LLM-fallback f&#xf6;r ok&#xe4;nda komponenter.</p>
+  </div>
+  <div class="tech-card">
+    <h4>Deploy</h4>
+    <p>Vercel (planerat). Railway/Render som alternativ pga LLM timeout-gr&#xe4;nser.</p>
+  </div>
+  <div class="tech-card">
+    <h4>Auth</h4>
+    <p>Supabase (prim&#xe4;rt) med JWKS auto-discovery. L&#xf6;senord (legacy-fallback).</p>
+  </div>
+</div>
+
+<!-- Agent summary table -->
+<div class="flow-section">
+  <h2>Agentsammanfattning</h2>
+</div>
+
+<table class="summary-table">
+  <thead>
+    <tr>
+      <th>Agent</th>
+      <th>Fil</th>
+      <th>LLM?</th>
+      <th>Input</th>
+      <th>Output</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Intake</strong></td>
+      <td><code>agents/intake.py</code></td>
+      <td>Ja (Sonnet 4.6)</td>
+      <td>Fri text (svenska)</td>
+      <td><code>Project</code> (JSON)</td>
+    </tr>
+    <tr>
+      <td><strong>Baslinje</strong></td>
+      <td><code>agents/baseline.py</code></td>
+      <td>Fallback</td>
+      <td><code>Project</code></td>
+      <td><code>Baseline</code> (JSON)</td>
+    </tr>
+    <tr>
+      <td><strong>Alternativ</strong></td>
+      <td><code>agents/alternatives.py</code></td>
+      <td>Fallback + kommentar</td>
+      <td><code>Project</code> + <code>Baseline</code></td>
+      <td><code>AlternativesResult</code> + <code>commentary</code></td>
+    </tr>
+    <tr>
+      <td><strong>Sammanst&#xe4;llning</strong></td>
+      <td><code>agents/aggregate.py</code></td>
+      <td>Nej</td>
+      <td><code>Project</code> + <code>Selections</code></td>
+      <td><code>AggregateResult</code></td>
+    </tr>
+    <tr>
+      <td><strong>Rapport</strong></td>
+      <td><code>agents/report.py</code></td>
+      <td>Ja (Sonnet 4.6)</td>
+      <td><code>Project</code> + <code>Selections</code></td>
+      <td>Markdown (+ PDF-option)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Data models -->
+<div class="flow-section">
+  <h2>Datamodeller</h2>
+</div>
+
+<table class="summary-table">
+  <thead>
+    <tr><th>Modell</th><th>Fil</th><th>Nyckelf&#xe4;lt</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Component</strong></td>
+      <td><code>models.py</code></td>
+      <td><code>id</code>, <code>name</code>, <code>quantity</code>, <code>unit</code>, <code>category</code></td>
+    </tr>
+    <tr>
+      <td><strong>Project</strong></td>
+      <td><code>models.py</code></td>
+      <td><code>building_type</code>, <code>area_bta</code>, <code>components[]</code>, <code>name</code>, <code>description</code></td>
+    </tr>
+    <tr>
+      <td><strong>BaselineResult</strong></td>
+      <td><code>models.py</code></td>
+      <td><code>component_id</code>, <code>co2e_kg</code>, <code>cost_sek</code>, <code>method</code>, <code>source</code></td>
+    </tr>
+    <tr>
+      <td><strong>Alternative</strong></td>
+      <td><code>models.py</code></td>
+      <td><code>name</code>, <code>co2e_kg</code>, <code>cost_sek</code>, <code>source</code>, <code>reasoning</code>, <code>alternative_type</code></td>
+    </tr>
+    <tr>
+      <td><strong>AlternativesResult</strong></td>
+      <td><code>models.py</code></td>
+      <td><code>components[]</code>, <code>commentary</code> (ny)</td>
+    </tr>
+    <tr>
+      <td><strong>AggregateResult</strong></td>
+      <td><code>models.py</code></td>
+      <td><code>total_co2e_kg</code>, <code>total_cost_sek</code>, <code>co2e_savings_kg</code>, <code>cost_difference_sek</code></td>
+    </tr>
+  </tbody>
+</table>
+
+</div>
+
+<footer>
+  AIda &middot; AI f&#xf6;r klimatet &middot; Klimatneutrala Karlstad 2030 &middot; Genererad 2026-03-16
+</footer>
+
+<script>
+function showAgent(id) {
+  document.querySelectorAll('.agent-detail').forEach(el => el.classList.remove('visible'));
+  document.querySelectorAll('.pipeline-step').forEach(el => el.classList.remove('active'));
+  document.getElementById('detail-' + id).classList.add('visible');
+  document.querySelector('[data-agent="' + id + '"]').classList.add('active');
+}
+</script>
+</body>
+</html>

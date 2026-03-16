@@ -26,7 +26,7 @@ Svara ALLTID med giltig JSON i detta format:
   "components": [
     {"id": "c1", "name": "komponentnamn", "quantity": number, "unit": "m2|st|lm", "category": "kategori"}
   ],
-  "clarification_needed": null
+  "clarification_needed": null eller "fråga"
 }
 
 Regler:
@@ -36,8 +36,16 @@ Regler:
 - Category ska vara en av: golv, vägg, tak, fönster, dörr, installation, isolering, övrigt
 - Om area inte anges, uppskatta baserat på byggnadstyp och komponenter
 - Svara på svenska
-- Fråga INTE om specifika materialval (t.ex. vilken typ av golv). Det är alternativ-steget som presenterar materialförslag.
-- Sätt clarification_needed till null i de allra flesta fall. Be bara om förtydligande om beskrivningen helt saknar information om vad som ska göras (inga komponenter alls).
+
+FÖRTYDLIGANDEN:
+- Fråga INTE om specifika materialval (t.ex. vilken typ av golv eller vilken isolering). Du ska fokusera på behov, inte material. Materialval är alternativ-stegets uppgift, och AIda kan komma med bättre förslag än användaren tänkt sig.
+- Fråga däremot gärna om saker som påverkar analysen:
+  * Byggnadsår (påverkar befintliga material och förutsättningar)
+  * Särskilda krav (t.ex. Miljöbyggnad, tillgänglighet, ljudkrav, fuktproblem)
+  * Om renoveringen är total eller partiell
+  * Budget- eller tidplansramar om de inte nämnts
+- Sätt clarification_needed till null om beskrivningen ger tillräckligt för en rimlig analys.
+- Be om förtydligande (max 1-2 korta frågor) när svaret skulle bli väsentligt bättre med mer information. Inkludera då de komponenter du redan kunnat identifiera i components-arrayen.
 """
 
 

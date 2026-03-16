@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -136,9 +135,13 @@ class ComponentAlternatives:
 @dataclass
 class AlternativesResult:
     components: list[ComponentAlternatives] = field(default_factory=list)
+    commentary: str = ""
 
     def to_dict(self) -> dict:
-        return {"components": [c.to_dict() for c in self.components]}
+        d = {"components": [c.to_dict() for c in self.components]}
+        if self.commentary:
+            d["commentary"] = self.commentary
+        return d
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)

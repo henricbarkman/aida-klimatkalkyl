@@ -939,7 +939,13 @@ async function runAlternatives(userFeedback) {
     switchTab('alternativ');
     document.getElementById('tab-rapport').disabled = true;
 
-    addMsg('Alternativ klara! V\u00e4lj per komponent i resultatpanelen.\n\nSkriv i chatten om du vill ha fler alternativ, t.ex. *"fler materialval f\u00f6r v\u00e4ggar"*.', 'bot');
+    const commentary = d.commentary || '';
+    if (commentary) {
+      addMsg(commentary, 'bot');
+      addMsg('V\u00e4lj alternativ per komponent i resultatpanelen. Skriv i chatten om du vill ha fler f\u00f6rslag.', 'bot');
+    } else {
+      addMsg('Alternativ klara! V\u00e4lj per komponent i resultatpanelen.\n\nSkriv i chatten om du vill ha fler alternativ.', 'bot');
+    }
     setLoading(false);
   } catch(e) { clearTimeout(subStepTimer); addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
 }
