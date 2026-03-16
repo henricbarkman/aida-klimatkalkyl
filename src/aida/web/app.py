@@ -203,9 +203,16 @@ def index():
 @app.route('/docs/<path:filename>')
 def serve_docs(filename):
     """Serve static docs files."""
-    docs_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'docs')
-    from flask import send_from_directory
-    return send_from_directory(os.path.abspath(docs_dir), filename)
+    # Resolve relative to this file: src/aida/web/app.py -> project_root/docs/
+    docs_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'docs'))
+    filepath = os.path.abspath(os.path.join(docs_dir, filename))
+    if not filepath.startswith(docs_dir):
+        return 'Forbidden', 403
+    try:
+        with open(filepath) as f:
+            return f.read(), 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except FileNotFoundError:
+        return 'Not found', 404
 
 
 @app.route('/api/intake', methods=['POST'])
