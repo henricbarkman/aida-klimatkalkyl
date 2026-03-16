@@ -200,6 +200,14 @@ def index():
         supabase_url='', supabase_anon_key='', has_supabase=False)
 
 
+@app.route('/docs/<path:filename>')
+def serve_docs(filename):
+    """Serve static docs files."""
+    docs_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'docs')
+    from flask import send_from_directory
+    return send_from_directory(os.path.abspath(docs_dir), filename)
+
+
 @app.route('/api/intake', methods=['POST'])
 @require_auth
 def api_intake():
