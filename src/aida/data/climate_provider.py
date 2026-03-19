@@ -1,0 +1,485 @@
+"""Climate data provider with layered fallback: Boverket API → local data → LLM.
+
+Usage:
+    from aida.data.climate_provider import ClimateProvider
+    provider = ClimateProvider()
+    result = provider.lookup("betong")
+    print(result.name, result.co2e_per_unit, result.source, result.confidence)
+
+CLI:
+    python -m aida.data.climate_provider --sync
+    python -m aida.data.climate_provider --lookup "mineralull"
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sys
+import time
+from dataclasses import dataclass
+
+from aida.data.climate_cache import TTL_LOCAL, CacheEntry, ClimateCache
+
+logger = logging.getLogger(__name__)
+
+# Maps Boverket category names (lowercase) → AIda component keys.
+# Used for unit conversion inference and search filtering.
+# Keys use common variations; matching is substring-based.
+BOVERKET_TO_AIDA: dict[str, str] = {
+    "isolering": "isolering",
+    "betong": "betongvägg",
+    "betong och cement": "betongvägg",
+    "fönster, dörrar och glas": "fönster",
+    "fönster och dörrar": "fönster",
+    "glas": "fönster",
+    "byggskivor": "innervägg",
+    "skivor": "innervägg",
+    "trävaror": "golv",
+    "trä": "golv",
+    "puts och bruk": "yttervägg",
+    "tegel": "yttervägg",
+    "takprodukter": "tak",
+    "tak": "tak",
+    "stål och metall": "ventilation",
+    "stål": "ventilation",
+    "golvmaterial": "golv",
+    "golv": "golv",
+    "ventilation": "ventilation",
+    "belysning": "belysning",
+    "hiss": "hiss",
+}
+
+
+def _match_boverket_category(boverket_cat: str) -> str | None:
+    """Match a Boverket category name to an AIda component key."""
+    cat_lower = boverket_cat.lower().strip()
+    if cat_lower in BOVERKET_TO_AIDA:
+        return BOVERKET_TO_AIDA[cat_lower]
+    # Substring match for variations
+    for pattern, aida_key in BOVERKET_TO_AIDA.items():
+        if pattern in cat_lower or cat_lower in pattern:
+            return aida_key
+    return None
+
+
+@dataclass
+class ClimateResult:
+    """Result from a climate data lookup. Compatible with MaterialData interface."""
+    name: str
+    co2e_per_unit: float
+    cost_per_unit: float
+    unit: str
+    source: str
+    confidence: str  # "high", "medium", "low"
+    source_layer: str = ""  # "boverket", "local", "llm"
+    category: str = ""
+
+
+class ClimateProvider:
+    """Layered climate data provider.
+
+    Lookup order:
+    1. Cache (SQLite) — returns immediately if fresh
+    2. Boverket API — official Swedish building product climate data
+    3. Environdec EPD database — product-specific EPDs (14,000+)
+    4. Local fallback (climate_data.py) — hardcoded verified data
+    5. LLM fallback — web search for unknown products (v1.1)
+    """
+
+    def __init__(self, cache: ClimateCache | None = None):
+        self._cache = cache or ClimateCache()
+        self._boverket_synced = False
+        self._environdec_client = None
+
+    def lookup(
+        self,
+        product_name: str,
+        component_hint: str = "",
+    ) -> ClimateResult | None:
+        """Look up climate data for a product. Returns None only for empty input.
+
+        Args:
+            product_name: Product or component name to look up.
+            component_hint: AIda component category (e.g. "golv", "isolering")
+                for unit conversion. If empty, tries to infer from product_name.
+        """
+        if not product_name or not product_name.strip():
+            return None
+
+        key = product_name.lower().strip()
+
+        # Layer 1: Check cache (covers Boverket, local, and LLM entries)
+        cached = self._cache.get(key)
+        if cached:
+            result = _entry_to_result(cached)
+            return self._maybe_convert_units(result, component_hint or key, cached.extra_json)
+
+        # Layer 2: Try Boverket API (fuzzy search in cache after sync)
+        result = self._try_boverket(key, component_hint)
+        if result:
+            return result
+
+        # Layer 3: Environdec EPD database (product-specific EPDs)
+        result = self._try_environdec(key, component_hint)
+        if result:
+            return result
+
+        # Layer 4: Local fallback (climate_data.py)
+        result = self._try_local(key)
+        if result:
+            return result
+
+        # Layer 5: LLM fallback (not implemented in v1 — returns None)
+        return None
+
+    def _maybe_convert_units(
+        self,
+        result: ClimateResult,
+        component_hint: str,
+        extra_json: str = "",
+    ) -> ClimateResult:
+        """Convert kg-based values to functional units if possible."""
+        if result.unit != "kg":
+            return result  # already in functional unit
+
+        from aida.data.climate_data import normalize_component_name
+        from aida.data.unit_conversion import (
+            convert_to_functional_unit,
+            get_density_for_component,
+        )
+
+        comp_key = normalize_component_name(component_hint)
+
+        # If hint didn't resolve, try inferring from Boverket category
+        if not comp_key and extra_json:
+            try:
+                extra = json.loads(extra_json)
+                bov_cat = extra.get("category", "")
+                if bov_cat:
+                    comp_key = self._cache.get_aida_component(bov_cat) or ""
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if not comp_key:
+            return result
+
+        density = get_density_for_component(comp_key, extra_json)
+        co2e_converted, new_unit = convert_to_functional_unit(
+            result.co2e_per_unit, comp_key, density,
+        )
+
+        if new_unit != "kg":
+            return ClimateResult(
+                name=result.name,
+                co2e_per_unit=co2e_converted,
+                cost_per_unit=result.cost_per_unit,
+                unit=new_unit,
+                source=result.source,
+                confidence=result.confidence,
+                source_layer=result.source_layer,
+                category=result.category,
+            )
+        return result
+
+    def sync_boverket(self) -> int:
+        """Download all Boverket data and cache it. Returns count of entries cached."""
+        from aida.data.boverket_client import BoverketClient
+
+        client = BoverketClient()
+        try:
+            resources = client.get_all_resources()
+        except Exception as e:
+            logger.warning("Boverket API sync failed: %s", e)
+            return 0
+
+        entries = client.resources_to_cache_entries(resources)
+        if entries:
+            self._cache.put_many(entries)
+
+        # Populate Boverket category → AIda component mappings
+        self._sync_category_mappings(entries)
+        self._boverket_synced = True
+
+        return len(entries)
+
+    def _sync_category_mappings(self, entries: list[CacheEntry]) -> None:
+        """Extract Boverket categories from synced entries and store mappings."""
+        categories: set[str] = set()
+        for entry in entries:
+            try:
+                extra = json.loads(entry.extra_json or "{}")
+                cat = extra.get("category", "")
+                if cat:
+                    categories.add(cat.lower())
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        mappings = {}
+        for cat in categories:
+            aida_key = _match_boverket_category(cat)
+            if aida_key:
+                mappings[cat] = aida_key
+
+        if mappings:
+            self._cache.put_category_mappings(mappings)
+            logger.info("Category mappings: %d/%d Boverket categories mapped",
+                        len(mappings), len(categories))
+
+    def _try_boverket(self, key: str, component_hint: str = "") -> ClimateResult | None:
+        """Try Boverket API. Syncs on first call, then uses ranked search.
+
+        On Vercel, the cache is pre-populated at build time so we check
+        for existing data before attempting an API sync.
+        """
+        hint = component_hint or key
+        if not self._boverket_synced:
+            # Check if cache already has Boverket data (pre-populated)
+            if self._cache.count("boverket") > 0:
+                self._boverket_synced = True
+            else:
+                try:
+                    count = self.sync_boverket()
+                    if count == 0:
+                        return None
+                except Exception as e:
+                    logger.warning("Boverket API unavailable: %s", e)
+                    return None
+
+        return self._search_boverket(key, hint)
+
+    def _search_boverket(self, key: str, component_hint: str = "") -> ClimateResult | None:
+        """Ranked search against Boverket cache entries.
+
+        Ranking:
+        1. Exact match on product_name
+        2. Starts-with match (category-filtered if possible)
+        3. Starts-with match (unfiltered)
+        4. Substring match (category-filtered)
+        5. Substring match (unfiltered)
+        """
+        if len(key) < 3:
+            return None
+
+        conn = self._cache._get_conn()
+        hint = component_hint or key
+        cat_likes = self._category_like_patterns(component_hint)
+
+        def _result_from_row(row):
+            entry = CacheEntry(**dict(row))
+            result = _entry_to_result(entry)
+            return self._maybe_convert_units(result, hint, entry.extra_json)
+
+        # Rank 1: Exact match
+        row = conn.execute(
+            "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+            "AND product_name = ?",
+            (key,),
+        ).fetchone()
+        if row:
+            return _result_from_row(row)
+
+        # Rank 2: Starts-with, category-filtered
+        if cat_likes:
+            for cat_like in cat_likes:
+                row = conn.execute(
+                    "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+                    "AND product_name LIKE ? AND LOWER(extra_json) LIKE ? "
+                    "ORDER BY LENGTH(product_name) LIMIT 1",
+                    (f"{key}%", cat_like),
+                ).fetchone()
+                if row:
+                    return _result_from_row(row)
+
+        # Rank 3: Starts-with, unfiltered
+        row = conn.execute(
+            "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+            "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
+            (f"{key}%",),
+        ).fetchone()
+        if row:
+            return _result_from_row(row)
+
+        # Rank 4: Substring, category-filtered
+        if cat_likes:
+            for cat_like in cat_likes:
+                row = conn.execute(
+                    "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+                    "AND product_name LIKE ? AND LOWER(extra_json) LIKE ? "
+                    "ORDER BY LENGTH(product_name) LIMIT 1",
+                    (f"%{key}%", cat_like),
+                ).fetchone()
+                if row:
+                    return _result_from_row(row)
+
+        # Rank 5: Substring, unfiltered
+        row = conn.execute(
+            "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+            "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
+            (f"%{key}%",),
+        ).fetchone()
+        if row:
+            return _result_from_row(row)
+
+        return None
+
+    def _category_like_patterns(self, component_hint: str) -> list[str]:
+        """Convert component_hint to LIKE patterns for extra_json category filtering."""
+        if not component_hint:
+            return []
+
+        from aida.data.climate_data import normalize_component_name
+        aida_key = normalize_component_name(component_hint)
+        if not aida_key:
+            return []
+
+        categories = self._cache.get_categories_for_aida_key(aida_key)
+        return [f'%"category": "{cat}"%' for cat in categories]
+
+    def _get_environdec(self):
+        """Lazy-init Environdec client."""
+        if self._environdec_client is None:
+            from aida.data.environdec_client import EnvirondecClient
+            self._environdec_client = EnvirondecClient()
+        return self._environdec_client
+
+    def _try_environdec(self, key: str, component_hint: str = "") -> ClimateResult | None:
+        """Search Environdec EPD database for product-specific EPDs."""
+        client = self._get_environdec()
+        try:
+            matches = client.search_index(key, component_hint=component_hint, max_results=5)
+        except Exception as e:
+            logger.warning("Environdec search failed: %s", e)
+            return None
+
+        if not matches:
+            return None
+
+        # Fetch full EPD for best match
+        best = matches[0]
+        try:
+            detail = client.fetch_epd_detail(best.uuid, best.version)
+        except Exception as e:
+            logger.warning("Environdec EPD fetch failed: %s", e)
+            return None
+
+        if detail is None or (detail.gwp_fossil_a1a3 is None and detail.gwp_total_a1a3 is None):
+            return None
+
+        # Cache the result
+        entry = client.epd_to_cache_entry(detail, key)
+        self._cache.put(entry)
+
+        result = _entry_to_result(entry)
+        return self._maybe_convert_units(result, component_hint or key, entry.extra_json)
+
+    def sync_environdec_index(self) -> int:
+        """Pre-fetch the Environdec EPD index. Returns count of EPDs indexed."""
+        client = self._get_environdec()
+        try:
+            index = client.fetch_index(use_cached=False)
+            return len(index)
+        except Exception as e:
+            logger.warning("Environdec index sync failed: %s", e)
+            return 0
+
+    def _try_local(self, key: str) -> ClimateResult | None:
+        """Fall back to local climate_data.py."""
+        from aida.data.climate_data import (
+            get_baseline_for_component,
+        )
+
+        material = get_baseline_for_component(key)
+        if material:
+            # Cache it for future lookups
+            now = time.time()
+            self._cache.put(CacheEntry(
+                product_name=key,
+                name=material.name,
+                co2e_per_unit=material.co2e_per_unit,
+                cost_per_unit=material.cost_per_unit,
+                unit=material.unit,
+                source=f"Lokal data: {material.source}",
+                confidence="medium",
+                source_layer="local",
+                fetched_at=now,
+                expires_at=now + TTL_LOCAL,
+            ))
+            return ClimateResult(
+                name=material.name,
+                co2e_per_unit=material.co2e_per_unit,
+                cost_per_unit=material.cost_per_unit,
+                unit=material.unit,
+                source=f"Lokal data: {material.source}",
+                confidence="medium",
+                source_layer="local",
+                category=material.category,
+            )
+
+        return None
+
+
+def _entry_to_result(entry: CacheEntry) -> ClimateResult:
+    return ClimateResult(
+        name=entry.name,
+        co2e_per_unit=entry.co2e_per_unit,
+        cost_per_unit=entry.cost_per_unit,
+        unit=entry.unit,
+        source=entry.source,
+        confidence=entry.confidence,
+        source_layer=entry.source_layer,
+    )
+
+
+def main():
+    """CLI entry point."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    if len(sys.argv) < 2:
+        print("Usage:", file=sys.stderr)
+        print("  python -m aida.data.climate_provider --sync", file=sys.stderr)
+        print("  python -m aida.data.climate_provider --sync-environdec", file=sys.stderr)
+        print("  python -m aida.data.climate_provider --lookup <product>", file=sys.stderr)
+        print("  python -m aida.data.climate_provider --epd-search <query>", file=sys.stderr)
+        sys.exit(1)
+
+    provider = ClimateProvider()
+
+    if sys.argv[1] == "--sync":
+        count = provider.sync_boverket()
+        print(f"Synced {count} entries from Boverkets klimatdatabas")
+
+    elif sys.argv[1] == "--sync-environdec":
+        count = provider.sync_environdec_index()
+        print(f"Indexed {count} EPDs from Environdec")
+
+    elif sys.argv[1] == "--epd-search" and len(sys.argv) >= 3:
+        query = " ".join(sys.argv[2:])
+        client = provider._get_environdec()
+        matches = client.search_index(query, max_results=10)
+        if matches:
+            for m in matches:
+                print(f"  {m.name[:55]:55s} | {m.owner[:25]:25s} | {m.geo:5s} | {m.reg_no}")
+        else:
+            print(f"No EPDs found for: {query}")
+
+    elif sys.argv[1] == "--lookup" and len(sys.argv) >= 3:
+        product = " ".join(sys.argv[2:])
+        result = provider.lookup(product)
+        if result:
+            print(f"name: {result.name}")
+            print(f"co2e_per_unit: {result.co2e_per_unit}")
+            print(f"unit: {result.unit}")
+            print(f"source: {result.source}")
+            print(f"confidence: {result.confidence}")
+            print(f"cost_per_unit: {result.cost_per_unit}")
+        else:
+            print(f"No data found for: {product}")
+            sys.exit(1)
+    else:
+        print(f"Unknown command: {sys.argv[1]}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

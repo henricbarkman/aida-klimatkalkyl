@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 import sys
 
-from aida.api_client import DEFAULT_MODEL, get_client
+from aida.api_client import (
+    DEFAULT_MODEL,
+    THINKING_STANDARD,
+    extract_text,
+    get_client,
+    thinking_config,
+)
 from aida.data.climate_data import (
     REASONING,
     get_alternatives_for_component,
@@ -158,11 +164,12 @@ Skriv din kommentar."""
     try:
         response = client.messages.create(
             model=DEFAULT_MODEL,
-            max_tokens=500,
+            max_tokens=500 + THINKING_STANDARD,
+            thinking=thinking_config(THINKING_STANDARD),
             system=COMMENTARY_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        return extract_text(response).strip()
     except Exception:
         return ""
 
@@ -193,12 +200,13 @@ Svara med JSON-array."""
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=2000,
+        max_tokens=2000 + THINKING_STANDARD,
+        thinking=thinking_config(THINKING_STANDARD),
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
 
-    text = response.content[0].text
+    text = extract_text(response)
     if "```json" in text:
         text = text.split("```json")[1].split("```")[0]
     elif "```" in text:

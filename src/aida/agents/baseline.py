@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 
-from aida.api_client import get_client, DEFAULT_MODEL
-from aida.models import Project, Baseline, BaselineResult
-from aida.data.climate_data import get_baseline_for_component, normalize_component_name, BASELINE_DATA, REASONING
+from aida.api_client import (
+    DEFAULT_MODEL,
+    THINKING_STANDARD,
+    extract_text,
+    get_client,
+    thinking_config,
+)
+from aida.data.climate_data import REASONING
+from aida.models import Baseline, BaselineResult, Project
 
 SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare. Du beräknar klimatpåverkan enligt NollCO2-metodens baslinjeprincip.
 
@@ -50,24 +55,25 @@ Svara med giltig JSON:
 def calculate_baseline(project: Project) -> Baseline:
     """Calculate NollCO2 baseline for each component.
 
-    Uses local climate data first, falls back to LLM for unknown components.
+    Uses ClimateProvider (Boverket → local → LLM fallback chain).
     """
+    provider = ClimateProvider()
     results = []
     unknown_components = []
 
     for comp in project.components:
-        material = get_baseline_for_component(comp.name)
-        if material:
-            co2e = material.co2e_per_unit * comp.quantity
-            cost = material.cost_per_unit * comp.quantity
+        climate = provider.lookup(comp.name)
+        if climate:
+            co2e = climate.co2e_per_unit * comp.quantity
+            cost = climate.cost_per_unit * comp.quantity
             results.append(BaselineResult(
                 component_id=comp.id,
                 component_name=comp.name,
                 co2e_kg=round(co2e, 1),
                 cost_sek=round(cost),
                 method="NollCO2",
-                description=f"Baslinje (NollCO2): {material.name}, {material.co2e_per_unit} kg CO2e/{material.unit} × {comp.quantity} {comp.unit}. {REASONING['conventional']}",
-                source=f"[Verifierad] {material.source}",
+                description=f"Baslinje (NollCO2): {climate.name}, {climate.co2e_per_unit} kg CO2e/{climate.unit} x {comp.quantity} {comp.unit}. {REASONING['conventional']}",
+                source=f"[{climate.confidence.title()}] {climate.source}",
             ))
         else:
             unknown_components.append(comp)
@@ -90,7 +96,8 @@ def _estimate_unknown_components(project: Project, components: list) -> list[Bas
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=2000,
+        max_tokens=2000 + THINKING_STANDARD,
+        thinking=thinking_config(THINKING_STANDARD),
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -110,7 +117,7 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
         }],
     )
 
-    text = response.content[0].text
+    text = extract_text(response)
     if "```json" in text:
         text = text.split("```json")[1].split("```")[0]
     elif "```" in text:

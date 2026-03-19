@@ -22,6 +22,7 @@ class MaterialData:
     unit: str
     source: str
     category: str = ""  # reuse, climate_optimized, conventional
+    confidence: str = "medium"  # high (API/EPD), medium (local verified), low (estimate)
 
 
 # Baseline data: conventional new production (NollCO2 worst-case principle)
@@ -29,8 +30,8 @@ class MaterialData:
 BASELINE_DATA: dict[str, list[MaterialData]] = {
     "golv": [
         MaterialData("Konventionellt vinylgolv", 12.0, 350, "m2", "Boverkets klimatdatabas 2023", "conventional"),
-        MaterialData("Konventionell klinker", 15.0, 500, "m2", "EPD environdec.com", "conventional"),
-        MaterialData("Konventionellt laminatgolv", 8.5, 250, "m2", "EPD environdec.com", "conventional"),
+        MaterialData("Konventionell klinker", 15.0, 500, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("Konventionellt laminatgolv", 8.5, 250, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
     ],
     "innervägg": [
         MaterialData("Gipsskiva + stålregel (standard)", 18.0, 800, "m2", "Boverkets klimatdatabas 2023", "conventional"),
@@ -42,77 +43,77 @@ BASELINE_DATA: dict[str, list[MaterialData]] = {
         MaterialData("Konventionell betong C30/37", 55.0, 1200, "m2", "Boverkets klimatdatabas 2023, NollCO2 2022", "conventional"),
     ],
     "fönster": [
-        MaterialData("Standard 3-glas PVC-fönster", 85.0, 4500, "st", "EPD environdec.com", "conventional"),
+        MaterialData("Standard 3-glas PVC-fönster", 85.0, 4500, "st", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
         MaterialData("Standard 2-glas aluminium", 110.0, 5500, "st", "Boverkets klimatdatabas 2023", "conventional"),
     ],
     "tak": [
         MaterialData("Betongpannor (standard)", 25.0, 600, "m2", "Boverkets klimatdatabas 2023", "conventional"),
     ],
     "isolering": [
-        MaterialData("Mineralull (standard)", 3.5, 150, "m2", "EPD environdec.com", "conventional"),
-        MaterialData("EPS cellplast (standard)", 5.0, 120, "m2", "EPD environdec.com", "conventional"),
+        MaterialData("Mineralull (standard)", 3.5, 150, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("EPS cellplast (standard)", 5.0, 120, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
     ],
     "diskmaskin": [
-        MaterialData("Industriell diskmaskin (standard)", 450.0, 35000, "st", "Generisk EPD industriutrustning", "conventional"),
+        MaterialData("Industriell diskmaskin (standard)", 450.0, 35000, "st", "Estimat — ingen verifierad EPD funnen", "conventional", "low"),
     ],
     "kylanläggning": [
-        MaterialData("Kylsystem R-404A (standard)", 1200.0, 85000, "st", "EPD kylsystem, Boverket 2023", "conventional"),
+        MaterialData("Kylsystem R-404A (standard)", 1200.0, 85000, "st", "Estimat — ingen verifierad EPD funnen", "conventional", "low"),
     ],
     "belysning": [
-        MaterialData("Standard LED-armatur", 8.0, 1200, "st", "EPD environdec.com", "conventional"),
+        MaterialData("Standard LED-armatur", 8.0, 1200, "st", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
     ],
     "ventilation": [
         MaterialData("Ventilationskanal stål (standard)", 12.0, 800, "lm", "Boverkets klimatdatabas 2023", "conventional"),
     ],
     "dörr": [
-        MaterialData("Standard innerdörr", 35.0, 3500, "st", "EPD environdec.com", "conventional"),
+        MaterialData("Standard innerdörr", 35.0, 3500, "st", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
     ],
     "hiss": [
-        MaterialData("Standard personhiss", 15000.0, 500000, "st", "Generisk EPD hissinstallation", "conventional"),
+        MaterialData("Standard personhiss", 15000.0, 500000, "st", "Estimat — ingen verifierad EPD funnen", "conventional", "low"),
     ],
 }
 
 # Climate-optimized alternatives
 OPTIMIZED_DATA: dict[str, list[MaterialData]] = {
     "golv": [
-        MaterialData("Linoleumgolv (biobaserat)", 4.5, 400, "m2", "EPD Forbo Marmoleum", "climate_optimized"),
-        MaterialData("Trägolv massivt (FSC)", 2.0, 550, "m2", "EPD svenskt trägolv, environdec.com", "climate_optimized"),
+        MaterialData("Linoleumgolv (biobaserat)", 0.0, 400, "m2", "EPD Forbo Marmoleum 2.5mm (A1-A3 koldioxidneutralt)", "climate_optimized", "high"),
+        MaterialData("Trägolv massivt (FSC)", 2.0, 550, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "innervägg": [
-        MaterialData("Gipsskiva + träreglar", 10.0, 750, "m2", "EPD Gyproc + träregel, Boverket 2023", "climate_optimized"),
+        MaterialData("Gipsskiva + träreglar", 10.0, 750, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "yttervägg": [
-        MaterialData("Träfasad + cellulosa", 15.0, 2200, "m2", "EPD träfasadsystem", "climate_optimized"),
+        MaterialData("Träfasad + cellulosa", 15.0, 2200, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "betongvägg": [
-        MaterialData("Klimatförbättrad betong (slagg)", 30.0, 1350, "m2", "EPD klimatbetong, Heidelberg/Swecem", "climate_optimized"),
+        MaterialData("Klimatförbättrad betong (slagg)", 30.0, 1350, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "fönster": [
-        MaterialData("3-glas träfönster (FSC)", 55.0, 5800, "st", "EPD svenskt träfönster", "climate_optimized"),
+        MaterialData("3-glas träfönster (FSC)", 55.0, 5800, "st", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "tak": [
-        MaterialData("Lertegel (lokal tillverkning)", 15.0, 750, "m2", "EPD Monier", "climate_optimized"),
+        MaterialData("Lertegel (lokal tillverkning)", 30.0, 750, "m2", "Estimat baserat på Environdec ceramic roof tiles EPD:er (20-50 CO2e/m2)", "climate_optimized", "low"),
     ],
     "isolering": [
-        MaterialData("Cellulosaisolering (returfiber)", 1.0, 180, "m2", "EPD Thermofloc", "climate_optimized"),
+        MaterialData("Cellulosaisolering (returfiber)", 1.0, 180, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "diskmaskin": [
-        MaterialData("Energieffektiv diskmaskin A+++", 350.0, 42000, "st", "EPD Electrolux Professional", "climate_optimized"),
+        MaterialData("Energieffektiv diskmaskin A+++", 350.0, 42000, "st", "Estimat — ingen verifierad EPD funnen", "climate_optimized", "low"),
     ],
     "kylanläggning": [
-        MaterialData("Kylsystem CO2/propan (naturligt köldmedium)", 600.0, 95000, "st", "EPD kylsystem naturligt köldmedium", "climate_optimized"),
+        MaterialData("Kylsystem CO2/propan (naturligt köldmedium)", 600.0, 95000, "st", "Estimat — ingen verifierad EPD funnen", "climate_optimized", "low"),
     ],
     "belysning": [
-        MaterialData("LED-armatur låg klimatpåverkan", 5.0, 1500, "st", "EPD Fagerhult", "climate_optimized"),
+        MaterialData("LED-armatur låg klimatpåverkan", 5.0, 1500, "st", "Estimat baserat på Fagerhult EPD:er i Environdec", "climate_optimized", "low"),
     ],
     "ventilation": [
-        MaterialData("Ventilationskanal återvunnet stål", 7.0, 900, "lm", "EPD återvunnen stålkanal", "climate_optimized"),
+        MaterialData("Ventilationskanal återvunnet stål", 7.0, 900, "lm", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "dörr": [
-        MaterialData("Innerdörr massivt trä (FSC)", 15.0, 4500, "st", "EPD Swedoor", "climate_optimized"),
+        MaterialData("Innerdörr massivt trä (FSC)", 11.3, 4500, "st", "EPD Swedoor Advance-Line HUB-1206 (GWP-total A1-A3)", "climate_optimized", "high"),
     ],
     "hiss": [
-        MaterialData("Energieffektiv hiss (regen-broms)", 12000.0, 550000, "st", "EPD KONE EcoSpace", "climate_optimized"),
+        MaterialData("Energieffektiv hiss (regen-broms)", 12000.0, 550000, "st", "Estimat baserat på KONE EPD:er i Environdec", "climate_optimized", "low"),
     ],
 }
 
@@ -151,17 +152,25 @@ def normalize_component_name(name: str) -> str:
     name_lower = name.lower().strip()
 
     mappings = {
-        "golv": ["golv", "floor", "golvbeläggning", "vinylgolv", "klinker", "laminat", "parkett", "trägolv"],
-        "innervägg": ["innervägg", "innerväggar", "interior wall", "gipsvägg", "mellanvägg"],
-        "yttervägg": ["yttervägg", "ytterväggar", "fasad", "exterior wall"],
+        "golv": ["golv", "floor", "golvbeläggning", "vinylgolv", "klinker",
+                 "laminat", "parkett", "trägolv", "golvmaterial"],
+        "innervägg": ["innervägg", "innerväggar", "interior wall", "gipsvägg",
+                      "mellanvägg", "gipsskiva", "byggskivor", "byggskiva"],
+        "yttervägg": ["yttervägg", "ytterväggar", "fasad", "exterior wall",
+                      "puts", "bruk", "tegel", "tegelfasad"],
         "betongvägg": ["betongvägg", "betong", "concrete"],
         "fönster": ["fönster", "window", "fönsterbyte", "energiglas"],
-        "tak": ["tak", "roof", "takpannor", "takbeläggning", "yttertak"],
-        "isolering": ["isolering", "insulation", "tilläggsisolering", "mineralull", "cellplast"],
+        "tak": ["tak", "roof", "takpannor", "takbeläggning", "yttertak",
+                "takprodukter"],
+        "isolering": ["isolering", "insulation", "tilläggsisolering",
+                      "mineralull", "cellplast", "glasull", "stenull",
+                      "cellulosa", "eps"],
         "diskmaskin": ["diskmaskin", "dishwasher", "diskutrustning"],
-        "kylanläggning": ["kylanläggning", "kyl", "kylsystem", "refriger", "cooling", "kylutrustning"],
+        "kylanläggning": ["kylanläggning", "kyl", "kylsystem", "refriger",
+                          "cooling", "kylutrustning"],
         "belysning": ["belysning", "ljus", "lighting", "lampor", "armaturer"],
-        "ventilation": ["ventilation", "ventilationskanal", "fläkt"],
+        "ventilation": ["ventilation", "ventilationskanal", "fläkt",
+                        "stålkanal"],
         "dörr": ["dörr", "dörrar", "door", "innerdörr"],
         "hiss": ["hiss", "elevator", "personhiss"],
     }

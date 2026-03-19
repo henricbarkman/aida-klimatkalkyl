@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 import sys
 
-from aida.api_client import DEFAULT_MODEL, get_client
+from aida.api_client import (
+    DEFAULT_MODEL,
+    THINKING_LOW,
+    extract_text,
+    get_client,
+    thinking_config,
+)
 from aida.models import Project
 
 SYSTEM_PROMPT = """Du är AIda, en assistent för klimatkalkylering av ombyggnationer i Karlstads kommun.
@@ -55,14 +61,15 @@ def run_intake(description: str) -> dict:
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=2000,
+        max_tokens=2000 + THINKING_LOW,
+        thinking=thinking_config(THINKING_LOW),
         system=SYSTEM_PROMPT,
         messages=[
             {"role": "user", "content": description}
         ],
     )
 
-    text = response.content[0].text
+    text = extract_text(response)
 
     # Extract JSON from response (handle markdown code blocks)
     if "```json" in text:

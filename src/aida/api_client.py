@@ -26,4 +26,26 @@ def get_client() -> anthropic.Anthropic:
 
 
 # Default model for AIda agents
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+# Extended thinking budgets (tokens)
+THINKING_LOW = 1024
+THINKING_STANDARD = 5000
+
+# Models that support extended thinking
+_THINKING_MODELS = {"claude-sonnet-4-6", "claude-opus-4-6"}
+
+
+def thinking_config(budget: int):
+    """Return thinking parameter for API calls. NOT_GIVEN for unsupported models."""
+    if DEFAULT_MODEL not in _THINKING_MODELS:
+        return anthropic.NOT_GIVEN
+    return {"type": "enabled", "budget_tokens": budget}
+
+
+def extract_text(response) -> str:
+    """Extract text content, works with both thinking and non-thinking responses."""
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+    return ""

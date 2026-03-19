@@ -6,9 +6,15 @@ import json
 import sys
 from datetime import date
 
-from aida.api_client import get_client, DEFAULT_MODEL
-from aida.models import Project, Selections, AggregateResult
 from aida.agents.aggregate import compute_aggregate
+from aida.api_client import (
+    DEFAULT_MODEL,
+    THINKING_STANDARD,
+    extract_text,
+    get_client,
+    thinking_config,
+)
+from aida.models import Project, Selections
 
 REPORT_SYSTEM_PROMPT = """Du är AIda:s rapportgenerator. Du skapar strukturerade beslutsunderlag för ombyggnadsprojekt.
 
@@ -53,7 +59,8 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=4000,
+        max_tokens=4000 + THINKING_STANDARD,
+        thinking=thinking_config(THINKING_STANDARD),
         system=REPORT_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -80,7 +87,7 @@ Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är upps
         }],
     )
 
-    return response.content[0].text
+    return extract_text(response)
 
 
 def generate_report_pdf(project: Project, selections: Selections, output_path: str) -> str:
