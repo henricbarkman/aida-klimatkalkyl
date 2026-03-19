@@ -61,6 +61,7 @@ def find_alternatives(
     to incorporate the user's specific requests (e.g. more material options).
     """
     component_results = []
+    provider = ClimateProvider()
 
     for bl_comp in baseline.components:
         # Find matching project component
@@ -71,24 +72,32 @@ def find_alternatives(
         if not proj_comp:
             continue
 
-        # Always try local data first
-        local_alts = get_alternatives_for_component(proj_comp.name)
         alternatives = []
 
+        # 1. Environdec EPD:er — produktspecifika alternativ med verifierade värden
+        epd_alts = _find_environdec_alternatives(provider, proj_comp, bl_comp)
+        alternatives.extend(epd_alts)
+
+        # 2. Lokal data (återbruk + klimatoptimerat)
+        local_alts = get_alternatives_for_component(proj_comp.name)
+        existing_names = {a.name.lower() for a in alternatives}
         for mat in local_alts:
+            if mat.name.lower() in existing_names:
+                continue
             co2e = mat.co2e_per_unit * proj_comp.quantity
             cost = mat.cost_per_unit * proj_comp.quantity
             reasoning = REASONING.get(mat.category, "")
+            confidence_tag = "Verifierad" if mat.confidence == "high" else "Estimat"
             alternatives.append(Alternative(
                 name=mat.name,
                 co2e_kg=round(co2e, 1),
                 cost_sek=round(cost),
-                source=f"[Verifierad] {mat.source}",
+                source=f"[{confidence_tag}] {mat.source}",
                 reasoning=reasoning,
                 alternative_type=mat.category,
             ))
 
-        # Use LLM if no local alternatives OR if user gave feedback
+        # 3. LLM om inga alternativ hittades eller om användaren bad om fler
         if not alternatives or user_feedback:
             llm_alts = _estimate_alternatives_llm(proj_comp, bl_comp, user_feedback)
             existing_names = {a.name.lower() for a in alternatives}
@@ -172,6 +181,74 @@ Skriv din kommentar."""
         return extract_text(response).strip()
     except Exception:
         return ""
+
+
+def _find_environdec_alternatives(
+    provider: ClimateProvider,
+    proj_comp,
+    bl_comp,
+    max_results: int = 3,
+) -> list[Alternative]:
+    """Search Environdec for product-specific EPD alternatives with lower CO2e than baseline."""
+    from aida.data.climate_data import normalize_component_name
+
+    comp_key = normalize_component_name(proj_comp.name)
+    if not comp_key:
+        return []
+
+    client = provider._get_environdec()
+    # Search for products matching this component type
+    matches = client.search_index(
+        proj_comp.name,
+        component_hint=comp_key,
+        max_results=10,
+    )
+
+    if not matches:
+        return []
+
+    alternatives = []
+    baseline_per_unit = bl_comp.co2e_kg / proj_comp.quantity if proj_comp.quantity > 0 else 0
+
+    for match in matches:
+        if len(alternatives) >= max_results:
+            break
+
+        detail = client.fetch_epd_detail(match.uuid, match.version)
+        if detail is None:
+            continue
+
+        gwp = detail.gwp_fossil_a1a3 or detail.gwp_total_a1a3
+        if gwp is None or gwp <= 0:
+            continue
+
+        # Convert to functional unit via cache entry
+        entry = client.epd_to_cache_entry(detail, proj_comp.name)
+        from aida.data.climate_provider import ClimateResult
+        cr = ClimateResult(
+            name=entry.name, co2e_per_unit=entry.co2e_per_unit,
+            cost_per_unit=0.0, unit=entry.unit, source=entry.source,
+            confidence=entry.confidence, source_layer="environdec",
+        )
+        converted = provider._maybe_convert_units(cr, comp_key, entry.extra_json)
+        co2e_per_unit = converted.co2e_per_unit
+        co2e_total = co2e_per_unit * proj_comp.quantity
+
+        # Only include if it's better than baseline
+        if co2e_total >= bl_comp.co2e_kg:
+            continue
+
+        reg_label = detail.reg_no or detail.uuid[:8]
+        alternatives.append(Alternative(
+            name=f"{detail.name} ({detail.owner.strip()})" if detail.owner.strip() else detail.name,
+            co2e_kg=round(co2e_total, 1),
+            cost_sek=0,  # EPD:er har inte kostnad
+            source=f"[EPD] Environdec {reg_label}",
+            reasoning=f"{REASONING['climate_optimized']} GWP-fossil A1-A3: {gwp:.1f} kg CO2e/{detail.declared_unit} (Environdec EPD).",
+            alternative_type="climate_optimized",
+        ))
+
+    return alternatives
 
 
 def _estimate_alternatives_llm(proj_comp, bl_comp, user_feedback: str | None = None) -> list[Alternative]:
