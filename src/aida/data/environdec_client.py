@@ -264,7 +264,7 @@ class EnvirondecClient:
         reg_no = ""
         other_info = desc.get("other", {}).get("anies", [])
         for a in other_info:
-            if a.get("name") == "registrationNumber":
+            if isinstance(a, dict) and a.get("name") == "registrationNumber":
                 reg_no = a.get("value", "")
                 break
 
