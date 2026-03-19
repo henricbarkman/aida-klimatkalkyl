@@ -25,8 +25,8 @@ class MaterialData:
     confidence: str = "medium"  # high (API/EPD), medium (local verified), low (estimate)
 
 
-# Baseline data: conventional new production (NollCO2 worst-case principle)
-# These represent materials bought new without climate optimization.
+# Baseline data: conventional new production (standard materials).
+# Represents what standard materials cost climate-wise (Boverket Typical A1-A3).
 BASELINE_DATA: dict[str, list[MaterialData]] = {
     "golv": [
         MaterialData("Konventionellt vinylgolv", 12.0, 350, "m2", "Boverkets klimatdatabas 2023", "conventional"),
@@ -143,7 +143,7 @@ REUSE_DATA: dict[str, list[MaterialData]] = {
 REASONING = {
     "reuse": "Återbruk eliminerar nästan all tillverkningsrelaterad klimatpåverkan. Kvarvarande CO2e kommer främst från transport och eventuell renovering av materialet.",
     "climate_optimized": "Klimatoptimerat alternativ med lägre CO2e-avtryck jämfört med konventionell produkt, genom val av material med lägre inbyggd klimatpåverkan.",
-    "conventional": "Konventionell nyproduktion utan särskild klimathänsyn. Representerar baslinje enligt NollCO2-metodens princip.",
+    "conventional": "Konventionell nyproduktion utan särskild klimathänsyn. Representerar baslinjen: vad standardmaterial kostar klimatmässigt (Boverket Typical A1-A3).",
 }
 
 
@@ -184,7 +184,7 @@ def normalize_component_name(name: str) -> str:
 
 
 def get_baseline_for_component(name: str) -> MaterialData | None:
-    """Get the highest-emission baseline material for a component (NollCO2 worst-case)."""
+    """Get the baseline material for a component (conventional standard)."""
     key = normalize_component_name(name)
     if not key or key not in BASELINE_DATA:
         return None
