@@ -9,6 +9,7 @@ Pre-populated data (Boverket sync) is bundled in the deploy.
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ TTL_BOVERKET = 30 * 24 * 3600   # 30 days
 TTL_LOCAL = 365 * 24 * 3600     # 1 year (static data)
 TTL_ENVIRONDEC = 30 * 24 * 3600 # 30 days
 TTL_LLM = 7 * 24 * 3600        # 7 days
+TTL_PRICING = 30 * 24 * 3600   # 30 days
 
 
 @dataclass
@@ -49,6 +51,7 @@ class CacheEntry:
     fetched_at: float
     expires_at: float
     extra_json: str = ""
+    price_enriched: int = 0
 
 
 class ClimateCache:
@@ -89,6 +92,12 @@ class ClimateCache:
             )
         """)
         conn.commit()
+        # Add price_enriched column if missing (migration)
+        try:
+            conn.execute("ALTER TABLE climate_cache ADD COLUMN price_enriched INTEGER DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def get(self, product_name: str) -> CacheEntry | None:
         conn = self._get_conn()
@@ -192,6 +201,16 @@ class ClimateCache:
             (aida_key,),
         ).fetchall()
         return [r[0] for r in rows]
+
+    def update_cost(self, product_name: str, cost_per_unit: float) -> bool:
+        """Update cost_per_unit and mark as price-enriched. Returns True if row existed."""
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "UPDATE climate_cache SET cost_per_unit = ?, price_enriched = 1 WHERE product_name = ?",
+            (cost_per_unit, product_name.lower().strip()),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 
     def close(self) -> None:
         if self._conn:

@@ -76,7 +76,6 @@ BASELINE_DATA: dict[str, list[MaterialData]] = {
 # Climate-optimized alternatives
 OPTIMIZED_DATA: dict[str, list[MaterialData]] = {
     "golv": [
-        MaterialData("Linoleumgolv (biobaserat)", 0.0, 400, "m2", "EPD Forbo Marmoleum 2.5mm (A1-A3 koldioxidneutralt)", "climate_optimized", "high"),
         MaterialData("Trägolv massivt (FSC)", 2.0, 550, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "innervägg": [
@@ -110,7 +109,7 @@ OPTIMIZED_DATA: dict[str, list[MaterialData]] = {
         MaterialData("Ventilationskanal återvunnet stål", 7.0, 900, "lm", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
     ],
     "dörr": [
-        MaterialData("Innerdörr massivt trä (FSC)", 11.3, 4500, "st", "EPD Swedoor Advance-Line HUB-1206 (GWP-total A1-A3)", "climate_optimized", "high"),
+        MaterialData("Innerdörr massivt trä (FSC)", 15.0, 4500, "st", "Estimat — baserat på Swedoor EPD:er (GWP-total A1-A3)", "climate_optimized", "low"),
     ],
     "hiss": [
         MaterialData("Energieffektiv hiss (regen-broms)", 12000.0, 550000, "st", "Estimat baserat på KONE EPD:er i Environdec", "climate_optimized", "low"),
@@ -155,7 +154,9 @@ def normalize_component_name(name: str) -> str:
         "golv": ["golv", "floor", "golvbeläggning", "vinylgolv", "klinker",
                  "laminat", "parkett", "trägolv", "golvmaterial"],
         "innervägg": ["innervägg", "innerväggar", "interior wall", "gipsvägg",
-                      "mellanvägg", "gipsskiva", "byggskivor", "byggskiva"],
+                      "mellanvägg", "gipsskiva", "byggskivor", "byggskiva",
+                      "ytskikt", "målning", "måla", "väggfärg", "färg",
+                      "dispersionsfärg", "väggöverdraget", "väggöverdrag"],
         "yttervägg": ["yttervägg", "ytterväggar", "fasad", "exterior wall",
                       "puts", "bruk", "tegel", "tegelfasad"],
         "betongvägg": ["betongvägg", "betong", "concrete"],

@@ -1,4 +1,4 @@
-"""Shared Anthropic API client configuration."""
+"""Shared API client configuration. Routes through OpenRouter."""
 
 from __future__ import annotations
 
@@ -6,34 +6,39 @@ import os
 
 import anthropic
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+
 
 def get_client() -> anthropic.Anthropic:
-    """Get configured Anthropic client.
+    """Get Anthropic client routed through OpenRouter.
 
-    Supports ANTHROPIC_API_KEY, and CLAUDE_CODE_OAUTH_TOKEN (as auth_token).
+    Uses OPENROUTER_API_KEY (primary), falls back to direct Anthropic access.
     """
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        return anthropic.Anthropic(
+            api_key=openrouter_key,
+            base_url=OPENROUTER_BASE_URL,
+        )
+
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         return anthropic.Anthropic(api_key=api_key)
 
-    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
-    if oauth_token:
-        return anthropic.Anthropic(auth_token=oauth_token)
-
     raise RuntimeError(
-        "No API key found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN."
+        "No API key found. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY."
     )
 
 
-# Default model for AIda agents
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+# Default model for AIda agents — OpenRouter format
+DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
 
 # Extended thinking budgets (tokens)
 THINKING_LOW = 1024
 THINKING_STANDARD = 5000
 
 # Models that support extended thinking
-_THINKING_MODELS = {"claude-sonnet-4-6", "claude-opus-4-6"}
+_THINKING_MODELS = {"anthropic/claude-sonnet-4", "anthropic/claude-opus-4.6"}
 
 
 def thinking_config(budget: int):

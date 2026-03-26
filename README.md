@@ -1,6 +1,73 @@
-# AIda — Klimatkalkyl och beslutsstöd för ombyggnationer
+# AIda: Klimatkalkyl och beslutsstöd för ombyggnationer
 
 Delprojekt inom AI för klimatet.
+
+## Hosting
+
+**Live**: [aida-klimatkalkyl.vercel.app](https://aida-klimatkalkyl.vercel.app)
+
+Deployas via Vercel, kopplad till GitHub-repot `henricbarkman/aida-klimatkalkyl`. Push till main triggar auto-deploy.
+
+- **Runtime**: `@vercel/python` (Flask)
+- **Entry point**: `api/index.py` (importerar `src/aida/web/app.py`)
+- **Env vars i Vercel**: `ANTHROPIC_API_KEY`, `AIDA_SECRET_KEY`, plus Supabase-variabler (se nedan)
+- **Begränsning**: Vercel serverless har 10s timeout (hobby) / 60s (pro). Längre LLM-anrop kan timeout:a.
+
+## Auth och sparade analyser (Supabase)
+
+Användare kan skapa konto och spara sina analyser. Auth hanteras av Supabase (frontend JS client + backend JWT-validering).
+
+### Env vars
+
+| Variabel | Beskrivning |
+|----------|-------------|
+| `SUPABASE_URL` | Supabase-projektets URL (ex: `https://xyz.supabase.co`) |
+| `SUPABASE_ANON_KEY` | Supabase anon/public key |
+| `SUPABASE_JWT_SECRET` | JWT secret för att validera tokens server-side |
+
+Om `SUPABASE_JWT_SECRET` inte finns faller appen tillbaka till gammal lösenordsauth (`AIDA_PASSWORD`).
+
+### Supabase-setup
+
+1. Skapa ett projekt på [supabase.com](https://supabase.com) (free tier)
+2. Aktivera Email/Password auth under Authentication > Providers
+3. Kör följande SQL i SQL Editor:
+
+```sql
+CREATE TABLE analyses (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL DEFAULT 'Nytt projekt',
+  status TEXT DEFAULT 'intake',
+  project_data JSONB,
+  baseline_data JSONB,
+  alternatives_data JSONB,
+  selections_data JSONB,
+  report_markdown TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Auto-update updated_at
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_updated_at
+  BEFORE UPDATE ON analyses
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Row Level Security
+ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users see own analyses"
+  ON analyses FOR ALL
+  USING (auth.uid() = user_id);
+```
+
+4. Lägg till env vars i Vercel (Settings > Environment Variables)
+5. Deploya
 
 ## User story
 

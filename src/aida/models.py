@@ -65,6 +65,7 @@ class BaselineResult:
     method: str = "NollCO2"
     description: str = ""
     source: str = ""
+    cost_source: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -92,6 +93,7 @@ class Baseline:
                 method=c.get("method", "NollCO2"),
                 description=c.get("description", ""),
                 source=c.get("source", ""),
+                cost_source=c.get("cost_source", ""),
             ))
         return cls(components=components)
 

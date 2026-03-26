@@ -13,6 +13,7 @@ from aida.api_client import (
     thinking_config,
 )
 from aida.data.climate_data import REASONING
+from aida.data.climate_provider import ClimateProvider
 from aida.models import Baseline, BaselineResult, Project
 
 SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare. Du beräknar baslinjen för klimatpåverkan — vad konventionella standardmaterial kostar klimatmässigt.
@@ -46,6 +47,28 @@ Svara med giltig JSON:
 """
 
 
+def _friendly_source(climate) -> str:
+    """Human-readable source label for climate data."""
+    src = climate.source_layer if hasattr(climate, 'source_layer') else ""
+    if src == "boverket" or "Boverket" in (climate.source or ""):
+        return "Boverkets klimatdatabas"
+    if src == "environdec" or "Environdec" in (climate.source or ""):
+        return "EPD (Environdec)"
+    if src == "local":
+        raw = climate.source or ""
+        if "Boverket" in raw:
+            return "Boverkets typvärde"
+        return "Typiskt värde (uppskattning)"
+    return "Uppskattning"
+
+
+def _friendly_cost_source(climate) -> str:
+    """Human-readable source label for price data."""
+    if climate.cost_per_unit <= 0:
+        return ""
+    return "Webbsökning (AI)"
+
+
 def calculate_baseline(project: Project) -> Baseline:
     """Calculate NollCO2 baseline for each component.
 
@@ -67,7 +90,8 @@ def calculate_baseline(project: Project) -> Baseline:
                 cost_sek=round(cost),
                 method="NollCO2",
                 description=f"Baslinje (NollCO2): {climate.name}, {climate.co2e_per_unit} kg CO2e/{climate.unit} x {comp.quantity} {comp.unit}. {REASONING['conventional']}",
-                source=f"[{climate.confidence.title()}] {climate.source}",
+                source=_friendly_source(climate),
+                cost_source=_friendly_cost_source(climate),
             ))
         else:
             unknown_components.append(comp)
@@ -131,7 +155,8 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
             cost_sek=item["cost_sek"],
             method="NollCO2",
             description=item.get("description", "LLM-uppskattning (ej i standarddatabas)"),
-            source=f"[Uppskattning] {raw_source}",
+            source="Uppskattning",
+            cost_source="Uppskattning (AI)",
         ))
 
     return results

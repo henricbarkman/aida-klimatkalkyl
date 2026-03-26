@@ -1,6 +1,3 @@
-__pycache__/
-*.pyc
-.env
-*.egg-info/
-dist/
-build/
+epd_detail_cache.db
+.vercel
+.venv

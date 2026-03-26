@@ -113,25 +113,64 @@ class ClimateProvider:
         cached = self._cache.get(key)
         if cached:
             result = _entry_to_result(cached)
-            return self._maybe_convert_units(result, component_hint or key, cached.extra_json)
+            result = self._maybe_convert_units(result, component_hint or key, cached.extra_json)
+            return self._maybe_enrich_cost(result, key)
 
         # Layer 2: Try Boverket API (fuzzy search in cache after sync)
         result = self._try_boverket(key, component_hint)
         if result:
-            return result
+            return self._maybe_enrich_cost(result, key)
 
         # Layer 3: Environdec EPD database (product-specific EPDs)
         result = self._try_environdec(key, component_hint)
         if result:
-            return result
+            return self._maybe_enrich_cost(result, key)
 
         # Layer 4: Local fallback (climate_data.py)
         result = self._try_local(key)
         if result:
-            return result
+            return self._maybe_enrich_cost(result, key)
 
         # Layer 5: LLM fallback (not implemented in v1 — returns None)
         return None
+
+    def _maybe_enrich_cost(self, result: ClimateResult, product_name: str) -> ClimateResult:
+        """Try web search for current market price. Skips if already enriched."""
+        key = product_name.lower().strip()
+        # Check if already price-enriched in cache
+        cached = self._cache.get(key)
+        if cached and cached.price_enriched:
+            if cached.cost_per_unit > 0:
+                # Use cached enriched price
+                if result.cost_per_unit != cached.cost_per_unit:
+                    return ClimateResult(
+                        name=result.name, co2e_per_unit=result.co2e_per_unit,
+                        cost_per_unit=cached.cost_per_unit, unit=result.unit,
+                        source=result.source, confidence=result.confidence,
+                        source_layer=result.source_layer,
+                        category=getattr(result, 'category', ''),
+                    )
+                return result
+            return result  # Enrichment was attempted but found nothing
+        try:
+            from aida.data.pricing_provider import lookup_price
+            pricing = lookup_price(product_name, result.unit)
+            if pricing is None:
+                # Mark as attempted so we don't retry every request
+                self._cache.update_cost(key, result.cost_per_unit)
+                return result
+            price, _unit, source = pricing
+            self._cache.update_cost(key, price)
+            return ClimateResult(
+                name=result.name, co2e_per_unit=result.co2e_per_unit,
+                cost_per_unit=price, unit=result.unit,
+                source=result.source, confidence=result.confidence,
+                source_layer=result.source_layer,
+                category=getattr(result, 'category', ''),
+            )
+        except Exception as e:
+            logging.getLogger(__name__).debug("Price enrichment failed for '%s': %s", product_name, e)
+            return result
 
     def _maybe_convert_units(
         self,

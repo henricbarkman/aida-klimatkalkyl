@@ -1,0 +1,80 @@
+[
+  {
+    "category": "golv",
+    "name": "Marmoleum Sheet Striato 2.5mm (linoleum)",
+    "owner": "Forbo Flooring Systems",
+    "gwp_a1a3": 4.36,
+    "gwp_total_a1a3": -1.24,
+    "unit": "m2",
+    "geo": "RER",
+    "reg_no": "4790859342.102.2 (UL Environment)",
+    "uuid": "external-forbo-marmoleum-striato-25",
+    "source_registry": "ul_environment",
+    "notes": "GWP-fossil 4.36, GWP-total -1.24 (carbon negative due to biogenic uptake -5.60). Weight 2.9 kg/m2. No CO2 certificates used."
+  },
+  {
+    "category": "golv",
+    "name": "Marmoleum Sheet 2.5mm (plain/marbled linoleum)",
+    "owner": "Forbo Flooring Systems",
+    "gwp_a1a3": 4.36,
+    "gwp_total_a1a3": -1.24,
+    "unit": "m2",
+    "geo": "RER",
+    "reg_no": "NEPD-3410-2062-EN (EPD Norge)",
+    "uuid": "external-forbo-marmoleum-sheet-25",
+    "source_registry": "epd_norge",
+    "notes": "Similar GWP profile to Striato variant. Bio-based linoleum (linseed oil, wood flour, jute backing). Carbon negative A1-A3."
+  },
+  {
+    "category": "golv",
+    "name": "Marmoleum Decibel 3.5mm (acoustic linoleum)",
+    "owner": "Forbo Flooring Systems",
+    "gwp_a1a3": 6.5,
+    "gwp_total_a1a3": 0.8,
+    "unit": "m2",
+    "geo": "RER",
+    "reg_no": "NEPD-3574-2167-EN (EPD Norge)",
+    "uuid": "external-forbo-marmoleum-decibel-35",
+    "source_registry": "epd_norge",
+    "notes": "Thicker variant (3.5mm) with acoustic backing. Higher GWP than 2.5mm due to additional material. Estimated from 2024 EPD."
+  },
+  {
+    "category": "dörr",
+    "name": "Swedoor ADVANCE-LINE Interior 40mm unglazed Unique",
+    "owner": "JELD-WEN",
+    "gwp_a1a3": 32.3,
+    "gwp_total_a1a3": 10.5,
+    "unit": "m2",
+    "geo": "FI",
+    "reg_no": "HUB-1205 (EPD Hub)",
+    "uuid": "external-swedoor-advance-40mm-unique",
+    "source_registry": "epd_hub",
+    "notes": "Declared unit 1 m2. Mass 14.9 kg/m2. Reference door 0.825x2.040m = 1.683 m2. Per door: GWP-fossil ~54.3 kg, GWP-total ~17.7 kg. Bio-based 90%. Valid until 2029-03-07."
+  },
+  {
+    "category": "dörr",
+    "name": "Swedoor ADVANCE-LINE Exterior 92.3mm unglazed ECO",
+    "owner": "JELD-WEN",
+    "gwp_a1a3": 52.5,
+    "gwp_total_a1a3": 52.5,
+    "unit": "m2",
+    "geo": "FI",
+    "reg_no": "HUB-0445 (EPD Hub)",
+    "uuid": "external-swedoor-advance-exterior-92mm",
+    "source_registry": "epd_hub",
+    "notes": "Exterior door 92.3mm. Declared unit 1 m2. Reference door 0.925x2.033m = 1.881 m2. Per door: ~98.8 kg CO2e. Heavier than interior variant."
+  },
+  {
+    "category": "dörr",
+    "name": "Swedoor ADVANCE-LINE Interior glazed/stable doors",
+    "owner": "JELD-WEN",
+    "gwp_a1a3": 35.0,
+    "gwp_total_a1a3": 12.0,
+    "unit": "m2",
+    "geo": "FI",
+    "reg_no": "HUB-0988 (EPD Hub)",
+    "uuid": "external-swedoor-advance-glazed-stable",
+    "source_registry": "epd_hub",
+    "notes": "Interior glazed and stable doors. Estimated GWP from EPD published 2024-01-05, valid until 2029-01-05."
+  }
+]

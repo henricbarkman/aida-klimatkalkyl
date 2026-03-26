@@ -8,8 +8,11 @@ alternatives from the EPD data it receives.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from aida.api_client import (
     DEFAULT_MODEL,
@@ -47,9 +50,11 @@ Din uppgift:
 
 VIKTIGT:
 - Använd GWP-värdena från EPD-listan — de är verifierade, inte uppskattningar
+- Om ett omräknat värde visas (efter →), använd det omräknade värdet för beräkningar
 - Ange EPD-registreringsnummer i source-fältet
 - Prioritera svenska/nordiska produkter (SE, NORD, RER)
 - Om EPD-värdet är i en annan enhet (kg) än projektets enhet (m2, st), gör en rimlig omräkning och notera det
+- EPD:er kan komma från olika register (Environdec, EPD Norge, EPD Hub). Alla är verifierade
 - Om ingen EPD i listan passar, säg det och ge en egen uppskattning med tydlig markering
 
 Svara med giltig JSON-array:
@@ -88,10 +93,26 @@ def _format_epd_list(epds: list[dict]) -> str:
     for epd in epds:
         reg = epd.get("reg_no", "")
         reg_str = f" ({reg})" if reg else ""
+
+        # Show converted functional unit value when available
+        gwp_str = f"GWP A1-A3: {epd['gwp_a1a3']} kg CO2e/{epd['unit']}"
+        fu_gwp = epd.get("gwp_per_functional_unit")
+        fu_unit = epd.get("functional_unit")
+        if fu_gwp is not None and fu_unit:
+            gwp_str += f" \u2192 {fu_gwp} kg CO2e/{fu_unit}"
+
+        # Show GWP-total when it differs significantly (e.g. bio-based products)
+        gwp_total = epd.get("gwp_total_a1a3")
+        if gwp_total is not None and gwp_total != epd["gwp_a1a3"]:
+            gwp_str += f" (GWP-total: {gwp_total})"
+
+        source = epd.get("source_registry", "environdec")
+        source_tag = f" [{source}]" if source != "environdec" else ""
+
         lines.append(
             f"- {epd['name']} | {epd.get('owner', '?')} | "
-            f"GWP A1-A3: {epd['gwp_a1a3']} kg CO2e/{epd['unit']} | "
-            f"Geo: {epd.get('geo', '?')}{reg_str}"
+            f"{gwp_str} | "
+            f"Geo: {epd.get('geo', '?')}{reg_str}{source_tag}"
         )
     return "\n".join(lines)
 
@@ -110,32 +131,29 @@ def find_alternatives(
     4. Supplement with local data (reuse options)
     """
     epd_data = _load_epd_alternatives()
-    component_results = []
 
-    for bl_comp in baseline.components:
+    def _process_component(bl_comp):
         proj_comp = next(
             (c for c in project.components if c.id == bl_comp.component_id),
             None,
         )
         if not proj_comp:
-            continue
+            return None
 
         comp_key = normalize_component_name(proj_comp.name)
         epds_for_category = epd_data.get(comp_key, [])
 
-        # Get LLM alternatives using real EPD data
         alternatives = _find_alternatives_with_epds(
             proj_comp, bl_comp, epds_for_category, user_feedback
         )
 
-        # Supplement with local reuse data
         local_alts = get_alternatives_for_component(proj_comp.name)
         existing_names = {a.name.lower() for a in alternatives}
         for mat in local_alts:
             if mat.name.lower() in existing_names:
                 continue
             if mat.category != "reuse":
-                continue  # EPD data covers climate_optimized better
+                continue
             co2e = mat.co2e_per_unit * proj_comp.quantity
             cost = mat.cost_per_unit * proj_comp.quantity
             alternatives.append(Alternative(
@@ -157,13 +175,37 @@ def find_alternatives(
                 alternative_type="baseline",
             ))
 
-        component_results.append(ComponentAlternatives(
+        return ComponentAlternatives(
             component_id=bl_comp.component_id,
             component_name=bl_comp.component_name,
             baseline_co2e_kg=bl_comp.co2e_kg,
             baseline_cost_sek=bl_comp.cost_sek,
             alternatives=alternatives,
-        ))
+        )
+
+    # Run per-component LLM calls in parallel (I/O-bound)
+    max_workers = min(len(baseline.components), 5)
+    results_map = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_comp = {
+            executor.submit(_process_component, bl): bl
+            for bl in baseline.components
+        }
+        for future in as_completed(future_to_comp):
+            bl = future_to_comp[future]
+            try:
+                r = future.result()
+                if r:
+                    results_map[bl.component_id] = r
+            except Exception:
+                logger.warning("Component failed: %s", bl.component_name, exc_info=True)
+
+    # Preserve original component order
+    component_results = [
+        results_map[bl.component_id]
+        for bl in baseline.components
+        if bl.component_id in results_map
+    ]
 
     result = AlternativesResult(components=component_results)
     result.commentary = _generate_commentary(project, baseline, result)
@@ -247,20 +289,24 @@ Ange tydligt att det är uppskattningar.
 
         return results
     except Exception:
+        logger.warning("Failed to parse alternatives for %s", proj_comp.name, exc_info=True)
         return []
 
 
 COMMENTARY_PROMPT = """Du är AIda. Du har just tagit fram alternativ för ett ombyggnadsprojekt.
 
-Skriv en kort kommentar (3-6 meningar) om förslagen. Kommentaren ska:
+Skriv en kort kommentar om förslagen. Kommentaren ska:
 - Lyfta de mest intressanta alternativen och varför de sticker ut
 - Nämna om det finns återbruksmöjligheter och vad det innebär
 - Peka på eventuella avvägningar (t.ex. lägre CO2 men högre kostnad, eller tvärtom)
 - Ge ett helhetsintryck av besparingspotentialen
 
-Skriv på svenska. Var konkret, inte generisk. Referera till faktiska materialnamn och siffror från datan.
-Skriv som en kunnig rådgivare som pratar med en projektledare.
-Inte som en lista, utan som en sammanhängande kommentar."""
+Format:
+- Dela upp texten så den är lätt att skumma: korta stycken, punktlistor eller en kombination.
+- Max 4-5 meningar/punkter totalt. Korta formuleringar.
+- Konkret och direkt, med materialnamn och siffror.
+- Skriv som en kunnig rådgivare som pratar med en projektledare.
+- Skriv på svenska."""
 
 
 def _generate_commentary(

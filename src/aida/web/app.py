@@ -295,6 +295,119 @@ def api_report():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/report/docx', methods=['POST'])
+@require_auth
+def api_report_docx():
+    """Convert markdown report to .docx and return as download."""
+    data = request.json or {}
+    markdown = data.get('markdown', '')
+    if not markdown:
+        return jsonify({'error': 'Markdown saknas'}), 400
+
+    try:
+        import io
+        import re
+
+        from docx import Document
+        from docx.shared import Pt
+
+        doc = Document()
+        style = doc.styles['Normal']
+        style.font.name = 'Calibri'
+        style.font.size = Pt(11)
+        style.paragraph_format.space_after = Pt(6)
+
+        active_table = None
+
+        for line in markdown.split('\n'):
+            stripped = line.strip()
+
+            if stripped.startswith('# '):
+                active_table = None
+                doc.add_heading(stripped[2:], level=1)
+            elif stripped.startswith('## '):
+                active_table = None
+                doc.add_heading(stripped[3:], level=2)
+            elif stripped.startswith('### '):
+                active_table = None
+                doc.add_heading(stripped[4:], level=3)
+            elif stripped.startswith('- ') or stripped.startswith('* '):
+                active_table = None
+                doc.add_paragraph(stripped[2:], style='List Bullet')
+            elif stripped.startswith('|') and '|' in stripped[1:]:
+                cells = [c.strip() for c in stripped.split('|')[1:-1]]
+                if cells and not all(set(c) <= {'-', ':', ' '} for c in cells):
+                    if active_table is None:
+                        active_table = doc.add_table(rows=0, cols=len(cells))
+                        active_table.style = 'Light Grid Accent 1'
+                    if len(cells) == len(active_table.columns):
+                        row = active_table.add_row()
+                        for i, cell in enumerate(cells):
+                            cell = re.sub(r'\*\*(.+?)\*\*', r'\1', cell)
+                            row.cells[i].text = cell
+            elif stripped == '':
+                active_table = None
+            else:
+                active_table = None
+                p = doc.add_paragraph()
+                parts = re.split(r'(\*\*.+?\*\*)', stripped)
+                for part in parts:
+                    if part.startswith('**') and part.endswith('**'):
+                        run = p.add_run(part[2:-2])
+                        run.bold = True
+                    else:
+                        p.add_run(part)
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+
+        return Response(
+            buf.getvalue(),
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            headers={'Content-Disposition': 'attachment; filename=aida-rapport.docx'},
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat', methods=['POST'])
+@require_auth
+def api_chat():
+    """Handle conversational follow-ups after alternatives are shown."""
+    from aida.api_client import DEFAULT_MODEL, extract_text, get_client
+    data = request.json or {}
+    history = data.get('history', [])
+    user_message = data.get('message', '')
+    context = data.get('context', {})
+
+    system = ("Du är AIda, ett klimatkalkyleringsverktyg för ombyggnationer i kommunal förvaltning. "
+              "Du hjälper användaren förstå klimatpåverkan och kostnader för byggnadskomponenter. "
+              "Svara kortfattat och konkret. Använd siffror från kontexten. Skriv på svenska.")
+
+    if context:
+        ctx = []
+        if context.get('building_type'):
+            ctx.append(f"Projekt: {context['building_type']}, {context.get('area_bta','')} m²")
+        if context.get('baseline_total'):
+            ctx.append(f"Baslinje: {context['baseline_total']} kg CO₂e totalt")
+        if context.get('components'):
+            ctx.append(f"Komponenter: {', '.join(context['components'])}")
+        if ctx:
+            system += "\n\nKontext:\n" + "\n".join(ctx)
+
+    messages = history[-10:] + [{"role": "user", "content": user_message}]
+    try:
+        client = get_client()
+        response = client.messages.create(
+            model=DEFAULT_MODEL, max_tokens=600, system=system, messages=messages,
+        )
+        reply = extract_text(response).strip()
+        return jsonify({'reply': reply})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # === Analyses CRUD (Supabase) ===
 
 @app.route('/api/analyses', methods=['POST'])
@@ -582,6 +695,60 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .btn-confirm { padding: 8px 20px; background: var(--kk-charcoal); color: white; border: none; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.2s; }
 .btn-confirm:hover { background: var(--kk-dark-red); }
 .confirm-hint { font-size: 11px; color: var(--kk-gray-400); margin-top: 6px; }
+
+/* === Typing indicator (Feature 1) === */
+.typing-indicator { display: flex; align-items: center; gap: 5px; padding: 10px 14px; }
+.typing-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--kk-gray-400); animation: typingBounce 1.2s ease-in-out infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-6px); opacity: 1; } }
+.elapsed-time { font-size: 11px; color: var(--kk-gray-400); margin-left: 4px; }
+
+/* === Reasoning expander (Feature 2) === */
+.reasoning-toggle { background: none; border: none; color: var(--kk-gray-400); font-size: 11px; cursor: pointer; padding: 0; font-family: inherit; text-decoration: underline; white-space: nowrap; }
+.reasoning-toggle:hover { color: var(--kk-charcoal); }
+.reasoning-row td { padding: 4px 12px 8px 44px; font-size: 12px; color: var(--kk-gray-500); line-height: 1.5; background: var(--kk-gray-50); border-bottom: 1px solid var(--kk-gray-100); }
+
+/* === Modal (Feature 5) === */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; display: flex; align-items: center; justify-content: center; }
+.modal-box { background: white; border-radius: 12px; padding: 32px; max-width: 560px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative; }
+.modal-box h2 { font-size: 18px; font-weight: 700; color: var(--kk-charcoal); margin-bottom: 16px; }
+.modal-box p, .modal-box li { font-size: 13px; line-height: 1.6; color: var(--kk-charcoal); }
+.modal-box ul { padding-left: 20px; margin: 8px 0; }
+.modal-box section { margin-bottom: 20px; }
+.modal-box h3 { font-size: 14px; font-weight: 600; color: var(--kk-charcoal); margin-bottom: 6px; }
+.modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; color: var(--kk-gray-400); font-size: 20px; }
+.modal-close:hover { color: var(--kk-charcoal); }
+
+/* === Step-back navigation (Feature 10) === */
+.step-circle.done { cursor: pointer; }
+.step-circle.done:hover { background: var(--kk-dark-red); border-color: var(--kk-dark-red); transform: scale(1.1); transition: all 0.2s; }
+
+/* === Responsive (Feature 9) === */
+@media (max-width: 768px) {
+  .main { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0 12px; gap: 12px; }
+  .chat-panel { width: 100%; min-height: 300px; max-height: 50vh; }
+  .results-panel { width: 100%; }
+  .progress-bar { padding: 12px 16px 8px; }
+  .step-label { display: none; }
+  .progress-track { gap: 0; }
+  .step-circle { width: 26px; height: 26px; font-size: 12px; }
+  .topbar { padding: 0 12px; }
+  .topbar-center { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .summary { grid-template-columns: repeat(2, 1fr); }
+  .card .value { font-size: 18px; }
+  .comp-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  body { height: auto; min-height: 100vh; }
+  .results-content { max-height: none; }
+  .footer { padding: 8px 12px; }
+}
+@media (max-width: 480px) {
+  .summary { grid-template-columns: 1fr; }
+  .chat-panel { max-height: 45vh; }
+  .results-tabs { overflow-x: auto; }
+  .tab { padding: 10px 12px; font-size: 12px; white-space: nowrap; }
+  .topbar-center { display: none; }
+}
 </style>
 </head>
 <body>
@@ -625,6 +792,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
     </div>
   </div>
   <div class="topbar-right" id="userDropdown" style="position:relative">
+    <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);margin-right:8px;display:none"></span>
     <button class="user-btn" onclick="toggleUserMenu()">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </button>
@@ -636,7 +804,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   </div>
   {% else %}
   <div class="topbar-center"></div>
-  <div class="topbar-right">Prototyp</div>
+  <div class="topbar-right"><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);margin-right:8px;display:none"></span>Prototyp</div>
   {% endif %}
 </div>
 
@@ -689,7 +857,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
         </button>
       </div>
     </div>
-    <div class="chat-disclaimer">AIda kan göra misstag. Kontrollera viktig information.</div>
+    <div class="chat-disclaimer"></div>
   </div>
 
   <!-- Results panel -->
@@ -709,7 +877,44 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 </div>
 
 <!-- Footer -->
-<div class="footer"></div>
+<div class="footer" style="display:flex;justify-content:center;align-items:center;gap:8px">
+  <a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-400);text-decoration:none;font-size:11px">Om verktyget</a>
+  <span style="color:var(--kk-gray-300)">&#xB7;</span>
+  <span style="font-size:11px;color:var(--kk-gray-400)">AIda kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
+</div>
+
+<!-- About modal (Feature 5) -->
+<div id="aboutModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAbout()">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeAbout()" aria-label="St&#xE4;ng">&#x2715;</button>
+    <h2>Om AIda</h2>
+    <section>
+      <h3>Vad &#xE4;r AIda?</h3>
+      <p>AIda &#xE4;r ett AI-drivet beslutsst&#xF6;d f&#xF6;r klimatber&#xE4;kning vid ombyggnation av kommunala fastigheter. Verktyget utvecklades inom ramen f&#xF6;r KK2030 &#x2013; Klimatneutrala Karlstad 2030.</p>
+    </section>
+    <section>
+      <h3>Datak&#xE4;llor</h3>
+      <ul>
+        <li><strong>Klimatdata:</strong> Boverkets klimatdatabas, NollCO2-metoden</li>
+        <li><strong>Alternativ:</strong> Environdec EPD-databas (verifierade produktdeklarationer)</li>
+        <li><strong>Priser:</strong> AI-driven webbs&#xF6;kning mot svenska bygghandlare</li>
+        <li><strong>&#xC5;terbruk:</strong> Lokala k&#xE4;llor (Sola bygg&#xE5;terbruk, CCBuild)</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Metod</h3>
+      <p>AIda j&#xE4;mf&#xF6;r konventionella materialval (baslinje) mot klimatoptimerade alternativ med hj&#xE4;lp av verifierade EPD:er. Ber&#xE4;kningarna avser produktskedet (A1-A3) om inget annat anges.</p>
+    </section>
+    <section>
+      <h3>Begr&#xE4;nsningar</h3>
+      <ul>
+        <li>Resultaten &#xE4;r ett underlag f&#xF6;r beslut, inte ett slutgiltigt klimatbokslut</li>
+        <li>Kostnadsuppskattningar baseras p&#xE5; webbs&#xF6;kning &#x2013; inh&#xE4;mta offerter f&#xF6;r exakta v&#xE4;rden</li>
+        <li>AI kan g&#xF6;ra fel &#x2013; kontrollera k&#xE4;llh&#xE4;nvisningar vid viktiga beslut</li>
+      </ul>
+    </section>
+  </div>
+</div>
 
 {% if has_supabase %}</div><!-- /appContainer -->{% endif %}
 
@@ -722,9 +927,22 @@ if (typeof marked !== 'undefined') {
 let state = {
   project: null, baseline: null, alternatives: null,
   selections: {}, pendingDesc: null, reportMarkdown: null,
+  chatHistory: [],
   step: 'idle' // idle, intake_done, baseline_done, alternatives_done, report_done
 };
 let activeTab = null;
+
+// Dynamic placeholder (Feature 4)
+const STEP_PLACEHOLDERS = {
+  idle: 'Beskriv ditt ombyggnadsprojekt...',
+  intake_done: 'Skriv korrigeringar eller bekr\u00e4fta...',
+  baseline_done: 'Ge feedback eller bekr\u00e4fta...',
+  alternatives_done: 'Fr\u00e5ga om material, kostnader eller alternativ...',
+  report_done: 'St\u00e4ll fr\u00e5gor om rapporten...',
+};
+function updatePlaceholder() {
+  document.getElementById('userInput').placeholder = STEP_PLACEHOLDERS[state.step] || 'Skriv ditt meddelande...';
+}
 
 function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -767,22 +985,49 @@ function removeConfirmButtons() {
 
 function setProgressStep(name) {
   const order = ['planering','baslinje','aterbruk','nyproduktion','sammanstallning','uppfoljning'];
+  const STEP_TAB = {planering:'projekt',baslinje:'baslinje',aterbruk:'alternativ',nyproduktion:'alternativ',sammanstallning:'alternativ',uppfoljning:'rapport'};
   const ni = order.indexOf(name);
   const pct = order.length > 1 ? (ni / (order.length - 1)) * 100 : 0;
   document.getElementById('progressFill').style.width = pct + '%';
   order.forEach((s, i) => {
     const circle = document.getElementById('sc-' + s);
     const label = document.getElementById('sl-' + s);
-    circle.className = 'step-circle' + (i < ni ? ' done' : i === ni ? ' active' : '');
-    label.className = 'step-label' + (i < ni ? ' done' : i === ni ? ' active' : '');
-    if (i < ni) circle.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-    else circle.textContent = i + 1;
+    const isDone = i < ni;
+    circle.className = 'step-circle' + (isDone ? ' done' : i === ni ? ' active' : '');
+    label.className = 'step-label' + (isDone ? ' done' : i === ni ? ' active' : '');
+    if (isDone) {
+      circle.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      const tab = STEP_TAB[s];
+      circle.onclick = () => { if (tab) switchTab(tab); };
+      circle.title = 'G\u00e5 till ' + label.textContent;
+    } else {
+      circle.textContent = i + 1;
+      circle.onclick = null; circle.title = '';
+    }
   });
 }
 
+let _loadingTimer = null;
+let _loadingStart = null;
 function setLoading(on) {
   document.getElementById('sendBtn').disabled = on;
   document.getElementById('userInput').disabled = on;
+  if (on) {
+    _loadingStart = Date.now();
+    const el = document.createElement('div');
+    el.className = 'msg bot'; el.id = 'typingBubble';
+    el.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div><span class="elapsed-time" id="elapsedTime"></span></div>';
+    document.getElementById('messages').appendChild(el);
+    el.scrollIntoView({behavior:'smooth'});
+    _loadingTimer = setInterval(() => {
+      const t = document.getElementById('elapsedTime');
+      if (t) { const s = Math.floor((Date.now() - _loadingStart) / 1000); if (s >= 3) t.textContent = s + 's'; }
+    }, 1000);
+  } else {
+    if (_loadingTimer) { clearInterval(_loadingTimer); _loadingTimer = null; }
+    const bubble = document.getElementById('typingBubble'); if (bubble) bubble.remove();
+    updatePlaceholder();
+  }
 }
 
 // === Tab system ===
@@ -827,16 +1072,14 @@ async function sendMessage() {
       await runIntake(state.project.description + '\n\nKorrigering: ' + text);
       break;
     case 'baseline_done':
-      addMsg('Uppdaterar projektet...', 'system');
-      await runIntake(state.project.description + '\n\nKorrigering: ' + text);
-      break;
-    case 'alternatives_done':
-      addMsg('Söker fler alternativ...', 'system');
+      addMsg('Söker alternativ med din feedback...', 'system');
       await runAlternatives(text);
       break;
+    case 'alternatives_done':
+      await runChat(text);
+      break;
     case 'report_done':
-      addMsg('Uppdaterar projektet och genererar ny rapport...', 'system');
-      await runIntake(state.project.description + '\n\nKorrigering: ' + text);
+      await runChat(text);
       break;
     default:
       setLoading(false);
@@ -878,6 +1121,7 @@ async function runIntake(desc) {
     state.alternatives = null;
     state.selections = {};
     state.reportMarkdown = null;
+    state.chatHistory = [];
     state.step = 'intake_done';
     if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.building_type || d.name || 'Nytt projekt'; }
     scheduleAutoSave();
@@ -929,12 +1173,15 @@ async function runBaseline() {
 
 // === Pipeline: Alternatives ===
 async function runAlternatives(userFeedback) {
-  addMsg('S\u00f6ker \u00e5terbruksalternativ...', 'system');
+  // Snapshot selections by component name before clearing (Feature 3)
+  const prevSelByName = {};
+  Object.values(state.selections).forEach(sel => { prevSelByName[sel.name] = sel.selected_alternative; });
+
+  addMsg('S\u00f6ker alternativ...', 'system');
   setProgressStep('aterbruk');
   setLoading(true);
   const subStepTimer = setTimeout(() => {
     setProgressStep('nyproduktion');
-    addMsg('S\u00f6ker klimatoptimerade alternativ...', 'system');
   }, 2000);
   try {
     const body = {project: state.project, baseline: state.baseline};
@@ -944,9 +1191,23 @@ async function runAlternatives(userFeedback) {
     clearTimeout(subStepTimer);
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
     state.alternatives = d;
-    state.selections = {};
     state.reportMarkdown = null;
     state.step = 'alternatives_done';
+
+    // Restore previous selections by component name match (Feature 3)
+    state.selections = {};
+    if (Object.keys(prevSelByName).length > 0) {
+      d.components.forEach(comp => {
+        const prev = prevSelByName[comp.component_name];
+        if (!prev) return;
+        if (prev.name === 'Baslinje') {
+          state.selections[comp.component_id] = {id:comp.component_id, name:comp.component_name, selected_alternative:{name:'Baslinje',co2e_kg:comp.baseline_co2e_kg,cost_sek:comp.baseline_cost_sek,source:'NollCO2'}, baseline_co2e_kg:comp.baseline_co2e_kg, baseline_cost_sek:comp.baseline_cost_sek};
+        } else {
+          const match = comp.alternatives.find(a => a.name === prev.name);
+          if (match) state.selections[comp.component_id] = {id:comp.component_id, name:comp.component_name, selected_alternative:{name:match.name,co2e_kg:match.co2e_kg,cost_sek:match.cost_sek,source:match.source}, baseline_co2e_kg:comp.baseline_co2e_kg, baseline_cost_sek:comp.baseline_cost_sek};
+        }
+      });
+    }
     scheduleAutoSave();
     setProgressStep('sammanstallning');
 
@@ -986,7 +1247,44 @@ async function generateReport() {
   } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
 }
 
+// === Conversational chat (Feature 4) ===
+async function runChat(text) {
+  setLoading(true);
+  const context = {};
+  if (state.project) {
+    context.building_type = state.project.building_type;
+    context.area_bta = state.project.area_bta;
+    if (state.alternatives) context.components = state.alternatives.components.map(c => c.component_name);
+    if (state.baseline) context.baseline_total = Math.round(state.baseline.components.reduce((s,c)=>s+c.co2e_kg,0));
+  }
+  state.chatHistory.push({role:'user', content: text});
+  try {
+    const r = await authFetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message: text, history: state.chatHistory.slice(-10), context})});
+    const d = await r.json();
+    if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
+    state.chatHistory.push({role:'assistant', content: d.reply});
+    addMsg(d.reply, 'bot');
+    setLoading(false);
+  } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
+}
+
 // === Helpers ===
+// About modal (Feature 5)
+function openAbout() { document.getElementById('aboutModal').style.display = 'flex'; }
+function closeAbout() { document.getElementById('aboutModal').style.display = 'none'; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAbout(); });
+
+// Reasoning toggle (Feature 2)
+function toggleReasoning(id, e) {
+  e.stopPropagation();
+  const row = document.getElementById('reasoning-' + id);
+  if (!row) return;
+  const isHidden = row.style.display === 'none';
+  row.style.display = isHidden ? '' : 'none';
+  e.target.textContent = isHidden ? 'D\u00f6lj' : 'Visa mer';
+}
+
 function formatSource(source) {
   if (!source) return '';
   if (source.startsWith('[Verifierad]')) return '<span class="source-badge source-verified">EPD</span>' + source.replace('[Verifierad] ', '');
@@ -1028,9 +1326,9 @@ function renderBaslinjeContent() {
   html += '<div class="card"><div class="card-title">Komponenter</div><div class="value">' + d.components.length + '</div><div class="sublabel">st</div></div>';
   html += '</div>';
   html += '<div class="comp-card"><div class="comp-card-header"><h3>Per komponent</h3></div>';
-  html += '<table class="comp-table"><thead><tr><th>Komponent</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad (SEK)</th><th>K\u00e4lla</th></tr></thead><tbody>';
+  html += '<table class="comp-table"><thead><tr><th>Komponent</th><th style="text-align:right">CO\u2082e (kg)</th><th>Klimatk\u00e4lla</th><th style="text-align:right">Kostnad (SEK)</th><th>Prisk\u00e4lla</th></tr></thead><tbody>';
   d.components.forEach(c => {
-    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="text-align:right">' + Math.round(c.cost_sek).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + '</td></tr>';
+    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + '</td><td style="text-align:right">' + Math.round(c.cost_sek).toLocaleString('sv') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
   });
   html += '</tbody></table></div>';
   document.getElementById('resultContent').innerHTML = html;
@@ -1042,29 +1340,35 @@ function renderAlternativContent() {
   html += '<div class="source-legend"><span><span class="source-badge source-verified">EPD</span> Verifierad k\u00e4lla</span><span><span class="source-badge source-estimate">Est.</span> Uppskattning</span></div>';
   data.components.forEach(comp => {
     html += '<div class="comp-card"><div class="comp-card-header"><h3>' + esc(comp.component_name) + '</h3></div>';
-    html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th></tr></thead><tbody>';
+    html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th><th></th></tr></thead><tbody>';
     const blSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === 'Baslinje';
     html += '<tr class="alt-row' + (blSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="baseline">' +
       '<td><input type="radio" name="' + comp.component_id + '"' + (blSel ? ' checked' : '') + '></td>' +
       '<td><span class="type-badge type-baseline">Baslinje</span></td>' +
       '<td style="font-weight:500">Konventionellt</td><td style="font-size:11px">NollCO2</td>' +
       '<td style="text-align:right">' + Math.round(comp.baseline_co2e_kg) + '</td>' +
-      '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td></tr>';
+      '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td><td></td></tr>';
     comp.alternatives.forEach((alt, i) => {
       const saving = Math.round((1 - alt.co2e_kg / comp.baseline_co2e_kg) * 100);
       const isSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === alt.name;
+      const rowId = comp.component_id + '_' + i;
       html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="' + i + '">' +
         '<td><input type="radio" name="' + comp.component_id + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
         '<td style="font-weight:500">' + esc(alt.name) + '</td>' +
         '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
         '<td style="text-align:right">' + Math.round(alt.co2e_kg) + ' <span style="color:var(--green-saving);font-size:11px">\u2193' + saving + '%</span></td>' +
-        '<td style="text-align:right">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr</td></tr>';
+        '<td style="text-align:right">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr</td>' +
+        '<td>' + (alt.reasoning ? '<button class="reasoning-toggle" onclick="toggleReasoning(\'' + rowId + '\',event)">Visa mer</button>' : '') + '</td></tr>';
+      if (alt.reasoning) {
+        html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="7">' + esc(alt.reasoning) + '</td></tr>';
+      }
     });
     html += '</tbody></table></div>';
   });
   html += '<div id="summaryArea"></div>';
-  html += '<button class="btn" id="reportBtn" onclick="generateReport()" disabled>Generera rapport</button>';
+  html += '<button class="btn" id="reportBtn" onclick="generateReport()" disabled title="V\u00e4lj ett alternativ per komponent">Generera rapport</button>';
+  html += '<div id="missingHint" style="font-size:12px;color:var(--kk-gray-500);margin-top:6px;font-style:italic"></div>';
   document.getElementById('resultContent').innerHTML = html;
   // Bind click handlers
   document.querySelectorAll('.alt-row').forEach(row => {
@@ -1075,11 +1379,25 @@ function renderAlternativContent() {
 
 function renderRapportContent() {
   let html = '<div class="report-area">' + renderMd(state.reportMarkdown) + '</div>';
-  html += '<button class="btn btn-secondary" id="dlBtn" style="margin-top:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner (.md)</button>';
+  html += '<div style="margin-top:12px;display:flex;gap:8px">';
+  html += '<button class="btn" id="dlDocxBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner Word (.docx)</button>';
+  html += '<button class="btn btn-secondary" id="dlBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner (.md)</button>';
+  html += '</div>';
   document.getElementById('resultContent').innerHTML = html;
   document.getElementById('dlBtn').onclick = () => {
     const blob = new Blob([state.reportMarkdown], {type:'text/markdown'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aida-rapport.md'; a.click();
+  };
+  document.getElementById('dlDocxBtn').onclick = async () => {
+    const btn = document.getElementById('dlDocxBtn');
+    btn.disabled = true; btn.textContent = 'Skapar dokument...';
+    try {
+      const r = await authFetch('/api/report/docx', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({markdown: state.reportMarkdown})});
+      if (!r.ok) { const d = await r.json(); alert('Fel: ' + d.error); return; }
+      const blob = await r.blob();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aida-rapport.docx'; a.click();
+    } catch(e) { alert('Fel: ' + e.message); }
+    finally { btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner Word (.docx)'; }
   };
 }
 
@@ -1123,6 +1441,13 @@ function updateSummary() {
     '</div>';
   const allSelected = state.alternatives.components.every(c => state.selections[c.component_id]);
   document.getElementById('reportBtn').disabled = !allSelected;
+  const hintEl = document.getElementById('missingHint');
+  if (hintEl) {
+    if (!allSelected) {
+      const missing = state.alternatives.components.filter(c => !state.selections[c.component_id]).map(c => c.component_name);
+      hintEl.textContent = 'V\u00e4lj alternativ f\u00f6r: ' + missing.join(', ');
+    } else { hintEl.textContent = ''; }
+  }
 }
 
 // === Supabase auth + persistence ===
@@ -1159,6 +1484,8 @@ function scheduleAutoSave() {
 async function autoSave() {
   if (!supabaseClient || !currentUser || saveInProgress) return;
   saveInProgress = true;
+  const indicator = document.getElementById('saveIndicator');
+  if (indicator) { indicator.textContent = 'Sparar...'; indicator.style.display = 'inline'; indicator.style.color = 'var(--kk-gray-400)'; }
   const analysisData = {
     name: state.project ? (state.project.name || state.project.building_type || 'Nytt projekt') : 'Nytt projekt',
     status: state.step,
@@ -1186,7 +1513,11 @@ async function autoSave() {
         await loadAnalysesList();
       }
     }
-  } catch (e) { console.error('Auto-save failed:', e); }
+    if (indicator) { indicator.textContent = 'Sparat'; setTimeout(() => { indicator.style.display = 'none'; }, 2000); }
+  } catch (e) {
+    console.error('Auto-save failed:', e);
+    if (indicator) { indicator.textContent = 'Sparfel'; indicator.style.color = 'var(--kk-dark-red)'; }
+  }
   finally { saveInProgress = false; }
 }
 
@@ -1239,7 +1570,8 @@ async function handleAuth() {
       ? await supabaseClient.auth.signUp({ email, password })
       : await supabaseClient.auth.signInWithPassword({ email, password });
     if (result.error) {
-      errorEl.textContent = result.error.message;
+      const AUTH_ERRORS = {'Invalid login credentials':'Fel e-post eller l\u00f6senord.','Email not confirmed':'Bekr\u00e4fta din e-post innan du loggar in.','User already registered':'Det finns redan ett konto med den e-postadressen.','Password should be at least 6 characters':'L\u00f6senordet m\u00e5ste vara minst 6 tecken.'};
+      errorEl.textContent = AUTH_ERRORS[result.error.message] || result.error.message;
       errorEl.style.display = 'block';
     } else if (isSignup && !result.data.session) {
       errorEl.textContent = 'Kolla din e-post för bekräftelselänk';
@@ -1301,10 +1633,24 @@ async function loadAnalysesList() {
     container.innerHTML = '';
     if (list && list.length > 0) {
       list.forEach(a => {
-        const item = document.createElement('button');
+        const item = document.createElement('div');
         item.className = 'dropdown-item' + (a.id === currentAnalysisId ? ' active' : '');
-        item.textContent = a.name || 'Nytt projekt';
-        item.onclick = () => { loadAnalysis(a.id); toggleProjectMenu(); };
+        item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;cursor:pointer';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = a.name || 'Nytt projekt';
+        nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+        nameSpan.onclick = () => { loadAnalysis(a.id); toggleProjectMenu(); };
+        item.appendChild(nameSpan);
+        const del = document.createElement('button');
+        del.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--kk-gray-400);padding:2px 4px;flex-shrink:0';
+        del.title = 'Ta bort';
+        del.innerHTML = '\u2715';
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm('Ta bort "' + (a.name || 'Nytt projekt') + '"?')) return;
+          try { await authFetch('/api/analyses/' + a.id, {method:'DELETE'}); if (a.id === currentAnalysisId) createNewProject(); await loadAnalysesList(); } catch(ex) { alert('Kunde inte ta bort.'); }
+        };
+        item.appendChild(del);
         container.appendChild(item);
       });
     } else {
@@ -1365,7 +1711,7 @@ function restoreUI() {
 function createNewProject() {
   toggleProjectMenu();
   currentAnalysisId = null;
-  state = { project: null, baseline: null, alternatives: null, selections: {}, pendingDesc: null, reportMarkdown: null, step: 'idle' };
+  state = { project: null, baseline: null, alternatives: null, selections: {}, pendingDesc: null, reportMarkdown: null, chatHistory: [], step: 'idle' };
   document.getElementById('projectName').textContent = 'Nytt projekt';
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
