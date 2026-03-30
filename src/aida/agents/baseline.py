@@ -42,7 +42,7 @@ def _validate_baseline_prices(results: list[BaselineResult], components: list) -
 
 SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare — en byggnadsexpert som beräknar baslinjen för klimatpåverkan.
 
-Baslinjen representerar standardfallet enligt NollCO2-metoden: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn. Det är referenspunkten som klimatsmartare alternativ jämförs mot. NollCO2 2.0 sätter gränsvärdet för ombyggnation till minst 30% reduktion mot baslinjen.
+Baslinjen representerar standardfallet enligt NollCO2-metoden: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn. Det är referenspunkten som klimatsmartare alternativ jämförs mot. Samma metod som NollCO2 använder.
 
 Du får komponenter där klimatdata redan har hämtats från Boverkets klimatdatabas (Typical A1-A3).
 Din uppgift är att uppskatta baslinjen för komponenter som SAKNAS i vår databas.

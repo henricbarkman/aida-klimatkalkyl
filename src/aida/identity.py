@@ -21,12 +21,11 @@ PRICE_DEFINITION = (
     "som är enklare att montera kan bli billigare totalt."
 )
 
-# NollCO2 2.0 methodology reference
+# Baseline methodology (from NollCO2, but AIda is not a certification tool)
 BASELINE_METHOD = (
-    "Baslinjen beräknas enligt NollCO2-metoden: konventionellt standardmaterial "
-    "(Boverkets klimatdatabas, Typical A1-A3). Representerar vad man normalt "
-    "hade gjort utan särskild klimathänsyn. NollCO2 2.0 sätter gränsvärdet "
-    "för ombyggnation till minst 30% reduktion mot baslinjen."
+    "Baslinjen beräknas med Boverkets klimatdatabas (Typical A1-A3, "
+    "samma metod som NollCO2). Representerar vad man normalt hade gjort "
+    "utan särskild klimathänsyn — konventionellt standardmaterial."
 )
 
 ALTERNATIVE_PRINCIPLES = """Principer för alternativförslag:
