@@ -30,9 +30,10 @@ def _get_client() -> anthropic.Anthropic | None:
 def _build_prompt(product_name: str, unit_hint: str) -> str:
     unit_phrase = f"per {unit_hint}" if unit_hint and unit_hint not in ("kg", "") else ""
     return (
-        f"Vad kostar '{product_name}' på den svenska byggmarknaden {unit_phrase}? "
-        f"Sök efter aktuella priser hos svenska bygghandlare (Byggmax, Beijer, XL-Bygg etc). "
-        f"Ange ett typiskt marknadspris i SEK exklusive moms. "
+        f"Vad kostar '{product_name}' installerat (material + arbete) "
+        f"på den svenska byggmarknaden {unit_phrase}? "
+        f"Sök efter aktuella priser hos svenska bygghandlare och entreprenörer. "
+        f"Ange typiskt installerat pris i SEK exklusive moms. "
         f"Svara med exakt format: PRIS: [tal] SEK/[enhet]. "
         f"Om du hittar ett prisintervall, ange mittpunkten."
     )
@@ -158,10 +159,11 @@ def lookup_prices_batch(
     )
 
     prompt = (
-        f"Sök efter aktuella priser på den svenska byggmarknaden för följande produkter:\n\n"
+        f"Sök efter aktuella installerade priser (material + arbete) på den svenska "
+        f"byggmarknaden för följande produkter:\n\n"
         f"{product_lines}\n\n"
-        f"Sök hos svenska bygghandlare (Byggmax, Beijer, XL-Bygg, Bauhaus etc).\n"
-        f"Ange typiska marknadspriser i SEK exklusive moms.\n"
+        f"Sök hos svenska bygghandlare och entreprenörer.\n"
+        f"Ange typiska installerade priser i SEK exklusive moms.\n"
         f"Svara med exakt format för VARJE produkt på egen rad:\n"
         f"PRODUKT: [produktnamn] | PRIS: [tal] SEK/[enhet]\n"
         f"Om du hittar ett prisintervall, ange mittpunkten."

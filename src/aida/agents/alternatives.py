@@ -37,7 +37,10 @@ from aida.models import (
 
 EPD_ALTERNATIVES_PATH = Path(__file__).parent.parent / "data" / "epd_alternatives.json"
 
-SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent. Du hittar klimatsmartare alternativ till konventionella byggmaterial.
+SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
+
+UPPDRAG:
+Hjälpa förvaltare och byggledare att hitta renoveringslösningar som kraftigt minskar klimatpåverkan utan att ge avkall på praktiska behov. NollCO2 2.0 sätter gränsvärdet för ombyggnation till minst 30% reduktion.
 
 Du får:
 1. En komponent med baslinjevärde (Boverket Typical, konventionellt standardmaterial)
@@ -47,9 +50,17 @@ Din uppgift:
 1. Analysera EPD-listan och välj de 2-4 mest relevanta alternativen med lägre klimatpåverkan
 2. Föreslå återbruk om det är möjligt för komponenttypen
 3. Beräkna total CO2e baserat på EPD-värdet × antal enheter
-4. Resonera om varför alternativet är bättre
+4. Resonera om varför alternativet är bättre — beskriv BÅDE klimatvinsten och hur det uppfyller praktiska behov
 
-VIKTIGT:
+PRINCIPER FÖR ALTERNATIV:
+- Alla alternativ ska ha lägre klimatpåverkan än baslinjen.
+- Uttryckta behov är oförhandlingsbara — inget alternativ som inte uppfyller dem.
+- Resonera om hur alternativen möter behov: både uttryckta och antagna (ljudmiljö, inomhusklimat, underhåll, estetik, arbetsmiljö vid installation).
+- Presentera spridning i pris — det är användarens beslut att väga ekonomi mot klimat.
+- Var innovativ — föreslå kombinationer som löser flera behov samtidigt.
+- Förklara installationsaspekter som påverkar totalkostnaden (enklare montering kan kompensera dyrare material).
+
+TEKNISKA REGLER:
 - Använd GWP-värdena från EPD-listan — de är verifierade, inte uppskattningar
 - Om ett omräknat värde visas (efter →), använd det omräknade värdet för beräkningar
 - Ange EPD-registreringsnummer i source-fältet
@@ -59,7 +70,10 @@ VIKTIGT:
 - Om ingen EPD i listan passar, säg det och ge en egen uppskattning med tydlig markering
 - co2e_kg MÅSTE vara > 0 — alla byggmaterial har klimatpåverkan. Returnera aldrig 0.
 - Föreslå KOMPLETTA system, inte enskilda komponenter. Om baslinjen är ett komplett taksystem (t.ex. betongpannor + underlag), ska alternativen också vara kompletta taksystem — inte bara enskilda membran, ångspärrar eller underlagsdukar.
-- Om du inte vet priset, sätt cost_sek till 0 — det hanteras separat.
+
+PRISER:
+- Alla priser avser installerat pris (material + arbete) i SEK exklusive moms.
+- Sätt cost_sek till 0 om du inte vet — priser hämtas automatiskt via webbsökning efteråt.
 
 Svara med giltig JSON-array:
 [
@@ -68,7 +82,7 @@ Svara med giltig JSON-array:
     "co2e_kg": <total CO2e i kg>,
     "cost_sek": <uppskattad kostnad i SEK, 0 om okänt>,
     "source": "[EPD] Environdec <registreringsnummer>",
-    "reasoning": "Varför detta alternativ har lägre klimatpåverkan",
+    "reasoning": "Varför detta alternativ är bättre (klimat + praktiska behov)",
     "alternative_type": "reuse" | "climate_optimized"
   }
 ]"""
@@ -300,9 +314,47 @@ def find_alternatives(
         if bl.component_id in results_map
     ]
 
+    # Batch price enrichment for alternatives missing prices
+    _enrich_alternative_prices(component_results)
+
     result = AlternativesResult(components=component_results)
     result.commentary = _generate_commentary(project, baseline, result)
     return result
+
+
+def _enrich_alternative_prices(components: list[ComponentAlternatives]) -> None:
+    """Batch web search for alternatives that have cost_sek == 0."""
+    from aida.data.pricing_provider import lookup_prices_batch
+
+    products_needing_prices: list[tuple[str, str]] = []
+    alt_index: list[tuple[int, int]] = []  # (comp_idx, alt_idx) for mapping back
+
+    for ci, comp in enumerate(components):
+        for ai, alt in enumerate(comp.alternatives):
+            if alt.cost_sek <= 0 and alt.alternative_type != "baseline":
+                products_needing_prices.append((alt.name, ""))
+                alt_index.append((ci, ai))
+
+    if not products_needing_prices:
+        return
+
+    batch_prices = lookup_prices_batch(products_needing_prices)
+    if not batch_prices:
+        return
+
+    for (ci, ai), (name, _unit) in zip(alt_index, products_needing_prices):
+        price_result = batch_prices.get(name.lower())
+        if price_result:
+            price, unit, _source = price_result
+            alt = components[ci].alternatives[ai]
+            alt.cost_sek = round(price)
+            # Clean up "Pris ej tillgängligt" note since we now have a price
+            alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
+            alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
+            logger.info(
+                "Enriched price for alternative '%s': %d SEK",
+                alt.name, alt.cost_sek,
+            )
 
 
 def _find_alternatives_with_epds(
@@ -386,19 +438,20 @@ Ange tydligt att det är uppskattningar.
         return []
 
 
-COMMENTARY_PROMPT = """Du är AIda. Du har just tagit fram alternativ för ett ombyggnadsprojekt.
+COMMENTARY_PROMPT = """Du är AIda — en byggnadsexpert som hjälper förvaltare och byggledare att hitta renoveringslösningar med kraftigt minskad klimatpåverkan.
 
-Skriv en kort kommentar om förslagen. Kommentaren ska:
+Du har just tagit fram alternativ för ett ombyggnadsprojekt. Skriv en kort kommentar om förslagen. Kommentaren ska:
 - Lyfta de mest intressanta alternativen och varför de sticker ut
 - Nämna om det finns återbruksmöjligheter och vad det innebär
-- Peka på eventuella avvägningar (t.ex. lägre CO2 men högre kostnad, eller tvärtom)
+- Peka på eventuella avvägningar (t.ex. lägre CO2 men högre installerat pris, eller enklare montering som sänker totalkostnaden)
+- Resonera kort om hur alternativen uppfyller praktiska behov (ljudmiljö, underhåll, inomhusklimat etc)
 - Ge ett helhetsintryck av besparingspotentialen
 
 Format:
 - Dela upp texten så den är lätt att skumma: korta stycken, punktlistor eller en kombination.
-- Max 4-5 meningar/punkter totalt. Korta formuleringar.
+- Max 5-6 meningar/punkter totalt. Korta formuleringar.
 - Konkret och direkt, med materialnamn och siffror.
-- Skriv som en kunnig rådgivare som pratar med en projektledare.
+- Skriv som en kunnig byggnadsexpert som pratar med en projektledare.
 - Skriv på svenska."""
 
 

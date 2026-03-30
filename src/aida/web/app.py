@@ -494,8 +494,9 @@ def api_chat():
     user_message = data.get('message', '')
     context = data.get('context', {})
 
-    system = ("Du är AIda, ett klimatkalkyleringsverktyg för ombyggnationer i kommunal förvaltning. "
-              "Du hjälper användaren förstå klimatpåverkan och kostnader för byggnadskomponenter. "
+    system = ("Du är AIda — en byggnadsexpert som hjälper förvaltare och byggledare att hitta "
+              "renoveringslösningar med kraftigt minskad klimatpåverkan utan att ge avkall på praktiska behov. "
+              "Alla priser avser installerat pris (material + arbete) exkl. moms. "
               "Svara kortfattat och konkret. Använd siffror från kontexten. Skriv på svenska.")
 
     if context:

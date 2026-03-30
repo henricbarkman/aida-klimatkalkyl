@@ -40,9 +40,9 @@ def _validate_baseline_prices(results: list[BaselineResult], components: list) -
             r.description = r.description.rstrip(". ") + f". {note}."
     return results
 
-SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare. Du beräknar baslinjen för klimatpåverkan — vad konventionella standardmaterial kostar klimatmässigt.
+SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare — en byggnadsexpert som beräknar baslinjen för klimatpåverkan.
 
-Baslinjen representerar standardfallet: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn. Det är referenspunkten som klimatsmartare alternativ jämförs mot.
+Baslinjen representerar standardfallet enligt NollCO2-metoden: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn. Det är referenspunkten som klimatsmartare alternativ jämförs mot. NollCO2 2.0 sätter gränsvärdet för ombyggnation till minst 30% reduktion mot baslinjen.
 
 Du får komponenter där klimatdata redan har hämtats från Boverkets klimatdatabas (Typical A1-A3).
 Din uppgift är att uppskatta baslinjen för komponenter som SAKNAS i vår databas.
@@ -50,6 +50,9 @@ Din uppgift är att uppskatta baslinjen för komponenter som SAKNAS i vår datab
 DATAKÄLLA:
 Boverkets klimatdatabas med Typical-värden (A1-A3). Inte Conservative (+25%).
 Om en komponent saknas: uppskatta baserat på materialkunskap, men markera tydligt som uppskattning.
+
+PRISER:
+Alla priser avser installerat pris (material + arbete) i SEK exklusive moms.
 
 Ange alltid vilken datakälla du använt i "source"-fältet.
 
@@ -116,11 +119,12 @@ def calculate_baseline(project: Project) -> Baseline:
     # Phase 2: Batch price enrichment (single LLM call instead of N calls)
     from aida.data.pricing_provider import lookup_prices_batch
 
+    # Batch price enrichment for any component without a web-searched installed price.
+    # Local/hardcoded prices are material-only — we need installed prices (material + labor).
     products_needing_prices = [
         (comp.name, climate.unit)
         for comp, climate in climate_hits
-        if climate.cost_per_unit <= 0
-        and not _is_price_cached(provider, comp.name)
+        if not _is_price_cached(provider, comp.name)
     ]
 
     batch_prices: dict[str, tuple[float, str, str]] = {}
@@ -136,12 +140,11 @@ def calculate_baseline(project: Project) -> Baseline:
         cost_per_unit = climate.cost_per_unit
         cost_source = _friendly_cost_source(climate)
 
-        # Use batch price if component had no price
-        if cost_per_unit <= 0:
-            batch_result = batch_prices.get(comp.name.lower())
-            if batch_result:
-                cost_per_unit = batch_result[0]
-                cost_source = "Webbsökning (AI)"
+        # Prefer web-searched installed price over local material-only price
+        batch_result = batch_prices.get(comp.name.lower())
+        if batch_result:
+            cost_per_unit = batch_result[0]
+            cost_source = "Webbsökning (AI)"
 
         co2e = climate.co2e_per_unit * comp.quantity
         cost = cost_per_unit * comp.quantity
