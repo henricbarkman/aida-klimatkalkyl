@@ -97,35 +97,79 @@ def calculate_baseline(project: Project) -> Baseline:
     """Calculate NollCO2 baseline for each component.
 
     Uses ClimateProvider (Boverket → local → LLM fallback chain).
+    Optimized: climate lookups first, then batched price enrichment.
     """
     provider = ClimateProvider()
-    results = []
+    provider.ensure_synced()
+
+    # Phase 1: Climate data lookups (no pricing — fast)
+    climate_hits: list[tuple[Component, ClimateResult]] = []
     unknown_components = []
 
     for comp in project.components:
-        climate = provider.lookup(comp.name)
+        climate = provider.lookup_without_price(comp.name)
         if climate:
-            co2e = climate.co2e_per_unit * comp.quantity
-            cost = climate.cost_per_unit * comp.quantity
-            results.append(BaselineResult(
-                component_id=comp.id,
-                component_name=comp.name,
-                co2e_kg=round(co2e, 1),
-                cost_sek=round(cost),
-                method="NollCO2",
-                description=f"Baslinje (NollCO2): {climate.name}, {climate.co2e_per_unit} kg CO2e/{climate.unit} x {comp.quantity} {comp.unit}. {REASONING['conventional']}",
-                source=_friendly_source(climate),
-                cost_source=_friendly_cost_source(climate),
-            ))
+            climate_hits.append((comp, climate))
         else:
             unknown_components.append(comp)
 
+    # Phase 2: Batch price enrichment (single LLM call instead of N calls)
+    from aida.data.pricing_provider import lookup_prices_batch
+
+    products_needing_prices = [
+        (comp.name, climate.unit)
+        for comp, climate in climate_hits
+        if climate.cost_per_unit <= 0
+        and not _is_price_cached(provider, comp.name)
+    ]
+
+    batch_prices: dict[str, tuple[float, str, str]] = {}
+    if products_needing_prices:
+        batch_prices = lookup_prices_batch(products_needing_prices)
+        # Update cache with fetched prices
+        for product_key, (price, _unit, _source) in batch_prices.items():
+            provider._cache.update_cost(product_key, price)
+
+    # Phase 3: Build results
+    results = []
+    for comp, climate in climate_hits:
+        cost_per_unit = climate.cost_per_unit
+        cost_source = _friendly_cost_source(climate)
+
+        # Use batch price if component had no price
+        if cost_per_unit <= 0:
+            batch_result = batch_prices.get(comp.name.lower())
+            if batch_result:
+                cost_per_unit = batch_result[0]
+                cost_source = "Webbsökning (AI)"
+
+        co2e = climate.co2e_per_unit * comp.quantity
+        cost = cost_per_unit * comp.quantity
+
+        results.append(BaselineResult(
+            component_id=comp.id,
+            component_name=comp.name,
+            co2e_kg=round(co2e, 1),
+            cost_sek=round(cost),
+            method="NollCO2",
+            description=f"Baslinje (NollCO2): {climate.name}, {climate.co2e_per_unit} kg CO2e/{climate.unit} x {comp.quantity} {comp.unit}. {REASONING['conventional']}",
+            source=_friendly_source(climate),
+            cost_source=cost_source,
+        ))
+
+    # Phase 4: LLM fallback for components not in any database
     if unknown_components:
         llm_results = _estimate_unknown_components(project, unknown_components)
         results.extend(llm_results)
 
     results = _validate_baseline_prices(results, project.components)
     return Baseline(components=results)
+
+
+def _is_price_cached(provider: ClimateProvider, product_name: str) -> bool:
+    """Check if a product already has a cached enriched price."""
+    cached = provider._cache.get(product_name.lower().strip())
+    return bool(cached and cached.price_enriched and cached.cost_per_unit > 0)
 
 
 def _estimate_unknown_components(project: Project, components: list) -> list[BaselineResult]:

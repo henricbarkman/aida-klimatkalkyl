@@ -134,6 +134,52 @@ class ClimateProvider:
         # Layer 5: LLM fallback (not implemented in v1 — returns None)
         return None
 
+    def lookup_without_price(
+        self,
+        product_name: str,
+        component_hint: str = "",
+    ) -> ClimateResult | None:
+        """Look up climate data without triggering price enrichment.
+
+        Same fallback chain as lookup() but skips the per-component LLM
+        web search for prices. Use this when price enrichment will be
+        done separately in batch.
+        """
+        if not product_name or not product_name.strip():
+            return None
+
+        key = product_name.lower().strip()
+
+        cached = self._cache.get(key)
+        if cached:
+            result = _entry_to_result(cached)
+            return self._maybe_convert_units(result, component_hint or key, cached.extra_json)
+
+        result = self._try_boverket(key, component_hint)
+        if result:
+            return result
+
+        result = self._try_environdec(key, component_hint)
+        if result:
+            return result
+
+        result = self._try_local(key)
+        if result:
+            return result
+
+        return None
+
+    def ensure_synced(self) -> None:
+        """Pre-load Boverket data if not already synced."""
+        if not self._boverket_synced:
+            if self._cache.count("boverket") > 0:
+                self._boverket_synced = True
+            else:
+                try:
+                    self.sync_boverket()
+                except Exception as e:
+                    logger.warning("Boverket pre-sync failed: %s", e)
+
     def _maybe_enrich_cost(self, result: ClimateResult, product_name: str) -> ClimateResult:
         """Try web search for current market price. Skips if already enriched."""
         key = product_name.lower().strip()

@@ -14,7 +14,7 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 PRICING_MODEL = "anthropic/claude-sonnet-4.6"
-THINKING_BUDGET = 5000  # medium level
+THINKING_BUDGET = 2048
 MAX_SEARCH_USES = 3
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
@@ -127,3 +127,134 @@ def lookup_price(product_name: str, unit_hint: str = "") -> tuple[float, str, st
     source = f"Webbsökning ({source_url})" if source_url else "Webbsökning"
     logger.info("Price found for '%s': %.0f SEK/%s", product_name, price, unit)
     return price, unit, source
+
+
+def lookup_prices_batch(
+    products: list[tuple[str, str]],
+) -> dict[str, tuple[float, str, str]]:
+    """Look up prices for multiple products in a single LLM web search call.
+
+    Args:
+        products: list of (product_name, unit_hint) tuples
+
+    Returns:
+        dict mapping lowercase product_name -> (price_per_unit, unit, source)
+    """
+    if not products:
+        return {}
+    if len(products) == 1:
+        name, unit = products[0]
+        result = lookup_price(name, unit)
+        return {name.lower(): result} if result else {}
+
+    client = _get_client()
+    if client is None:
+        return {}
+
+    product_lines = "\n".join(
+        f"- {name} (enhet: {unit})" if unit and unit not in ("kg", "")
+        else f"- {name}"
+        for name, unit in products
+    )
+
+    prompt = (
+        f"Sök efter aktuella priser på den svenska byggmarknaden för följande produkter:\n\n"
+        f"{product_lines}\n\n"
+        f"Sök hos svenska bygghandlare (Byggmax, Beijer, XL-Bygg, Bauhaus etc).\n"
+        f"Ange typiska marknadspriser i SEK exklusive moms.\n"
+        f"Svara med exakt format för VARJE produkt på egen rad:\n"
+        f"PRODUKT: [produktnamn] | PRIS: [tal] SEK/[enhet]\n"
+        f"Om du hittar ett prisintervall, ange mittpunkten."
+    )
+
+    try:
+        response = client.messages.create(
+            model=PRICING_MODEL,
+            max_tokens=1024 + THINKING_BUDGET,
+            thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
+            messages=[{"role": "user", "content": prompt}],
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": min(MAX_SEARCH_USES + len(products), 8),
+                "user_location": {
+                    "type": "approximate",
+                    "country": "SE",
+                    "timezone": "Europe/Stockholm",
+                },
+            }],
+        )
+    except Exception as e:
+        logger.warning("Batch pricing web search failed: %s", e)
+        return {}
+
+    text_parts = []
+    source_url = ""
+    for block in response.content:
+        if not hasattr(block, "type"):
+            continue
+        if block.type == "text":
+            text_parts.append(block.text)
+            if hasattr(block, "citations") and block.citations:
+                for cit in block.citations:
+                    if hasattr(cit, "url") and cit.url and not source_url:
+                        source_url = cit.url
+
+    full_text = "\n".join(text_parts)
+    if not full_text:
+        return {}
+
+    source_label = f"Webbsökning ({source_url})" if source_url else "Webbsökning"
+
+    # Parse structured lines: PRODUKT: name | PRIS: 250 SEK/m2
+    results: dict[str, tuple[float, str, str]] = {}
+    product_names_lower = {name.lower(): unit for name, unit in products}
+
+    for line in full_text.split("\n"):
+        pm = re.search(
+            r'PRODUKT:\s*(.+?)\s*\|\s*PRIS:\s*(\d[\d\s]*(?:[,.]\d+)?)\s*SEK\s*/\s*(\w+[²³]?)',
+            line, re.IGNORECASE,
+        )
+        if not pm:
+            continue
+
+        prod_name = pm.group(1).strip().lower()
+        raw_num = pm.group(2).replace(" ", "").replace(",", ".")
+        raw_unit = pm.group(3)
+
+        try:
+            price = float(raw_num)
+        except ValueError:
+            continue
+
+        if price <= 0 or price > 10_000_000:
+            continue
+
+        unit_map = {"m²": "m2", "m2": "m2", "m³": "m3", "m3": "m3",
+                    "st": "st", "pcs": "st", "lm": "lm", "kg": "kg"}
+        unit = unit_map.get(raw_unit.lower(), raw_unit.lower())
+
+        # Match against input product names (fuzzy: check if response name is substring)
+        matched_key = None
+        if prod_name in product_names_lower:
+            matched_key = prod_name
+        else:
+            for input_name in product_names_lower:
+                if input_name in prod_name or prod_name in input_name:
+                    matched_key = input_name
+                    break
+
+        if matched_key:
+            results[matched_key] = (price, unit, source_label)
+            logger.info("Batch price for '%s': %.0f SEK/%s", matched_key, price, unit)
+
+    # Fallback: try generic price extraction for any products not found in structured format
+    for name, unit_hint in products:
+        if name.lower() not in results:
+            extracted = _extract_price(full_text, unit_hint)
+            if extracted and len(products) == 1:
+                # Only use unstructured fallback for single-product edge case
+                price, unit = extracted
+                results[name.lower()] = (price, unit, source_label)
+
+    return results
