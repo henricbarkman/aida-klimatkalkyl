@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,9 @@ VIKTIGT:
 - Om EPD-värdet är i en annan enhet (kg) än projektets enhet (m2, st), gör en rimlig omräkning och notera det
 - EPD:er kan komma från olika register (Environdec, EPD Norge, EPD Hub). Alla är verifierade
 - Om ingen EPD i listan passar, säg det och ge en egen uppskattning med tydlig markering
+- co2e_kg MÅSTE vara > 0 — alla byggmaterial har klimatpåverkan. Returnera aldrig 0.
+- Föreslå KOMPLETTA system, inte enskilda komponenter. Om baslinjen är ett komplett taksystem (t.ex. betongpannor + underlag), ska alternativen också vara kompletta taksystem — inte bara enskilda membran, ångspärrar eller underlagsdukar.
+- Om du inte vet priset, sätt cost_sek till 0 — det hanteras separat.
 
 Svara med giltig JSON-array:
 [
@@ -117,6 +121,90 @@ def _format_epd_list(epds: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# Keywords that indicate a component part rather than a complete system.
+# Used to filter out alternatives that aren't apples-to-apples with a full baseline.
+_COMPONENT_ONLY_KEYWORDS = [
+    "membran",
+    "ångspärr",
+    "ångbroms",
+    "underlagsduk",
+    "underlagstak",
+    "diffusionsspärr",
+    "tätskikt",
+    "fuktspärr",
+    "vindskydd",
+    "vapor barrier",
+    "vapour barrier",
+    "membrane",
+    "underlayment",
+    "underlag",
+]
+
+
+def _is_component_only(name: str) -> bool:
+    """Check if an alternative name suggests it's just a component part, not a complete system.
+
+    E.g. a vapor barrier membrane is not a complete roofing alternative.
+    """
+    name_lower = name.lower()
+    return any(kw in name_lower for kw in _COMPONENT_ONLY_KEYWORDS)
+
+
+def _validate_alternatives(
+    alternatives: list[Alternative],
+    baseline_co2e: float,
+    component_name: str,
+    quantity: float = 0,
+) -> list[Alternative]:
+    """Filter out alternatives with data quality issues.
+
+    Removes:
+    - Alternatives with co2e_kg <= 0 (unrealistic for building materials)
+    - Component-only products when the baseline is a complete system
+    Flags:
+    - Alternatives with cost_sek == 0 get "Pris ej tillgängligt"
+    - LLM-estimated prices get "Approximerat pris"
+    - Out-of-range prices get "Oväntat pris — verifiera"
+    """
+    from aida.data.price_validation import validate_total_price
+
+    category = normalize_component_name(component_name)
+    valid = []
+    for alt in alternatives:
+        # A) Filter zero/negative CO2 — all building materials have emissions
+        if alt.co2e_kg is None or alt.co2e_kg <= 0:
+            logger.info(
+                "Filtered alternative '%s' for %s: co2e_kg=%s (unrealistic)",
+                alt.name, component_name, alt.co2e_kg,
+            )
+            continue
+
+        # B) Filter component-only products (membranes, vapor barriers etc.)
+        if _is_component_only(alt.name):
+            logger.info(
+                "Filtered alternative '%s' for %s: component part, not complete system",
+                alt.name, component_name,
+            )
+            continue
+
+        # C) Price validation
+        if alt.cost_sek is None or alt.cost_sek <= 0:
+            alt.cost_sek = 0
+            if "pris ej tillgängligt" not in alt.reasoning.lower():
+                alt.reasoning = alt.reasoning.rstrip(". ") + ". Pris ej tillgängligt."
+        elif quantity > 0:
+            is_estimate = "[uppskattning]" in alt.source.lower()
+            _cost, note = validate_total_price(
+                alt.cost_sek, quantity, category, is_estimate=is_estimate,
+            )
+            if note and note.lower() not in alt.reasoning.lower():
+                alt.reasoning = alt.reasoning.rstrip(". ") + f". {note}."
+
+        valid.append(alt)
+
+    return valid
+
+
 def find_alternatives(
     project: Project,
     baseline: Baseline,
@@ -145,6 +233,11 @@ def find_alternatives(
 
         alternatives = _find_alternatives_with_epds(
             proj_comp, bl_comp, epds_for_category, user_feedback
+        )
+
+        # Validate data quality: filter zero CO2, component-only parts, flag prices
+        alternatives = _validate_alternatives(
+            alternatives, bl_comp.co2e_kg, proj_comp.name, proj_comp.quantity,
         )
 
         local_alts = get_alternatives_for_component(proj_comp.name)
@@ -324,9 +417,10 @@ def _generate_commentary(
         summary_lines.append(f"\n{comp.component_name} (baslinje: {bl_co2:.0f} kg CO2e, {bl_cost:.0f} SEK):")
         for alt in comp.alternatives:
             pct = ((bl_co2 - alt.co2e_kg) / bl_co2 * 100) if bl_co2 > 0 else 0
+            cost_str = f"{alt.cost_sek:.0f} SEK" if alt.cost_sek > 0 else "Pris ej tillgängligt"
             summary_lines.append(
                 f"  - {alt.name} ({alt.alternative_type}): {alt.co2e_kg:.0f} kg CO2e, "
-                f"{alt.cost_sek:.0f} SEK ({pct:+.0f}% CO2e) | {alt.source}"
+                f"{cost_str} ({pct:+.0f}% CO2e) | {alt.source}"
             )
 
     prompt = f"""Projekt: {project.building_type}, {project.area_bta} m2

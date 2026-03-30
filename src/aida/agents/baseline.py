@@ -12,9 +12,33 @@ from aida.api_client import (
     get_client,
     thinking_config,
 )
-from aida.data.climate_data import REASONING
+from aida.data.climate_data import REASONING, normalize_component_name
 from aida.data.climate_provider import ClimateProvider
+from aida.data.price_validation import validate_total_price
 from aida.models import Baseline, BaselineResult, Project
+
+
+def _validate_baseline_prices(results: list[BaselineResult], components: list) -> list[BaselineResult]:
+    """Validate prices on baseline results and annotate descriptions."""
+    comp_map = {c.id: c for c in components}
+    for r in results:
+        comp = comp_map.get(r.component_id)
+        quantity = comp.quantity if comp else 0
+        category = normalize_component_name(r.component_name)
+        is_estimate = "uppskattning" in (r.cost_source or "").lower()
+
+        if r.cost_sek <= 0:
+            r.cost_sek = 0
+            if "pris ej tillgängligt" not in r.description.lower():
+                r.description = r.description.rstrip(". ") + ". Pris ej tillgängligt."
+            continue
+
+        _cost, note = validate_total_price(
+            r.cost_sek, quantity, category, is_estimate=is_estimate,
+        )
+        if note and note.lower() not in r.description.lower():
+            r.description = r.description.rstrip(". ") + f". {note}."
+    return results
 
 SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare. Du beräknar baslinjen för klimatpåverkan — vad konventionella standardmaterial kostar klimatmässigt.
 
@@ -100,6 +124,7 @@ def calculate_baseline(project: Project) -> Baseline:
         llm_results = _estimate_unknown_components(project, unknown_components)
         results.extend(llm_results)
 
+    results = _validate_baseline_prices(results, project.components)
     return Baseline(components=results)
 
 
