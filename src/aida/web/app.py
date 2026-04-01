@@ -504,9 +504,22 @@ def api_chat():
         if context.get('building_type'):
             ctx.append(f"Projekt: {context['building_type']}, {context.get('area_bta','')} m²")
         if context.get('baseline_total'):
-            ctx.append(f"Baslinje: {context['baseline_total']} kg CO₂e totalt")
-        if context.get('components'):
-            ctx.append(f"Komponenter: {', '.join(context['components'])}")
+            ctx.append(f"Baslinje totalt: {context['baseline_total']} kg CO₂e")
+        if context.get('baseline_components'):
+            ctx.append("Baslinjekomponenter:")
+            for bc in context['baseline_components']:
+                line = f"  - {bc.get('name','?')}: {bc.get('co2e_kg',0)} kg CO₂e"
+                if bc.get('cost_sek'):
+                    line += f", {bc['cost_sek']} SEK"
+                if bc.get('material'):
+                    line += f" ({bc['material']})"
+                if bc.get('climate_source'):
+                    line += f" [källa: {bc['climate_source']}]"
+                if bc.get('quantity') and bc.get('unit'):
+                    line += f" — {bc['quantity']} {bc['unit']}"
+                ctx.append(line)
+        if context.get('alternatives_components'):
+            ctx.append(f"Alternativ analyserade för: {', '.join(context['alternatives_components'])}")
         if ctx:
             system += "\n\nKontext:\n" + "\n".join(ctx)
 
@@ -1050,7 +1063,7 @@ let activeTab = null;
 const STEP_PLACEHOLDERS = {
   idle: 'Beskriv ditt ombyggnadsprojekt...',
   intake_done: 'Skriv korrigeringar eller bekr\u00e4fta...',
-  baseline_done: 'Ge feedback eller bekr\u00e4fta...',
+  baseline_done: 'Diskutera baslinjen eller bekr\u00e4fta...',
   alternatives_done: 'Fr\u00e5ga om material, kostnader eller alternativ...',
   report_done: 'St\u00e4ll fr\u00e5gor om rapporten...',
 };
@@ -1186,8 +1199,7 @@ async function sendMessage() {
       await runIntake(state.project.description + '\n\nKorrigering: ' + text);
       break;
     case 'baseline_done':
-      addMsg('Söker alternativ med din feedback...', 'system');
-      await runAlternatives(text);
+      await runChat(text);
       break;
     case 'alternatives_done':
       await runChat(text);
@@ -1368,8 +1380,19 @@ async function runChat(text) {
   if (state.project) {
     context.building_type = state.project.building_type;
     context.area_bta = state.project.area_bta;
-    if (state.alternatives) context.components = state.alternatives.components.map(c => c.component_name);
-    if (state.baseline) context.baseline_total = Math.round(state.baseline.components.reduce((s,c)=>s+c.co2e_kg,0));
+    if (state.baseline) {
+      context.baseline_total = Math.round(state.baseline.components.reduce((s,c)=>s+c.co2e_kg,0));
+      context.baseline_components = state.baseline.components.map(c => ({
+        name: c.component_name || c.name,
+        co2e_kg: Math.round(c.co2e_kg),
+        cost_sek: Math.round(c.cost_sek || 0),
+        material: c.material_name || c.name,
+        climate_source: c.climate_source || '',
+        quantity: c.quantity,
+        unit: c.unit,
+      }));
+    }
+    if (state.alternatives) context.alternatives_components = state.alternatives.components.map(c => c.component_name);
   }
   state.chatHistory.push({role:'user', content: text});
   try {
