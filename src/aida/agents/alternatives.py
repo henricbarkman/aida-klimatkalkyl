@@ -247,10 +247,12 @@ def _add_palats_reuse(
             continue
 
         total_co2e = co2e_per_unit * quantity
-        # Use listing price if available, otherwise 0 (will be enriched later)
-        total_cost = listing.price * quantity if listing.price > 0 else 0
+        # Palats prices are per article (piece/roll), not per m2.
+        # We show the unit price — total cost can't be calculated without
+        # knowing coverage per article.
+        unit_price = listing.price
 
-        price_note = f"Pris: {listing.price:.0f} SEK/{listing.unit}" if listing.price > 0 else ""
+        price_note = f"Pris: {unit_price:.0f} SEK/st ({listing.quantity} tillgängliga)" if unit_price > 0 else f"{listing.quantity} tillgängliga"
         location_note = f"Plats: {listing.location}" if listing.location else ""
         url_note = f"Se annons: {listing.url}" if listing.url else ""
         detail_parts = [p for p in [price_note, location_note, url_note] if p]
@@ -272,7 +274,7 @@ def _add_palats_reuse(
         alternatives.append(Alternative(
             name=f"{listing.title} (Palats återbruk, {listing.location})" if listing.location else f"{listing.title} (Palats återbruk)",
             co2e_kg=round(total_co2e, 1),
-            cost_sek=round(total_cost),
+            cost_sek=round(unit_price),
             source=f"[Palats] palats.app/listing/{listing.id}",
             reasoning=reasoning,
             alternative_type="reuse",
