@@ -101,19 +101,21 @@ def _friendly_cost_source(climate) -> str:
 def calculate_baseline(project: Project) -> Baseline:
     """Calculate NollCO2 baseline for each component.
 
-    Uses ClimateProvider (Boverket → local → LLM fallback chain).
-    Optimized: climate lookups first, then batched price enrichment.
+    Source priority: Boverket (Typical A1-A3) → Environdec EPD → LLM estimation.
+    Local hardcoded data is NOT used for baseline — only verified sources.
     """
     provider = ClimateProvider()
     provider.ensure_synced()
 
     # Phase 1: Climate data lookups (no pricing — fast)
+    # Only accept Boverket and Environdec sources for baseline.
+    # Local/hardcoded data goes to LLM estimation instead.
     climate_hits: list[tuple[Component, ClimateResult]] = []
     unknown_components = []
 
     for comp in project.components:
         climate = provider.lookup_without_price(comp.name)
-        if climate:
+        if climate and climate.source_layer in ("boverket", "environdec"):
             climate_hits.append((comp, climate))
         else:
             unknown_components.append(comp)
