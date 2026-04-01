@@ -23,8 +23,6 @@ from aida.api_client import (
     thinking_config,
 )
 from aida.data.climate_data import (
-    REASONING,
-    get_alternatives_for_component,
     normalize_component_name,
 )
 from aida.models import (
@@ -333,29 +331,24 @@ def find_alternatives(
                 alternatives, proj_comp.name, proj_comp.quantity, palats_listings,
             )
 
-        # Fallback: hardcoded reuse data (only if no Palats results for this component)
+        # If Palats is connected but has nothing for this component, note it
         palats_reuse_count = sum(
             1 for a in alternatives
             if a.alternative_type == "reuse" and "[Palats]" in a.source
         )
-        if palats_reuse_count == 0:
-            local_alts = get_alternatives_for_component(proj_comp.name)
-            existing_names = {a.name.lower() for a in alternatives}
-            for mat in local_alts:
-                if mat.name.lower() in existing_names:
-                    continue
-                if mat.category != "reuse":
-                    continue
-                co2e = mat.co2e_per_unit * proj_comp.quantity
-                cost = mat.cost_per_unit * proj_comp.quantity
-                alternatives.append(Alternative(
-                    name=mat.name,
-                    co2e_kg=round(co2e, 1),
-                    cost_sek=round(cost),
-                    source=f"[Lokal data] {mat.source}",
-                    reasoning=REASONING.get("reuse", ""),
-                    alternative_type="reuse",
-                ))
+        if has_palats and palats_reuse_count == 0:
+            alternatives.append(Alternative(
+                name="Inget tillgängligt i Palats",
+                co2e_kg=0,
+                cost_sek=0,
+                source="[Palats] palats.app",
+                reasoning=(
+                    "Inga matchande återbruksprodukter hittades i Palats "
+                    "(Karlstads kommuns interna marknadsplats) för denna kategori "
+                    "just nu. Utbudet ändras löpande — kolla igen senare."
+                ),
+                alternative_type="reuse",
+            ))
 
         if not alternatives:
             alternatives.append(Alternative(
