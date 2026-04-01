@@ -7,7 +7,10 @@ cookie-based authentication.
 NOTE: This is an unofficial/internal API — it may change without notice.
 Felix (Palats) has given permission to use it for experimentation.
 
-Auth: PALATS_SESSION and PALATS_REMEMBER_ME env vars (browser cookies).
+Auth flow (automatic, no manual cookie management needed):
+1. Try remember_me token → POST /api/v2/auth/refresh → fresh JWT (15 min)
+2. If remember_me expired → login with PALATS_USERNAME/PALATS_PASSWORD → new cookies
+3. Cookies cached in-process for the session lifetime
 """
 
 from __future__ import annotations
@@ -38,6 +41,11 @@ _listings_cache: list[dict] | None = None
 _listings_cache_time: float = 0
 _CACHE_TTL = 600
 
+# Auth state — cached in-process, auto-refreshed
+_auth_cookies: dict[str, str] | None = None
+_auth_time: float = 0
+_AUTH_TTL = 840  # Refresh auth every 14 min (JWT lives 15 min)
+
 
 @dataclass
 class PalatsListing:
@@ -59,16 +67,92 @@ class PalatsListing:
         return f"[Palats] palats.app — {self.title}"
 
 
-def _get_cookies() -> dict[str, str] | None:
-    """Get Palats auth cookies from environment."""
-    session = os.environ.get("PALATS_SESSION")
-    if not session:
+def _login() -> dict[str, str] | None:
+    """Authenticate with username/password, return fresh cookies."""
+    username = os.environ.get("PALATS_USERNAME")
+    password = os.environ.get("PALATS_PASSWORD")
+    if not username or not password:
         return None
-    cookies = {"palats_session": session}
-    remember = os.environ.get("PALATS_REMEMBER_ME")
-    if remember:
-        cookies["remember_me"] = remember
-    return cookies
+    try:
+        resp = requests.post(
+            f"{PALATS_BASE_URL}/v2/auth/login",
+            json={"username": username, "password": password},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        cookies = {}
+        for cookie in resp.cookies:
+            cookies[cookie.name] = cookie.value
+        if "palats_session" in cookies:
+            logger.info("Palats login successful")
+            return cookies
+        logger.warning("Palats login response missing session cookie")
+        return None
+    except requests.RequestException as e:
+        logger.warning("Palats login failed: %s", e)
+        return None
+
+
+def _refresh_with_remember_me(remember_me: str) -> dict[str, str] | None:
+    """Use remember_me token to get a fresh JWT via the refresh endpoint."""
+    try:
+        resp = requests.post(
+            f"{PALATS_BASE_URL}/v2/auth/refresh",
+            cookies={"remember_me": remember_me},
+            json={},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        new_session = resp.cookies.get("palats_session")
+        if not new_session:
+            return None
+        cookies = {"palats_session": new_session, "remember_me": remember_me}
+        logger.debug("Palats session refreshed via remember_me")
+        return cookies
+    except requests.RequestException:
+        return None
+
+
+def _get_cookies() -> dict[str, str] | None:
+    """Get valid Palats auth cookies, auto-refreshing as needed.
+
+    Priority: cached session → refresh via remember_me → full login.
+    """
+    global _auth_cookies, _auth_time
+
+    # Return cached cookies if still fresh
+    if _auth_cookies and (time.time() - _auth_time) < _AUTH_TTL:
+        return _auth_cookies
+
+    # Try refresh with remember_me (from cache or env)
+    remember_me = (
+        (_auth_cookies or {}).get("remember_me")
+        or os.environ.get("PALATS_REMEMBER_ME")
+    )
+    if remember_me:
+        cookies = _refresh_with_remember_me(remember_me)
+        if cookies:
+            _auth_cookies = cookies
+            _auth_time = time.time()
+            return cookies
+        logger.info("remember_me refresh failed, falling back to login")
+
+    # Fallback: full login with credentials
+    cookies = _login()
+    if cookies:
+        _auth_cookies = cookies
+        _auth_time = time.time()
+        return cookies
+
+    # Last resort: try raw env var cookies (may be expired but worth a shot)
+    session = os.environ.get("PALATS_SESSION")
+    if session:
+        logger.debug("Using raw PALATS_SESSION env var (may be expired)")
+        return {"palats_session": session}
+
+    logger.debug("No Palats credentials available")
+    return None
 
 
 def _normalize_to_aida_category(title: str, description: str = "") -> str:
