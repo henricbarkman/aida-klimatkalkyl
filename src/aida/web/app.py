@@ -931,7 +931,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   </div>
   {% else %}
   <div class="topbar-center"></div>
-  <div class="topbar-right"><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);margin-right:8px;display:none"></span>Prototyp</div>
+  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
   {% endif %}
 </div>
 
@@ -1005,8 +1005,6 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 
 <!-- Footer -->
 <div class="footer" style="display:flex;justify-content:center;align-items:center;gap:8px">
-  <a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-400);text-decoration:none;font-size:11px">Om verktyget</a>
-  <span style="color:var(--kk-gray-300)">&#xB7;</span>
   <span style="font-size:11px;color:var(--kk-gray-400)">AIda kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
 </div>
 
@@ -1017,7 +1015,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
     <h2>Om AIda</h2>
     <section>
       <h3>Vad &#xE4;r AIda?</h3>
-      <p>AIda &#xE4;r ett AI-drivet beslutsst&#xF6;d f&#xF6;r klimatber&#xE4;kning vid ombyggnation av kommunala fastigheter. Verktyget utvecklades inom ramen f&#xF6;r KK2030 &#x2013; Klimatneutrala Karlstad 2030.</p>
+      <p>AIda &#xE4;r ett AI-drivet beslutsst&#xF6;d f&#xF6;r klimatber&#xE4;kning vid ombyggnation av kommunala fastigheter. Verktyget utvecklas inom Klimatneutrala Karlstad 2030, finansierat av Vinnova, Energimyndigheten och Formas inom ramen f&#xF6;r strategiska innovationsprogrammet Viable Cities.</p>
     </section>
     <section>
       <h3>Datak&#xE4;llor</h3>
@@ -1025,7 +1023,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
         <li><strong>Klimatdata:</strong> Boverkets klimatdatabas, NollCO2-metoden</li>
         <li><strong>Alternativ:</strong> Environdec EPD-databas (verifierade produktdeklarationer)</li>
         <li><strong>Priser:</strong> AI-driven webbs&#xF6;kning mot svenska bygghandlare</li>
-        <li><strong>&#xC5;terbruk:</strong> Lokala k&#xE4;llor (Sola bygg&#xE5;terbruk, CCBuild)</li>
+        <li><strong>&#xC5;terbruk:</strong> Palats (Karlstads kommuns &#xE5;terbruksplattform)</li>
       </ul>
     </section>
     <section>
@@ -1036,9 +1034,13 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
       <h3>Begr&#xE4;nsningar</h3>
       <ul>
         <li>Resultaten &#xE4;r ett underlag f&#xF6;r beslut, inte ett slutgiltigt klimatbokslut</li>
-        <li>Kostnadsuppskattningar baseras p&#xE5; webbs&#xF6;kning &#x2013; inh&#xE4;mta offerter f&#xF6;r exakta v&#xE4;rden</li>
-        <li>AI kan g&#xF6;ra fel &#x2013; kontrollera k&#xE4;llh&#xE4;nvisningar vid viktiga beslut</li>
+        <li>Kostnadsuppskattningar baseras p&#xE5; webbs&#xF6;kning &#x2014; inh&#xE4;mta offerter f&#xF6;r exakta v&#xE4;rden</li>
+        <li>AI kan g&#xF6;ra fel &#x2014; kontrollera k&#xE4;llh&#xE4;nvisningar vid viktiga beslut</li>
       </ul>
+    </section>
+    <section>
+      <h3>Kontakt</h3>
+      <p>Henric Barkman, <a href="mailto:henric.barkman@karlstad.se" style="color:var(--kk-blue)">henric.barkman@karlstad.se</a></p>
     </section>
   </div>
 </div>
