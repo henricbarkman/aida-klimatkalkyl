@@ -962,7 +962,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
         <h2>AIda</h2>
       </div>
       <div class="messages" id="messages">
-        <div class="msg bot">Hej! Beskriv ditt ombyggnadsprojekt. Ange byggnadstyp, ungefärlig yta och vilka åtgärder som ska göras.</div>
+        <div class="msg bot">Hej! Beskriv ditt projekt. Ange byggnadstyp, ungefärlig yta och vilka behoven är.</div>
       </div>
       <div class="chat-input">
         <input id="userInput" type="text" placeholder="Skriv ditt meddelande..." onkeydown="if(event.key==='Enter')sendMessage()">
@@ -1813,7 +1813,7 @@ function restoreUI() {
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   if (!state.project) {
-    addMsg('Hej! Beskriv ditt ombyggnadsprojekt. Ange byggnadstyp, ungefärlig yta och vilka åtgärder som ska göras.', 'bot');
+    addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, ungefärlig yta och vilka behoven är.', 'bot');
   } else {
     addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
     if (state.step === 'intake_done') addMsg('Bekräfta och beräkna baslinje, eller skriv korrigeringar.', 'bot');
@@ -1838,7 +1838,7 @@ function createNewProject() {
   document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
-  addMsg('Hej! Beskriv ditt ombyggnadsprojekt. Ange byggnadstyp, ungefärlig yta och vilka åtgärder som ska göras.', 'bot');
+  addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, ungefärlig yta och vilka behoven är.', 'bot');
   setLoading(false);
 }
 </script>

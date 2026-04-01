@@ -31,19 +31,25 @@ def get_client() -> anthropic.Anthropic:
 
 
 # Default model for AIda agents — OpenRouter format
-DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
+DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
 
 # Extended thinking budgets (tokens)
+# NONE: Simple parsing, no reasoning needed (chat)
+# LOW: Understand input, extract structure (intake)
+# STANDARD: Reason about data, compare, search (pricing, alternatives)
+# DEEP: Complex analysis, synthesis, conclusions (baseline, report)
+THINKING_NONE = 0
 THINKING_LOW = 1024
 THINKING_STANDARD = 5000
+THINKING_DEEP = 10000
 
 # Models that support extended thinking
-_THINKING_MODELS = {"anthropic/claude-sonnet-4", "anthropic/claude-opus-4.6"}
+_THINKING_MODELS = {"anthropic/claude-sonnet-4-6", "anthropic/claude-sonnet-4", "anthropic/claude-opus-4.6"}
 
 
 def thinking_config(budget: int):
-    """Return thinking parameter for API calls. NOT_GIVEN for unsupported models."""
-    if DEFAULT_MODEL not in _THINKING_MODELS:
+    """Return thinking parameter for API calls. NOT_GIVEN for unsupported models or NONE budget."""
+    if budget == 0 or DEFAULT_MODEL not in _THINKING_MODELS:
         return anthropic.NOT_GIVEN
     return {"type": "enabled", "budget_tokens": budget}
 

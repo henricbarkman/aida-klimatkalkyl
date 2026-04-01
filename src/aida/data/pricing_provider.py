@@ -13,8 +13,8 @@ import anthropic
 
 logger = logging.getLogger(__name__)
 
-PRICING_MODEL = "anthropic/claude-sonnet-4.6"
-THINKING_BUDGET = 2048
+PRICING_MODEL = "anthropic/claude-sonnet-4-6"
+THINKING_BUDGET = 5000  # STANDARD: reason about data, compare prices
 MAX_SEARCH_USES = 3
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 

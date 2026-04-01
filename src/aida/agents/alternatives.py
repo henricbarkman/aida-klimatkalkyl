@@ -219,6 +219,68 @@ def _validate_alternatives(
     return valid
 
 
+def _add_palats_reuse(
+    alternatives: list[Alternative],
+    component_name: str,
+    quantity: float,
+    palats_listings: list[dict],
+) -> None:
+    """Add matching Palats reuse listings as alternatives (in-place).
+
+    Palats listings get minimal CO2e (transport/refurbishment only) and
+    actual marketplace prices.
+    """
+    from aida.data.palats_client import (
+        _DEFAULT_REUSE_CO2E,
+        REUSE_CO2E_PER_UNIT,
+        search_listings_for_component,
+    )
+
+    matched = search_listings_for_component(component_name, palats_listings)
+    if not matched:
+        return
+
+    existing_names = {a.name.lower() for a in alternatives}
+    category = normalize_component_name(component_name)
+    co2e_per_unit = REUSE_CO2E_PER_UNIT.get(category, _DEFAULT_REUSE_CO2E)
+
+    for listing in matched[:5]:  # Cap at 5 reuse listings per component
+        if listing.title.lower() in existing_names:
+            continue
+
+        total_co2e = co2e_per_unit * quantity
+        # Use listing price if available, otherwise 0 (will be enriched later)
+        total_cost = listing.price * quantity if listing.price > 0 else 0
+
+        price_note = f"Pris: {listing.price:.0f} SEK/{listing.unit}" if listing.price > 0 else ""
+        url_note = f"Se annons: {listing.url}" if listing.url else ""
+        detail_parts = [p for p in [price_note, url_note] if p]
+        detail_str = " | ".join(detail_parts)
+
+        reasoning = (
+            "Återbruk via Palats (Karlstads kommuns interna marknadsplats) "
+            "eliminerar nästan all tillverkningsrelaterad klimatpåverkan. "
+            "Kvarvarande CO2e kommer främst från transport och eventuell renovering."
+        )
+        if detail_str:
+            reasoning += f" {detail_str}"
+        if listing.description:
+            desc_preview = listing.description[:150]
+            if len(listing.description) > 150:
+                desc_preview += "..."
+            reasoning += f" Beskrivning: {desc_preview}"
+
+        alternatives.append(Alternative(
+            name=f"{listing.title} (Palats återbruk)",
+            co2e_kg=round(total_co2e, 1),
+            cost_sek=round(total_cost),
+            source=f"[Palats] palats.app/listing/{listing.id}",
+            reasoning=reasoning,
+            alternative_type="reuse",
+        ))
+        existing_names.add(listing.title.lower())
+
+
 def find_alternatives(
     project: Project,
     baseline: Baseline,
@@ -228,11 +290,21 @@ def find_alternatives(
 
     Strategy:
     1. Load pre-categorized EPD data from Environdec
-    2. For each component, give the LLM the relevant EPDs + baseline
-    3. LLM reasons about best alternatives
-    4. Supplement with local data (reuse options)
+    2. Fetch available reuse listings from Palats marketplace
+    3. For each component, give the LLM the relevant EPDs + baseline
+    4. LLM reasons about best alternatives
+    5. Supplement with Palats reuse listings (live)
+    6. Fall back to hardcoded reuse data if no Palats results
     """
+    from aida.data.palats_client import fetch_listings
+
     epd_data = _load_epd_alternatives()
+
+    # Fetch Palats listings once for the entire analysis
+    palats_listings = fetch_listings()
+    has_palats = len(palats_listings) > 0
+    if has_palats:
+        logger.info("Palats: %d listings available for reuse matching", len(palats_listings))
 
     def _process_component(bl_comp):
         proj_comp = next(
@@ -254,23 +326,35 @@ def find_alternatives(
             alternatives, bl_comp.co2e_kg, proj_comp.name, proj_comp.quantity,
         )
 
-        local_alts = get_alternatives_for_component(proj_comp.name)
-        existing_names = {a.name.lower() for a in alternatives}
-        for mat in local_alts:
-            if mat.name.lower() in existing_names:
-                continue
-            if mat.category != "reuse":
-                continue
-            co2e = mat.co2e_per_unit * proj_comp.quantity
-            cost = mat.cost_per_unit * proj_comp.quantity
-            alternatives.append(Alternative(
-                name=mat.name,
-                co2e_kg=round(co2e, 1),
-                cost_sek=round(cost),
-                source=f"[Lokal data] {mat.source}",
-                reasoning=REASONING.get("reuse", ""),
-                alternative_type="reuse",
-            ))
+        # Add live Palats reuse listings
+        if has_palats:
+            _add_palats_reuse(
+                alternatives, proj_comp.name, proj_comp.quantity, palats_listings,
+            )
+
+        # Fallback: hardcoded reuse data (only if no Palats results for this component)
+        palats_reuse_count = sum(
+            1 for a in alternatives
+            if a.alternative_type == "reuse" and "[Palats]" in a.source
+        )
+        if palats_reuse_count == 0:
+            local_alts = get_alternatives_for_component(proj_comp.name)
+            existing_names = {a.name.lower() for a in alternatives}
+            for mat in local_alts:
+                if mat.name.lower() in existing_names:
+                    continue
+                if mat.category != "reuse":
+                    continue
+                co2e = mat.co2e_per_unit * proj_comp.quantity
+                cost = mat.cost_per_unit * proj_comp.quantity
+                alternatives.append(Alternative(
+                    name=mat.name,
+                    co2e_kg=round(co2e, 1),
+                    cost_sek=round(cost),
+                    source=f"[Lokal data] {mat.source}",
+                    reasoning=REASONING.get("reuse", ""),
+                    alternative_type="reuse",
+                ))
 
         if not alternatives:
             alternatives.append(Alternative(

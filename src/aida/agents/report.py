@@ -9,7 +9,7 @@ from datetime import date
 from aida.agents.aggregate import compute_aggregate
 from aida.api_client import (
     DEFAULT_MODEL,
-    THINKING_STANDARD,
+    THINKING_DEEP,
     extract_text,
     get_client,
     thinking_config,
@@ -62,8 +62,8 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=4000 + THINKING_STANDARD,
-        thinking=thinking_config(THINKING_STANDARD),
+        max_tokens=4000 + THINKING_DEEP,
+        thinking=thinking_config(THINKING_DEEP),
         system=REPORT_SYSTEM_PROMPT,
         messages=[{
             "role": "user",

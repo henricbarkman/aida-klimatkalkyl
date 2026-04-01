@@ -7,7 +7,7 @@ import sys
 
 from aida.api_client import (
     DEFAULT_MODEL,
-    THINKING_STANDARD,
+    THINKING_DEEP,
     extract_text,
     get_client,
     thinking_config,
@@ -186,8 +186,8 @@ def _estimate_unknown_components(project: Project, components: list) -> list[Bas
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=2000 + THINKING_STANDARD,
-        thinking=thinking_config(THINKING_STANDARD),
+        max_tokens=2000 + THINKING_DEEP,
+        thinking=thinking_config(THINKING_DEEP),
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
