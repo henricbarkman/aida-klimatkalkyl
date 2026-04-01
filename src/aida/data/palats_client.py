@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 
 PALATS_BASE_URL = "https://palats.app/api"
 
+# Location ID → human-readable name and address (from Palats web UI, 2026-04-01)
+LOCATION_NAMES: dict[int, dict[str, str]] = {
+    2945: {"name": "Sola byggåterbruk", "address": "Östanvindsgatan 14, Karlstad"},
+    4008: {"name": "Sola Möbelåterbruk", "address": ""},
+    4448: {"name": "KCCC", "address": "Tage Erlandergatan 8, Karlstad"},
+    4462: {"name": "Gamla Wermlandsbanken", "address": "Tingvallagatan 11, Karlstad"},
+    5003: {"name": "Bibliotekshuset", "address": "Västra Torggatan 26, Karlstad"},
+    5761: {"name": "Vänersnipan", "address": "Bogsprötsgatan 20, Karlstad"},
+}
+
 # Cache listings for 10 minutes within a process
 _listings_cache: list[dict] | None = None
 _listings_cache_time: float = 0
@@ -42,6 +52,7 @@ class PalatsListing:
     category: str  # AIda category key (golv, fönster, etc.) or ""
     image_url: str
     url: str  # Direct link to listing on palats.app
+    location: str  # Human-readable location name
 
     @property
     def display_source(self) -> str:
@@ -196,6 +207,11 @@ def _extract_listing(raw: dict) -> PalatsListing:
 
     category = _normalize_to_aida_category(title, description)
 
+    # Resolve location
+    location_id = raw.get("locationId")
+    loc_info = LOCATION_NAMES.get(location_id, {}) if location_id else {}
+    location = loc_info.get("name", "")
+
     return PalatsListing(
         id=listing_id,
         title=title,
@@ -206,6 +222,7 @@ def _extract_listing(raw: dict) -> PalatsListing:
         category=category,
         image_url=image_url,
         url=f"https://palats.app/web/listing/{listing_id}" if listing_id else "",
+        location=location,
     )
 
 

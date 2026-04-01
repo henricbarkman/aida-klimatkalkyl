@@ -253,8 +253,9 @@ def _add_palats_reuse(
         total_cost = listing.price * quantity if listing.price > 0 else 0
 
         price_note = f"Pris: {listing.price:.0f} SEK/{listing.unit}" if listing.price > 0 else ""
+        location_note = f"Plats: {listing.location}" if listing.location else ""
         url_note = f"Se annons: {listing.url}" if listing.url else ""
-        detail_parts = [p for p in [price_note, url_note] if p]
+        detail_parts = [p for p in [price_note, location_note, url_note] if p]
         detail_str = " | ".join(detail_parts)
 
         reasoning = (
@@ -271,7 +272,7 @@ def _add_palats_reuse(
             reasoning += f" Beskrivning: {desc_preview}"
 
         alternatives.append(Alternative(
-            name=f"{listing.title} (Palats återbruk)",
+            name=f"{listing.title} (Palats återbruk, {listing.location})" if listing.location else f"{listing.title} (Palats återbruk)",
             co2e_kg=round(total_co2e, 1),
             cost_sek=round(total_cost),
             source=f"[Palats] palats.app/listing/{listing.id}",
