@@ -1864,10 +1864,22 @@ function restoreUI() {
     addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, ungefärlig yta och vilka behoven är.', 'bot');
   } else {
     addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
-    if (state.step === 'intake_done') addMsg('Bekräfta och beräkna baslinje, eller skriv korrigeringar.', 'bot');
-    else if (state.step === 'baseline_done') addMsg('Baslinje klar. Bekräfta för att söka alternativ.', 'bot');
-    else if (state.step === 'alternatives_done') addMsg('Välj alternativ per komponent i resultatpanelen.', 'bot');
-    else if (state.step === 'report_done') addMsg('Rapporten är klar.', 'bot');
+    if (state.step === 'intake_done') {
+      const compList = state.project.components.map(c => '- ' + c.name + ' (' + c.quantity + ' ' + c.unit + ')').join('\n');
+      addConfirmMsg(
+        '**' + state.project.building_type + '**, ' + state.project.area_bta + ' m\u00b2\n\n**Komponenter:**\n' + compList,
+        'Bekr\u00e4fta och ber\u00e4kna baslinje \u2192',
+        'Skriv i chatten om n\u00e5got inte st\u00e4mmer.'
+      );
+    } else if (state.step === 'baseline_done') {
+      const total = state.baseline.components.reduce((s,c) => s + c.co2e_kg, 0);
+      addConfirmMsg(
+        'Baslinje klar: **' + Math.round(total).toLocaleString('sv') + ' kg CO\u2082e** totalt f\u00f6r ' + state.baseline.components.length + ' komponenter.',
+        'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
+        'Skriv i chatten om du vill korrigera n\u00e5got.'
+      );
+    } else if (state.step === 'alternatives_done') addMsg('V\u00e4lj alternativ per komponent i resultatpanelen.', 'bot');
+    else if (state.step === 'report_done') addMsg('Rapporten \u00e4r klar.', 'bot');
   }
 }
 
