@@ -1211,7 +1211,6 @@ async function sendMessage() {
   input.value = '';
   addMsg(text, 'user');
   setLoading(true);
-  removeConfirmButtons();
 
   switch (state.step) {
     case 'idle':
