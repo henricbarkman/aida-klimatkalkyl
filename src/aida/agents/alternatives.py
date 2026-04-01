@@ -221,12 +221,19 @@ def _add_palats_reuse(
     alternatives: list[Alternative],
     component_name: str,
     quantity: float,
+    project_unit: str,
     palats_listings: list[dict],
 ) -> None:
     """Add matching Palats reuse listings as alternatives (in-place).
 
     Palats listings get minimal CO2e (transport/refurbishment only) and
     actual marketplace prices.
+
+    Pricing logic:
+    - If project counts in "st" (fönster, dörr), Palats price * quantity
+      gives a directly comparable total.
+    - If project counts in "m2" (golv, vägg), we can't calculate total
+      (unknown coverage per article). Show per-article price instead.
     """
     from aida.data.palats_client import (
         _DEFAULT_REUSE_CO2E,
@@ -241,18 +248,29 @@ def _add_palats_reuse(
     existing_names = {a.name.lower() for a in alternatives}
     category = normalize_component_name(component_name)
     co2e_per_unit = REUSE_CO2E_PER_UNIT.get(category, _DEFAULT_REUSE_CO2E)
+    units_match = project_unit.lower() in ("st", "styck", "stk")
 
     for listing in matched[:5]:  # Cap at 5 reuse listings per component
         if listing.title.lower() in existing_names:
             continue
 
         total_co2e = co2e_per_unit * quantity
-        # Palats prices are per article (piece/roll), not per m2.
-        # We show the unit price — total cost can't be calculated without
-        # knowing coverage per article.
-        unit_price = listing.price
 
-        price_note = f"Pris: {unit_price:.0f} SEK/st ({listing.quantity} tillgängliga)" if unit_price > 0 else f"{listing.quantity} tillgängliga"
+        if units_match and listing.price > 0:
+            # Units match (both "st") — total is directly comparable
+            total_cost = listing.price * quantity
+            price_note = f"Pris: {listing.price:.0f} SEK/st × {int(quantity)} = {int(total_cost)} SEK"
+            cost_is_estimate = False
+        elif listing.price > 0:
+            # Units don't match — show per-article price only
+            total_cost = listing.price
+            price_note = f"Pris: {listing.price:.0f} SEK/st ({listing.quantity} tillgängliga) — yta per artikel okänd"
+            cost_is_estimate = True
+        else:
+            total_cost = 0
+            price_note = f"{listing.quantity} tillgängliga"
+            cost_is_estimate = False
+
         location_note = f"Plats: {listing.location}" if listing.location else ""
         url_note = f"Se annons: {listing.url}" if listing.url else ""
         detail_parts = [p for p in [price_note, location_note, url_note] if p]
@@ -265,16 +283,23 @@ def _add_palats_reuse(
         )
         if detail_str:
             reasoning += f" {detail_str}"
+        if cost_is_estimate:
+            reasoning += " OBS: Priset avser en artikel, inte totalbehovet."
         if listing.description:
             desc_preview = listing.description[:150]
             if len(listing.description) > 150:
                 desc_preview += "..."
             reasoning += f" Beskrivning: {desc_preview}"
 
+        # Mark name with * when cost is per-article, not total
+        display_name = f"{listing.title} (Palats återbruk, {listing.location})" if listing.location else f"{listing.title} (Palats återbruk)"
+        if cost_is_estimate:
+            display_name += " *"
+
         alternatives.append(Alternative(
-            name=f"{listing.title} (Palats återbruk, {listing.location})" if listing.location else f"{listing.title} (Palats återbruk)",
+            name=display_name,
             co2e_kg=round(total_co2e, 1),
-            cost_sek=round(unit_price),
+            cost_sek=round(total_cost),
             source=f"[Palats] palats.app/listing/{listing.id}",
             reasoning=reasoning,
             alternative_type="reuse",
@@ -330,7 +355,8 @@ def find_alternatives(
         # Add live Palats reuse listings
         if has_palats:
             _add_palats_reuse(
-                alternatives, proj_comp.name, proj_comp.quantity, palats_listings,
+                alternatives, proj_comp.name, proj_comp.quantity,
+                proj_comp.unit, palats_listings,
             )
 
         # If Palats is connected but has nothing for this component, note it

@@ -1495,7 +1495,7 @@ function renderAlternativContent() {
         '<td style="font-weight:500">' + esc(alt.name) + '</td>' +
         '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
         '<td style="text-align:right">' + Math.round(alt.co2e_kg) + ' <span style="color:var(--green-saving);font-size:11px">\u2193' + saving + '%</span></td>' +
-        '<td style="text-align:right">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr</td>' +
+        '<td style="text-align:right">' + (alt.name.endsWith('*') ? Math.round(alt.cost_sek).toLocaleString('sv') + ' kr/st *' : Math.round(alt.cost_sek).toLocaleString('sv') + ' kr') + '</td>' +
         '<td>' + (alt.reasoning ? '<button class="reasoning-toggle" onclick="toggleReasoning(\'' + rowId + '\',event)">Visa mer</button>' : '') + '</td></tr>';
       if (alt.reasoning) {
         html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="7">' + esc(alt.reasoning) + '</td></tr>';
@@ -1503,6 +1503,11 @@ function renderAlternativContent() {
     });
     html += '</tbody></table></div>';
   });
+  // Check if any alternatives have per-article pricing
+  const hasPerArticle = data.components.some(c => c.alternatives.some(a => a.name.endsWith('*')));
+  if (hasPerArticle) {
+    html += '<div style="font-size:12px;color:var(--kk-gray-500);margin:8px 0;font-style:italic">* Pris per artikel (yta per artikel ok\u00e4nd). Se \u201cVisa mer\u201d f\u00f6r detaljer.</div>';
+  }
   html += '<div id="summaryArea"></div>';
   html += '<button class="btn" id="reportBtn" onclick="generateReport()" disabled title="V\u00e4lj ett alternativ per komponent">Generera rapport</button>';
   html += '<div id="missingHint" style="font-size:12px;color:var(--kk-gray-500);margin-top:6px;font-style:italic"></div>';
