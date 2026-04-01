@@ -184,7 +184,7 @@ def _estimate_unknown_components(project: Project, components: list) -> list[Bas
     client = get_client()
 
     comp_list = "\n".join(
-        f"- {c.name}: {c.quantity} {c.unit}"
+        f"- {c.id}: {c.name}, {c.quantity} {c.unit}"
         for c in components
     )
 
@@ -203,7 +203,7 @@ Följande komponenter finns inte i Boverkets klimatdatabas. Uppskatta baslinjen 
 
 VIKTIGT:
 - Baslinjen representerar konventionella standardmaterial, inte worst case.
-- Använd Boverkets klimatdatabas som referens om du känner till typiska värden.
+- Använd EXAKT de component_id som anges ovan (t.ex. c1, c2, c3).
 - Om du inte har specifika värden: uppskatta, men ange "Uppskattning" som source.
 - Var ärlig om osäkerheten. Ange INTE specifika EPD-nummer eller databaskällor du inte är säker på.
 
@@ -221,14 +221,30 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
     if isinstance(data, dict) and "components" in data:
         data = data["components"]
 
+    # Build a lookup to force correct IDs even if LLM ignores the instruction
+    id_by_name = {c.name.lower(): c.id for c in components}
+    id_by_index = {i: c.id for i, c in enumerate(components)}
+
     results = []
-    for item in data:
-        raw_source = item.get("source", "Generisk uppskattning")
+    for i, item in enumerate(data):
+        # Force the correct component_id from the project
+        llm_id = item.get("component_id", "")
+        llm_name = item.get("component_name", "")
+        known_ids = {c.id for c in components}
+        if llm_id in known_ids:
+            comp_id = llm_id
+        elif llm_name.lower() in id_by_name:
+            comp_id = id_by_name[llm_name.lower()]
+        elif i in id_by_index:
+            comp_id = id_by_index[i]
+        else:
+            comp_id = llm_id  # last resort
+
         results.append(BaselineResult(
-            component_id=item["component_id"],
-            component_name=item["component_name"],
-            co2e_kg=item["co2e_kg"],
-            cost_sek=item["cost_sek"],
+            component_id=comp_id,
+            component_name=item.get("component_name", ""),
+            co2e_kg=item.get("co2e_kg", 0),
+            cost_sek=item.get("cost_sek", 0),
             method="NollCO2",
             description=item.get("description", "LLM-uppskattning (ej i standarddatabas)"),
             source="Uppskattning",
