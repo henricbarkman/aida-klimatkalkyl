@@ -58,7 +58,7 @@ def get_user_from_token():
         return None
     token = auth_header[7:]
 
-    # Try ES256 via JWKS first
+    # Try ES256 via JWKS first (Supabase default since 2024)
     jwks = _get_jwks_client()
     if jwks:
         try:
@@ -68,8 +68,8 @@ def get_user_from_token():
                 algorithms=['ES256'], audience='authenticated'
             )
             return payload.get('sub')
-        except Exception:
-            pass  # JWKS failed (network, wrong alg) — fall through to HS256
+        except Exception as e:
+            app.logger.debug("ES256 JWKS validation failed: %s", e)
 
     # Fallback: HS256 with local secret
     if SUPABASE_JWT_SECRET:
@@ -79,8 +79,28 @@ def get_user_from_token():
                 algorithms=['HS256'], audience='authenticated'
             )
             return payload.get('sub')
-        except Exception:
-            pass
+        except Exception as e:
+            app.logger.debug("HS256 validation failed: %s", e)
+
+    # Last resort: verify token via Supabase auth API (handles any algorithm)
+    try:
+        resp = __import__('urllib.request', fromlist=['urlopen']).urlopen(
+            __import__('urllib.request', fromlist=['Request']).Request(
+                f"{SUPABASE_URL}/auth/v1/user",
+                headers={
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': f'Bearer {token}',
+                },
+            ),
+            timeout=5,
+        )
+        user_data = json.loads(resp.read().decode())
+        uid = user_data.get('id')
+        if uid:
+            app.logger.info("Token validated via Supabase /auth/v1/user fallback")
+            return uid
+    except Exception as e:
+        app.logger.debug("Supabase /auth/v1/user fallback failed: %s", e)
 
     return None
 
