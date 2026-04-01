@@ -1096,9 +1096,7 @@ function updatePlaceholder() {
 function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function renderMd(text) {
-  text = text.replace(/(\d+)\)\s/g, (match, num, offset) => {
-    return '\n' + num + '. ';
-  }).trim();
+  text = text.replace(/^(\d+)\)\s/gm, '$1. ');
   let html;
   if (typeof marked !== 'undefined') html = marked.parse(text);
   else html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
