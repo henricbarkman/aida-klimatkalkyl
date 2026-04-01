@@ -86,7 +86,7 @@ def _friendly_source(climate) -> str:
         if "Boverket" in raw:
             return "Boverket (typiskt värde)"
         if "EPD" in raw or "Environdec" in raw or "environdec" in raw:
-            return "EPD (typiskt värde)"
+            return "EPD (Environdec)"
         return "Uppskattning"
     return "Uppskattning"
 
