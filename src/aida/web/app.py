@@ -1222,7 +1222,11 @@ async function sendMessage() {
       break;
     case 'intake_done':
       addMsg('Uppdaterar projektbeskrivning...', 'system');
-      await runIntake(state.project.description + '\n\nKorrigering: ' + text);
+      {
+        const compSummary = state.project.components.map(c => c.name + ' (' + c.quantity + ' ' + c.unit + ')').join(', ');
+        const ctx = state.project.building_type + ', ' + state.project.area_bta + ' m2. Komponenter: ' + compSummary;
+        await runIntake(ctx + '\n\nKorrigering fr\u00e5n anv\u00e4ndaren: ' + text);
+      }
       break;
     case 'baseline_done':
       await runChat(text);
