@@ -27,9 +27,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('AIDA_SECRET_KEY', secrets.token_hex(32))
 
 AIDA_PASSWORD = os.environ.get('AIDA_PASSWORD', '')
-SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
-SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
-SUPABASE_JWT_SECRET = os.environ.get('SUPABASE_JWT_SECRET', '')
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip()
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '').strip()
+SUPABASE_JWT_SECRET = os.environ.get('SUPABASE_JWT_SECRET', '').strip()
 
 try:
     import jwt as pyjwt
