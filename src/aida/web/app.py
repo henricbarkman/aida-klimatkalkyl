@@ -1159,6 +1159,9 @@ let _loadingStart = null;
 function setLoading(on) {
   document.getElementById('sendBtn').disabled = on;
   document.getElementById('userInput').disabled = on;
+  // Always clean up previous loading state first (prevents duplicates)
+  if (_loadingTimer) { clearInterval(_loadingTimer); _loadingTimer = null; }
+  const prev = document.getElementById('typingBubble'); if (prev) prev.remove();
   if (on) {
     _loadingStart = Date.now();
     const el = document.createElement('div');
@@ -1171,8 +1174,6 @@ function setLoading(on) {
       if (t) { const s = Math.floor((Date.now() - _loadingStart) / 1000); if (s >= 3) t.textContent = s + 's'; }
     }, 1000);
   } else {
-    if (_loadingTimer) { clearInterval(_loadingTimer); _loadingTimer = null; }
-    const bubble = document.getElementById('typingBubble'); if (bubble) bubble.remove();
     updatePlaceholder();
   }
 }
