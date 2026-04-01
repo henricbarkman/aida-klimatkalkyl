@@ -375,10 +375,11 @@ def find_alternatives(
                     "(Karlstads kommuns interna marknadsplats) för denna kategori "
                     "just nu. Utbudet ändras löpande — kolla igen senare."
                 ),
-                alternative_type="reuse",
+                alternative_type="info",
             ))
 
-        if not alternatives:
+        selectable = [a for a in alternatives if a.alternative_type != "info"]
+        if not selectable:
             alternatives.append(Alternative(
                 name=f"Inga alternativ hittades för {proj_comp.name}",
                 co2e_kg=bl_comp.co2e_kg,

@@ -110,7 +110,7 @@ class Alternative:
     cost_sek: float
     source: str
     reasoning: str = ""
-    alternative_type: str = ""  # "reuse", "climate_optimized", "baseline"
+    alternative_type: str = ""  # "reuse", "climate_optimized", "baseline", "info"
 
     def to_dict(self) -> dict:
         return asdict(self)

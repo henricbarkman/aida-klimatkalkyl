@@ -1104,7 +1104,17 @@ function renderMd(text) {
   return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
 }
 
+let chatLog = []; // {text, cls, confirm?{btnLabel,hint}} — persisted via localStorage
+
+function _chatStorageKey() { return 'aida_chat_' + (currentAnalysisId || 'new'); }
+
+function _saveChatLog() {
+  try { localStorage.setItem(_chatStorageKey(), JSON.stringify(chatLog)); } catch(e) {}
+}
+
 function addMsg(text, cls) {
+  chatLog.push({text, cls});
+  _saveChatLog();
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
   if (cls === 'bot' || cls === 'system') { d.innerHTML = renderMd(text); }
@@ -1114,6 +1124,8 @@ function addMsg(text, cls) {
 }
 
 function addConfirmMsg(text, btnLabel, hint) {
+  chatLog.push({text, cls: 'bot', confirm: {btnLabel, hint}});
+  _saveChatLog();
   const d = document.createElement('div');
   d.className = 'msg bot';
   d.innerHTML = renderMd(text) +
@@ -1411,16 +1423,19 @@ async function runChat(text) {
     context.building_type = state.project.building_type;
     context.area_bta = state.project.area_bta;
     if (state.baseline) {
+      const projComps = state.project ? Object.fromEntries((state.project.components||[]).map(c => [c.id, c])) : {};
       context.baseline_total = Math.round(state.baseline.components.reduce((s,c)=>s+c.co2e_kg,0));
-      context.baseline_components = state.baseline.components.map(c => ({
-        name: c.component_name || c.name,
-        co2e_kg: Math.round(c.co2e_kg),
-        cost_sek: Math.round(c.cost_sek || 0),
-        material: c.material_name || c.name,
-        climate_source: c.climate_source || '',
-        quantity: c.quantity,
-        unit: c.unit,
-      }));
+      context.baseline_components = state.baseline.components.map(c => {
+        const pc = projComps[c.component_id] || {};
+        return {
+          name: c.component_name,
+          co2e_kg: Math.round(c.co2e_kg),
+          cost_sek: Math.round(c.cost_sek || 0),
+          source: c.source || '',
+          quantity: pc.quantity,
+          unit: pc.unit,
+        };
+      });
     }
     if (state.alternatives) context.alternatives_components = state.alternatives.components.map(c => c.component_name);
   }
@@ -1454,12 +1469,17 @@ function toggleReasoning(id, e) {
 
 function formatSource(source) {
   if (!source) return '';
-  if (source.startsWith('[Verifierad]')) return '<span class="source-badge source-verified">EPD</span>' + source.replace('[Verifierad] ', '');
-  if (source.startsWith('[Uppskattning]')) return '<span class="source-badge source-estimate">Est.</span>' + source.replace('[Uppskattning] ', '');
-  return source;
+  if (source.startsWith('[EPD]')) return '<span class="source-badge source-verified">EPD</span>' + esc(source.replace('[EPD] ', ''));
+  if (source.startsWith('[Palats]')) return '<span class="source-badge source-verified">Palats</span>' + esc(source.replace('[Palats] ', ''));
+  if (source.includes('Boverket')) return '<span class="source-badge source-verified">BVK</span>' + esc(source);
+  if (source.includes('EPD') || source.includes('Environdec')) return '<span class="source-badge source-verified">EPD</span>' + esc(source);
+  if (source.startsWith('[Uppskattning]')) return '<span class="source-badge source-estimate">Est.</span>' + esc(source.replace('[Uppskattning] ', ''));
+  if (source.includes('Uppskattning')) return '<span class="source-badge source-estimate">Est.</span>' + esc(source);
+  return esc(source);
 }
 
 function getTypeBadge(alt) {
+  if (alt.alternative_type === 'info') return '<span class="type-badge" style="background:var(--kk-gray-100);color:var(--kk-gray-500)">Info</span>';
   if (alt.alternative_type === 'reuse') return '<span class="type-badge type-reuse">\u00c5terbruk</span>';
   if (alt.alternative_type === 'climate_optimized') return '<span class="type-badge type-optimized">Klimatopt.</span>';
   return '<span class="type-badge type-baseline">Baslinje</span>';
@@ -1516,9 +1536,20 @@ function renderAlternativContent() {
       '<td style="text-align:right">' + Math.round(comp.baseline_co2e_kg) + '</td>' +
       '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td><td></td></tr>';
     comp.alternatives.forEach((alt, i) => {
-      const saving = Math.round((1 - alt.co2e_kg / comp.baseline_co2e_kg) * 100);
-      const isSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === alt.name;
       const rowId = comp.component_id + '_' + i;
+      if (alt.alternative_type === 'info') {
+        html += '<tr style="opacity:0.6">' +
+          '<td></td>' +
+          '<td>' + getTypeBadge(alt) + '</td>' +
+          '<td colspan="4" style="font-size:12px;color:var(--kk-gray-500)">' + esc(alt.name) + '</td>' +
+          '<td>' + (alt.reasoning ? '<button class="reasoning-toggle" onclick="toggleReasoning(\'' + rowId + '\',event)">Visa mer</button>' : '') + '</td></tr>';
+        if (alt.reasoning) {
+          html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="7">' + esc(alt.reasoning) + '</td></tr>';
+        }
+        return;
+      }
+      const saving = comp.baseline_co2e_kg > 0 ? Math.round((1 - alt.co2e_kg / comp.baseline_co2e_kg) * 100) : 0;
+      const isSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === alt.name;
       html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="' + i + '">' +
         '<td><input type="radio" name="' + comp.component_id + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
@@ -1704,8 +1735,10 @@ async function initAuth() {
   if (session) { onLogin(session); }
   else { showAuth(); }
   supabaseClient.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) onLogin(session);
-    else if (event === 'SIGNED_OUT') showAuth();
+    if (event === 'SIGNED_IN' && session) {
+      if (!currentUser) onLogin(session);
+    }
+    else if (event === 'SIGNED_OUT') { currentUser = null; showAuth(); }
   });
 }
 
@@ -1870,32 +1903,65 @@ function restoreUI() {
 
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
-  if (!state.project) {
-    addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
+  chatLog = [];
+
+  // Try restoring chat from localStorage (survives page reloads)
+  let savedChat;
+  try { savedChat = JSON.parse(localStorage.getItem(_chatStorageKey())); } catch(e) {}
+
+  if (savedChat && savedChat.length > 0) {
+    savedChat.forEach(m => {
+      const d = document.createElement('div');
+      d.className = 'msg ' + m.cls;
+      if (m.cls === 'bot' || m.cls === 'system') { d.innerHTML = renderMd(m.text); }
+      else { d.textContent = m.text; }
+      // Restore confirm buttons for current step only
+      if (m.confirm && (
+        (state.step === 'intake_done' && m.confirm.btnLabel.includes('baslinje')) ||
+        (state.step === 'baseline_done' && m.confirm.btnLabel.includes('alternativ'))
+      )) {
+        d.innerHTML += '<div class="confirm-actions"><button class="btn-confirm" onclick="confirmStep()">' + m.confirm.btnLabel + '</button></div><div class="confirm-hint">' + m.confirm.hint + '</div>';
+      } else if (m.confirm) {
+        // Past confirm — show as completed
+        d.innerHTML += '<div class="confirm-actions"><button class="btn-confirm" disabled style="background:var(--kk-gray-200);color:var(--kk-gray-400);cursor:default;pointer-events:none">Bekr\u00e4ftad \u2713</button></div>';
+      }
+      msgs.appendChild(d);
+    });
+    chatLog = savedChat;
+    const last = msgs.lastElementChild;
+    if (last) last.scrollIntoView({behavior:'smooth'});
   } else {
-    addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
-    if (state.step === 'intake_done') {
-      const compList = state.project.components.map(c => '- ' + c.name + ' (' + c.quantity + ' ' + c.unit + ')').join('\n');
-      addConfirmMsg(
-        '**' + state.project.building_type + '**, ' + state.project.area_bta + ' m\u00b2\n\n**Komponenter:**\n' + compList,
-        'Bekr\u00e4fta och ber\u00e4kna baslinje \u2192',
-        'Skriv i chatten om n\u00e5got inte st\u00e4mmer.'
-      );
-    } else if (state.step === 'baseline_done') {
-      const total = state.baseline.components.reduce((s,c) => s + c.co2e_kg, 0);
-      addConfirmMsg(
-        'Baslinje klar: **' + Math.round(total).toLocaleString('sv') + ' kg CO\u2082e** totalt f\u00f6r ' + state.baseline.components.length + ' komponenter.',
-        'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
-        'Skriv i chatten om du vill korrigera n\u00e5got.'
-      );
-    } else if (state.step === 'alternatives_done') addMsg('V\u00e4lj alternativ per komponent i resultatpanelen.', 'bot');
-    else if (state.step === 'report_done') addMsg('Rapporten \u00e4r klar.', 'bot');
+    // Fallback: reconstruct summary from state
+    if (!state.project) {
+      addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
+    } else {
+      addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
+      if (state.step === 'intake_done') {
+        const compList = state.project.components.map(c => '- ' + c.name + ' (' + c.quantity + ' ' + c.unit + ')').join('\n');
+        addConfirmMsg(
+          '**' + state.project.building_type + '**, ' + state.project.area_bta + ' m\u00b2\n\n**Komponenter:**\n' + compList,
+          'Bekr\u00e4fta och ber\u00e4kna baslinje \u2192',
+          'Skriv i chatten om n\u00e5got inte st\u00e4mmer.'
+        );
+      } else if (state.step === 'baseline_done') {
+        const total = state.baseline.components.reduce((s,c) => s + c.co2e_kg, 0);
+        addConfirmMsg(
+          'Baslinje klar: **' + Math.round(total).toLocaleString('sv') + ' kg CO\u2082e** totalt f\u00f6r ' + state.baseline.components.length + ' komponenter.',
+          'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
+          'Skriv i chatten om du vill korrigera n\u00e5got.'
+        );
+      } else if (state.step === 'alternatives_done') addMsg('V\u00e4lj alternativ per komponent i resultatpanelen.', 'bot');
+      else if (state.step === 'report_done') addMsg('Rapporten \u00e4r klar.', 'bot');
+    }
   }
+  updatePlaceholder();
 }
 
 function createNewProject() {
   toggleProjectMenu();
+  try { localStorage.removeItem(_chatStorageKey()); } catch(e) {}
   currentAnalysisId = null;
+  chatLog = [];
   state = { project: null, baseline: null, alternatives: null, selections: {}, pendingDesc: null, reportMarkdown: null, chatHistory: [], step: 'idle' };
   document.getElementById('projectName').textContent = 'Nytt projekt';
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
