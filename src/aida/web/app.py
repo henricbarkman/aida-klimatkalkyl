@@ -1125,8 +1125,14 @@ function addConfirmMsg(text, btnLabel, hint) {
 
 function removeConfirmButtons() {
   document.querySelectorAll('.confirm-actions').forEach(el => {
-    const msg = el.closest('.msg');
-    if (msg) { el.remove(); const hint = msg.querySelector('.confirm-hint'); if (hint) hint.remove(); }
+    const btn = el.querySelector('.btn-confirm');
+    if (btn) {
+      btn.disabled = true;
+      btn.style.cssText = 'background:var(--kk-gray-200);color:var(--kk-gray-400);cursor:default;pointer-events:none';
+      btn.textContent = 'Bekr\u00e4ftad \u2713';
+    }
+    const hint = el.closest('.msg')?.querySelector('.confirm-hint');
+    if (hint) hint.remove();
   });
 }
 
