@@ -1256,7 +1256,8 @@ async function sendMessage() {
 
 // === Confirm step ===
 function confirmStep() {
-  removeConfirmButtons();
+  // Disable button immediately (removeConfirmButtons called on success, retry on failure)
+  document.querySelectorAll('.btn-confirm').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
   if (state.step === 'intake_done') runBaseline();
   else if (state.step === 'baseline_done') runAlternatives();
 }
@@ -1317,7 +1318,12 @@ async function runBaseline() {
   try {
     const r = await authFetch('/api/baseline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project})});
     const d = await r.json();
-    if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
+    if (d.error) {
+      addMsg('Fel: ' + d.error, 'system');
+      addConfirmMsg('Baslinjeberäkning misslyckades.', 'Försök igen \u2192', '');
+      setLoading(false); return;
+    }
+    removeConfirmButtons();
     state.baseline = d;
     state.alternatives = null;
     state.selections = {};
@@ -1336,7 +1342,11 @@ async function runBaseline() {
       'Skriv i chatten om du vill korrigera n\u00e5got.'
     );
     setLoading(false);
-  } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
+  } catch(e) {
+    addMsg('Fel: ' + e.message, 'system');
+    addConfirmMsg('Baslinjeberäkning misslyckades.', 'Försök igen \u2192', '');
+    setLoading(false);
+  }
 }
 
 // === Pipeline: Alternatives ===
@@ -1357,7 +1367,13 @@ async function runAlternatives(userFeedback) {
     const r = await authFetch('/api/alternatives', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const d = await r.json();
     clearTimeout(subStepTimer);
-    if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
+    if (d.error) {
+      clearTimeout(subStepTimer);
+      addMsg('Fel: ' + d.error, 'system');
+      addConfirmMsg('S\u00f6kning av alternativ misslyckades.', 'F\u00f6rs\u00f6k igen \u2192', '');
+      setLoading(false); return;
+    }
+    removeConfirmButtons();
     state.alternatives = d;
     state.reportMarkdown = null;
     state.step = 'alternatives_done';
@@ -1391,7 +1407,12 @@ async function runAlternatives(userFeedback) {
       addMsg('Alternativ klara! V\u00e4lj per komponent i resultatpanelen.\n\nSkriv i chatten om du vill ha fler alternativ.', 'bot');
     }
     setLoading(false);
-  } catch(e) { clearTimeout(subStepTimer); addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
+  } catch(e) {
+    clearTimeout(subStepTimer);
+    addMsg('Fel: ' + e.message, 'system');
+    addConfirmMsg('S\u00f6kning av alternativ misslyckades.', 'F\u00f6rs\u00f6k igen \u2192', '');
+    setLoading(false);
+  }
 }
 
 // === Pipeline: Report ===
