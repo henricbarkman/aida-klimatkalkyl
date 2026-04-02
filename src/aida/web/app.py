@@ -953,8 +953,9 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
       <button class="dropdown-item" onclick="createNewProject()">+ Skapa nytt projekt</button>
     </div>
   </div>
-  <div class="topbar-right" id="userDropdown" style="position:relative">
-    <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);margin-right:8px;display:none"></span>
+  <div class="topbar-right" id="userDropdown" style="position:relative;display:flex;align-items:center;gap:12px">
+    <a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a>
+    <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span>
     <button class="user-btn" onclick="toggleUserMenu()">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </button>
