@@ -114,7 +114,7 @@ def calculate_baseline(project: Project) -> Baseline:
     unknown_components = []
 
     for comp in project.components:
-        climate = provider.lookup_without_price(comp.name)
+        climate = provider.lookup_without_price(comp.name, component_hint=comp.category)
         if climate and climate.source_layer in ("boverket", "environdec"):
             climate_hits.append((comp, climate))
         else:

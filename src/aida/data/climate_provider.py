@@ -109,7 +109,7 @@ class ClimateProvider:
 
         key = product_name.lower().strip()
 
-        # Layer 1: Check cache (covers Boverket, local, and LLM entries)
+        # Layer 1: Check cache (covers Boverket and Environdec entries)
         cached = self._cache.get(key)
         if cached:
             result = _entry_to_result(cached)
@@ -126,7 +126,12 @@ class ClimateProvider:
         if result:
             return self._maybe_enrich_cost(result, key)
 
-        # No more local fallback — climate_data.py deprecated
+        # Layer 4: Retry with normalized category key if full name didn't match
+        # e.g. "Golvbeläggning, tambur (PVC från 2001)" → search for "golv" category
+        result = self._try_normalized(key, component_hint)
+        if result:
+            return self._maybe_enrich_cost(result, key)
+
         return None
 
     def lookup_without_price(
@@ -155,6 +160,11 @@ class ClimateProvider:
             return result
 
         result = self._try_environdec(key, component_hint)
+        if result:
+            return result
+
+        # Retry with normalized category key
+        result = self._try_normalized(key, component_hint)
         if result:
             return result
 
@@ -450,6 +460,40 @@ class ClimateProvider:
         result = _entry_to_result(entry)
         return self._maybe_convert_units(result, component_hint or key, entry.extra_json)
 
+    def _try_normalized(self, key: str, component_hint: str = "") -> ClimateResult | None:
+        """Retry lookup with normalized/simplified search terms.
+
+        When intake produces verbose names like "Golvbeläggning, tambur (PVC från 2001)",
+        extract material keywords and category to find Boverket matches like "vinylgolv".
+        """
+        from aida.data.climate_data import normalize_component_name
+
+        # Try component_hint first (e.g. "golv" from intake category)
+        comp_key = normalize_component_name(component_hint) if component_hint else ""
+        if not comp_key:
+            comp_key = normalize_component_name(key)
+        if not comp_key:
+            return None
+
+        # Extract material keywords from the original name
+        material_keywords = _extract_material_keywords(key)
+
+        # Try each keyword against Boverket
+        for kw in material_keywords:
+            result = self._try_boverket(kw, comp_key)
+            if result:
+                logger.info("Normalized lookup hit: '%s' → '%s' (from '%s')", kw, result.name, key)
+                return result
+
+        # Try just the category key (e.g. "golv" → matches "vinylgolv" via substring)
+        if len(comp_key) >= 3:
+            result = self._try_boverket(comp_key, comp_key)
+            if result:
+                logger.info("Category lookup hit: '%s' → '%s' (from '%s')", comp_key, result.name, key)
+                return result
+
+        return None
+
     def sync_environdec_index(self) -> int:
         """Pre-fetch the Environdec EPD index. Returns count of EPDs indexed."""
         client = self._get_environdec()
@@ -459,6 +503,46 @@ class ClimateProvider:
         except Exception as e:
             logger.warning("Environdec index sync failed: %s", e)
             return 0
+
+def _extract_material_keywords(name: str) -> list[str]:
+    """Extract likely material search terms from a verbose component name.
+
+    "Golvbeläggning, tambur (PVC från 2001)" → ["pvc", "vinyl", "golvbeläggning"]
+    "Toalettstol" → ["toalettstol"]
+    """
+    # Material synonyms that map to Boverket search terms
+    material_map = {
+        "pvc": ["pvc", "vinyl", "vinylgolv"],
+        "vinyl": ["vinyl", "vinylgolv"],
+        "linoleum": ["linoleum"],
+        "klinker": ["klinker", "keramik"],
+        "parkett": ["parkett", "trägolv"],
+        "laminat": ["laminat", "laminatgolv"],
+        "gips": ["gipsskiva", "gips"],
+        "betong": ["betong"],
+        "tegel": ["tegel"],
+        "mineralull": ["mineralull"],
+        "cellplast": ["cellplast", "eps"],
+        "stål": ["stål"],
+        "trä": ["trä", "träpanel"],
+        "aluminium": ["aluminium"],
+        "glas": ["glas"],
+    }
+
+    name_lower = name.lower()
+    keywords = []
+
+    for material, search_terms in material_map.items():
+        if material in name_lower:
+            keywords.extend(search_terms)
+
+    # Also try the first word (often the main noun)
+    first_word = name_lower.split(",")[0].split("(")[0].strip()
+    if first_word and len(first_word) >= 3 and first_word not in keywords:
+        keywords.append(first_word)
+
+    return keywords
+
 
 def _entry_to_result(entry: CacheEntry) -> ClimateResult:
     return ClimateResult(
