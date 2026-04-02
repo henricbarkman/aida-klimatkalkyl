@@ -8,6 +8,10 @@ import anthropic
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
+# Per-call timeout in seconds. No single LLM call should take longer than this.
+# The alternatives step makes multiple calls, so total step time can exceed this.
+LLM_CALL_TIMEOUT = 120.0
+
 
 def get_client() -> anthropic.Anthropic:
     """Get Anthropic client routed through OpenRouter.
@@ -19,11 +23,12 @@ def get_client() -> anthropic.Anthropic:
         return anthropic.Anthropic(
             api_key=openrouter_key,
             base_url=OPENROUTER_BASE_URL,
+            timeout=LLM_CALL_TIMEOUT,
         )
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
-        return anthropic.Anthropic(api_key=api_key)
+        return anthropic.Anthropic(api_key=api_key, timeout=LLM_CALL_TIMEOUT)
 
     raise RuntimeError(
         "No API key found. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY."

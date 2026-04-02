@@ -16,12 +16,17 @@ from flask import Flask, Response, jsonify, redirect, render_template_string, re
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+import anthropic
+
 from aida.agents.aggregate import compute_aggregate
 from aida.agents.alternatives import find_alternatives
 from aida.agents.baseline import calculate_baseline
 from aida.agents.intake import run_intake
 from aida.agents.report import generate_report_markdown
 from aida.models import Baseline, Project, Selections
+
+# Timeout errors to catch from Anthropic SDK
+_TIMEOUT_ERRORS = (anthropic.APITimeoutError, TimeoutError)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('AIDA_SECRET_KEY', secrets.token_hex(32))
@@ -253,6 +258,8 @@ def api_intake():
     try:
         result = run_intake(description)
         return jsonify(result)
+    except _TIMEOUT_ERRORS:
+        return jsonify({'error': 'Analysen tog för lång tid. Försök igen.'}), 504
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -270,6 +277,8 @@ def api_baseline():
         project = Project.from_dict(project_data)
         baseline = calculate_baseline(project)
         return jsonify(baseline.to_dict())
+    except _TIMEOUT_ERRORS:
+        return jsonify({'error': 'Baslinjeberäkningen tog för lång tid. Försök igen.'}), 504
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -290,6 +299,8 @@ def api_alternatives():
         user_feedback = data.get('user_feedback')
         result = find_alternatives(project, baseline, user_feedback=user_feedback)
         return jsonify(result.to_dict())
+    except _TIMEOUT_ERRORS:
+        return jsonify({'error': 'Alternativanalysen tog för lång tid. Försök igen, eller minska antal komponenter.'}), 504
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -318,6 +329,8 @@ def api_report():
             return jsonify({'error': 'Inga komponenter valda'}), 400
         markdown = generate_report_markdown(project, selections)
         return jsonify({'markdown': markdown})
+    except _TIMEOUT_ERRORS:
+        return jsonify({'error': 'Rapportgenereringen tog för lång tid. Försök igen.'}), 504
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -551,6 +564,8 @@ def api_chat():
         )
         reply = extract_text(response).strip()
         return jsonify({'reply': reply})
+    except _TIMEOUT_ERRORS:
+        return jsonify({'error': 'Chatten svarade inte i tid. Försök igen.'}), 504
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1686,7 +1701,7 @@ let isSignup = false;
 let saveTimeout = null;
 let saveInProgress = false;
 
-// Auth-aware fetch wrapper
+// Auth-aware fetch wrapper with safe JSON parsing
 async function authFetch(url, options) {
   options = options || {};
   options.headers = options.headers || {};
@@ -1696,7 +1711,21 @@ async function authFetch(url, options) {
       options.headers['Authorization'] = 'Bearer ' + sess.data.session.access_token;
     }
   }
-  return fetch(url, options);
+  const resp = await fetch(url, options);
+  // Wrap .json() to catch non-JSON responses (e.g. Vercel timeout HTML pages)
+  const origJson = resp.json.bind(resp);
+  resp.json = async () => {
+    const text = await resp.clone().text();
+    try { return JSON.parse(text); }
+    catch(e) {
+      if (resp.status === 504 || resp.status === 502 || text.includes('FUNCTION_INVOCATION_TIMEOUT'))
+        return {error: 'Analysen tog f\u00f6r l\u00e5ng tid. F\u00f6rs\u00f6k igen, eller f\u00f6renkla projektbeskrivningen.'};
+      if (resp.status >= 500)
+        return {error: 'Serverfel (' + resp.status + '). F\u00f6rs\u00f6k igen om en stund.'};
+      return {error: 'Ov\u00e4ntat svar fr\u00e5n servern. F\u00f6rs\u00f6k igen.'};
+    }
+  };
+  return resp;
 }
 
 // No-op when Supabase not configured

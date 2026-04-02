@@ -201,7 +201,11 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
         ]),
         ("vvs", ["panelradiator", "radiator", "avloppsrör"]),
         ("hiss", ["hiss", "elevator"]),
-        ("diskmaskin", ["diskmaskin"]),
+        ("storköksutrustning", ["diskmaskin", "storkök"]),
+        ("sanitet", ["toalett", "wc", "handfat", "tvättställ", "dusch",
+                     "badkar", "urinal", "blandare", "kran"]),
+        ("vitvaror", ["tvättmaskin", "torktumlare", "torkskåp", "spis",
+                      "häll", "ugn", "mikrovåg", "köksfläkt"]),
         ("kylanläggning", ["kyl", "frys", "kylskåp", "kylanläggning"]),
     ]
 

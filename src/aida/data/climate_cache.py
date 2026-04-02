@@ -46,8 +46,7 @@ class CacheEntry:
     cost_per_unit: float
     unit: str
     source: str
-    confidence: str
-    source_layer: str  # "boverket", "local", "llm"
+    source_layer: str  # "boverket", "environdec", "llm"
     fetched_at: float
     expires_at: float
     extra_json: str = ""
@@ -78,8 +77,8 @@ class ClimateCache:
                 cost_per_unit REAL NOT NULL,
                 unit TEXT NOT NULL,
                 source TEXT NOT NULL,
-                confidence TEXT NOT NULL DEFAULT 'high',
-                source_layer TEXT NOT NULL DEFAULT 'local',
+                confidence TEXT NOT NULL DEFAULT '',
+                source_layer TEXT NOT NULL DEFAULT 'boverket',
                 fetched_at REAL NOT NULL,
                 expires_at REAL NOT NULL,
                 extra_json TEXT DEFAULT ''
@@ -102,7 +101,9 @@ class ClimateCache:
     def get(self, product_name: str) -> CacheEntry | None:
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT * FROM climate_cache WHERE product_name = ?",
+            "SELECT product_name, name, co2e_per_unit, cost_per_unit, unit, "
+            "source, source_layer, fetched_at, expires_at, extra_json, price_enriched "
+            "FROM climate_cache WHERE product_name = ?",
             (product_name.lower().strip(),),
         ).fetchone()
         if row is None:
@@ -117,8 +118,8 @@ class ClimateCache:
         conn.execute("""
             INSERT OR REPLACE INTO climate_cache
                 (product_name, name, co2e_per_unit, cost_per_unit, unit,
-                 source, confidence, source_layer, fetched_at, expires_at, extra_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 source, source_layer, fetched_at, expires_at, extra_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             entry.product_name.lower().strip(),
             entry.name,
@@ -126,7 +127,6 @@ class ClimateCache:
             entry.cost_per_unit,
             entry.unit,
             entry.source,
-            entry.confidence,
             entry.source_layer,
             entry.fetched_at,
             entry.expires_at,
@@ -139,12 +139,12 @@ class ClimateCache:
         conn.executemany("""
             INSERT OR REPLACE INTO climate_cache
                 (product_name, name, co2e_per_unit, cost_per_unit, unit,
-                 source, confidence, source_layer, fetched_at, expires_at, extra_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 source, source_layer, fetched_at, expires_at, extra_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, [
             (
                 e.product_name.lower().strip(), e.name, e.co2e_per_unit,
-                e.cost_per_unit, e.unit, e.source, e.confidence,
+                e.cost_per_unit, e.unit, e.source,
                 e.source_layer, e.fetched_at, e.expires_at, e.extra_json,
             )
             for e in entries

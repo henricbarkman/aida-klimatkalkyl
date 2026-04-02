@@ -78,7 +78,7 @@ class BoverketClient:
                 entries.append(CacheEntry(
                     product_name=pn, name=_n, co2e_per_unit=_co2e,
                     cost_per_unit=0.0, unit=_u, source=_src,
-                    confidence="high", source_layer="boverket",
+                    source_layer="boverket",
                     fetched_at=now, expires_at=now + TTL_BOVERKET,
                     extra_json=_extra,
                 ))

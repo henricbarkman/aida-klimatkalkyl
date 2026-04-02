@@ -92,11 +92,23 @@ COMPONENT_CONVERSIONS: dict[str, ConversionSpec] = {
         typical_weight_kg=25.0,  # ~25 kg innerdörr
         description="Innerdörr standard, ~25 kg",
     ),
-    "diskmaskin": ConversionSpec(
+    "storköksutrustning": ConversionSpec(
         target_unit="st",
         method="count",
         typical_weight_kg=80.0,
-        description="Industriell diskmaskin, ~80 kg",
+        description="Storköksutrustning, ~80 kg",
+    ),
+    "sanitet": ConversionSpec(
+        target_unit="st",
+        method="count",
+        typical_weight_kg=15.0,
+        description="Sanitetsprodukt (toalett/handfat), ~15 kg",
+    ),
+    "vitvaror": ConversionSpec(
+        target_unit="st",
+        method="count",
+        typical_weight_kg=50.0,
+        description="Vitvara (tvättmaskin/köksfläkt), ~50 kg",
     ),
     "kylanläggning": ConversionSpec(
         target_unit="st",

@@ -22,7 +22,6 @@ class MaterialData:
     unit: str
     source: str
     category: str = ""  # reuse, climate_optimized, conventional
-    confidence: str = "medium"  # high (API/EPD), medium (local verified), low (estimate)
 
 
 # Baseline data: conventional new production (standard materials).
@@ -30,8 +29,8 @@ class MaterialData:
 BASELINE_DATA: dict[str, list[MaterialData]] = {
     "golv": [
         MaterialData("Konventionellt vinylgolv", 12.0, 350, "m2", "Boverkets klimatdatabas 2023", "conventional"),
-        MaterialData("Konventionell klinker", 15.0, 500, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
-        MaterialData("Konventionellt laminatgolv", 8.5, 250, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("Konventionell klinker", 15.0, 500, "m2", "Estimat — generisk EPD ej verifierad", "conventional"),
+        MaterialData("Konventionellt laminatgolv", 8.5, 250, "m2", "Estimat — generisk EPD ej verifierad", "conventional"),
     ],
     "innervägg": [
         MaterialData("Gipsskiva + stålregel (standard)", 18.0, 800, "m2", "Boverkets klimatdatabas 2023", "conventional"),
@@ -43,76 +42,76 @@ BASELINE_DATA: dict[str, list[MaterialData]] = {
         MaterialData("Konventionell betong C30/37", 55.0, 1200, "m2", "Boverkets klimatdatabas 2023, NollCO2 2022", "conventional"),
     ],
     "fönster": [
-        MaterialData("Standard 3-glas PVC-fönster", 85.0, 4500, "st", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("Standard 3-glas PVC-fönster", 85.0, 4500, "st", "Estimat — generisk EPD ej verifierad", "conventional"),
         MaterialData("Standard 2-glas aluminium", 110.0, 5500, "st", "Boverkets klimatdatabas 2023", "conventional"),
     ],
     "tak": [
         MaterialData("Betongpannor (standard)", 25.0, 600, "m2", "Boverkets klimatdatabas 2023", "conventional"),
     ],
     "isolering": [
-        MaterialData("Mineralull (standard)", 3.5, 150, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
-        MaterialData("EPS cellplast (standard)", 5.0, 120, "m2", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("Mineralull (standard)", 3.5, 150, "m2", "Estimat — generisk EPD ej verifierad", "conventional"),
+        MaterialData("EPS cellplast (standard)", 5.0, 120, "m2", "Estimat — generisk EPD ej verifierad", "conventional"),
     ],
-    "diskmaskin": [
-        MaterialData("Industriell diskmaskin (standard)", 450.0, 35000, "st", "Estimat — ingen verifierad EPD funnen", "conventional", "low"),
+    "storköksutrustning": [
+        MaterialData("Industriell diskmaskin (standard)", 450.0, 35000, "st", "Estimat — ingen verifierad EPD funnen", "conventional"),
     ],
     "kylanläggning": [
-        MaterialData("Kylsystem R-404A (standard)", 1200.0, 85000, "st", "Estimat — ingen verifierad EPD funnen", "conventional", "low"),
+        MaterialData("Kylsystem R-404A (standard)", 1200.0, 85000, "st", "Estimat — ingen verifierad EPD funnen", "conventional"),
     ],
     "belysning": [
-        MaterialData("Standard LED-armatur", 8.0, 1200, "st", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("Standard LED-armatur", 8.0, 1200, "st", "Estimat — generisk EPD ej verifierad", "conventional"),
     ],
     "ventilation": [
         MaterialData("Ventilationskanal stål (standard)", 12.0, 800, "lm", "Boverkets klimatdatabas 2023", "conventional"),
     ],
     "dörr": [
-        MaterialData("Standard innerdörr", 35.0, 3500, "st", "Estimat — generisk EPD ej verifierad", "conventional", "low"),
+        MaterialData("Standard innerdörr", 35.0, 3500, "st", "Estimat — generisk EPD ej verifierad", "conventional"),
     ],
     "hiss": [
-        MaterialData("Standard personhiss", 15000.0, 500000, "st", "Estimat — ingen verifierad EPD funnen", "conventional", "low"),
+        MaterialData("Standard personhiss", 15000.0, 500000, "st", "Estimat — ingen verifierad EPD funnen", "conventional"),
     ],
 }
 
 # Climate-optimized alternatives
 OPTIMIZED_DATA: dict[str, list[MaterialData]] = {
     "golv": [
-        MaterialData("Trägolv massivt (FSC)", 2.0, 550, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("Trägolv massivt (FSC)", 2.0, 550, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
     "innervägg": [
-        MaterialData("Gipsskiva + träreglar", 10.0, 750, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("Gipsskiva + träreglar", 10.0, 750, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
     "yttervägg": [
-        MaterialData("Träfasad + cellulosa", 15.0, 2200, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("Träfasad + cellulosa", 15.0, 2200, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
     "betongvägg": [
-        MaterialData("Klimatförbättrad betong (slagg)", 30.0, 1350, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("Klimatförbättrad betong (slagg)", 30.0, 1350, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
     "fönster": [
-        MaterialData("3-glas träfönster (FSC)", 55.0, 5800, "st", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("3-glas träfönster (FSC)", 55.0, 5800, "st", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
     "tak": [
-        MaterialData("Lertegel (lokal tillverkning)", 30.0, 750, "m2", "Estimat baserat på Environdec ceramic roof tiles EPD:er (20-50 CO2e/m2)", "climate_optimized", "low"),
+        MaterialData("Lertegel (lokal tillverkning)", 30.0, 750, "m2", "Estimat baserat på Environdec ceramic roof tiles EPD:er (20-50 CO2e/m2)", "climate_optimized"),
     ],
     "isolering": [
-        MaterialData("Cellulosaisolering (returfiber)", 1.0, 180, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("Cellulosaisolering (returfiber)", 1.0, 180, "m2", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
-    "diskmaskin": [
-        MaterialData("Energieffektiv diskmaskin A+++", 350.0, 42000, "st", "Estimat — ingen verifierad EPD funnen", "climate_optimized", "low"),
+    "storköksutrustning": [
+        MaterialData("Energieffektiv diskmaskin A+++", 350.0, 42000, "st", "Estimat — ingen verifierad EPD funnen", "climate_optimized"),
     ],
     "kylanläggning": [
-        MaterialData("Kylsystem CO2/propan (naturligt köldmedium)", 600.0, 95000, "st", "Estimat — ingen verifierad EPD funnen", "climate_optimized", "low"),
+        MaterialData("Kylsystem CO2/propan (naturligt köldmedium)", 600.0, 95000, "st", "Estimat — ingen verifierad EPD funnen", "climate_optimized"),
     ],
     "belysning": [
-        MaterialData("LED-armatur låg klimatpåverkan", 5.0, 1500, "st", "Estimat baserat på Fagerhult EPD:er i Environdec", "climate_optimized", "low"),
+        MaterialData("LED-armatur låg klimatpåverkan", 5.0, 1500, "st", "Estimat baserat på Fagerhult EPD:er i Environdec", "climate_optimized"),
     ],
     "ventilation": [
-        MaterialData("Ventilationskanal återvunnet stål", 7.0, 900, "lm", "Estimat — generisk EPD ej verifierad", "climate_optimized", "low"),
+        MaterialData("Ventilationskanal återvunnet stål", 7.0, 900, "lm", "Estimat — generisk EPD ej verifierad", "climate_optimized"),
     ],
     "dörr": [
-        MaterialData("Innerdörr massivt trä (FSC)", 15.0, 4500, "st", "Estimat — baserat på Swedoor EPD:er (GWP-total A1-A3)", "climate_optimized", "low"),
+        MaterialData("Innerdörr massivt trä (FSC)", 15.0, 4500, "st", "Estimat — baserat på Swedoor EPD:er (GWP-total A1-A3)", "climate_optimized"),
     ],
     "hiss": [
-        MaterialData("Energieffektiv hiss (regen-broms)", 12000.0, 550000, "st", "Estimat baserat på KONE EPD:er i Environdec", "climate_optimized", "low"),
+        MaterialData("Energieffektiv hiss (regen-broms)", 12000.0, 550000, "st", "Estimat baserat på KONE EPD:er i Environdec", "climate_optimized"),
     ],
 }
 
@@ -166,7 +165,8 @@ def normalize_component_name(name: str) -> str:
         "isolering": ["isolering", "insulation", "tilläggsisolering",
                       "mineralull", "cellplast", "glasull", "stenull",
                       "cellulosa", "eps"],
-        "diskmaskin": ["diskmaskin", "dishwasher", "diskutrustning"],
+        "storköksutrustning": ["storköksutrustning", "storkök", "diskmaskin",
+                               "diskutrustning", "industrial kitchen"],
         "kylanläggning": ["kylanläggning", "kyl", "kylsystem", "refriger",
                           "cooling", "kylutrustning"],
         "belysning": ["belysning", "ljus", "lighting", "lampor", "armaturer"],
@@ -174,6 +174,12 @@ def normalize_component_name(name: str) -> str:
                         "stålkanal"],
         "dörr": ["dörr", "dörrar", "door", "innerdörr"],
         "hiss": ["hiss", "elevator", "personhiss"],
+        "sanitet": ["sanitet", "toalett", "wc", "handfat", "tvättställ",
+                    "dusch", "badkar", "urinal", "blandare", "toilet",
+                    "washbasin", "shower"],
+        "vitvaror": ["vitvaror", "tvättmaskin", "torktumlare", "torkskåp",
+                     "spis", "häll", "ugn", "mikrovåg", "köksfläkt",
+                     "cooker hood", "washing machine"],
     }
 
     for key, variants in mappings.items():

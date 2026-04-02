@@ -39,7 +39,7 @@ Regler:
 - Komponent-id ska vara c1, c2, c3 etc
 - Gissa rimlig quantity om den inte anges (baserat på area och byggnadstyp)
 - Unit ska vara m2, st, eller lm (löpmeter)
-- Category ska vara en av: golv, vägg, tak, fönster, dörr, installation, isolering, övrigt
+- Category ska vara en av: golv, innervägg, yttervägg, betongvägg, tak, fönster, dörr, isolering, belysning, ventilation, hiss, kylanläggning, sanitet, vitvaror, storköksutrustning
 - Om area inte anges, uppskatta baserat på byggnadstyp och komponenter
 - Svara på svenska
 

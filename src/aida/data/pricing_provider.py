@@ -19,12 +19,17 @@ MAX_SEARCH_USES = 3
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
 
+LLM_CALL_TIMEOUT = 120.0
+
+
 def _get_client() -> anthropic.Anthropic | None:
     """Return OpenRouter client for web search, or None if key not configured."""
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return None
-    return anthropic.Anthropic(api_key=api_key, base_url=OPENROUTER_BASE_URL)
+    return anthropic.Anthropic(
+        api_key=api_key, base_url=OPENROUTER_BASE_URL, timeout=LLM_CALL_TIMEOUT,
+    )
 
 
 def _build_prompt(product_name: str, unit_hint: str) -> str:
@@ -68,10 +73,50 @@ def _extract_price(text: str, unit_hint: str) -> tuple[float, str] | None:
     return price, unit
 
 
+def _estimate_price_without_search(product_name: str, unit_hint: str) -> tuple[float, str, str] | None:
+    """LLM estimate without web search — fallback when web search fails."""
+    client = _get_client()
+    if client is None:
+        return None
+
+    unit_phrase = f"per {unit_hint}" if unit_hint and unit_hint not in ("kg", "") else ""
+    prompt = (
+        f"Uppskatta vad '{product_name}' kostar installerat (material + arbete) "
+        f"på den svenska byggmarknaden {unit_phrase}. "
+        f"Basera din uppskattning på din kunskap om svenska byggpriser. "
+        f"Svara med exakt format: PRIS: [tal] SEK/[enhet]"
+    )
+
+    try:
+        response = client.messages.create(
+            model=PRICING_MODEL,
+            max_tokens=512 + THINKING_BUDGET,
+            thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        logger.warning("Price estimation failed for '%s': %s", product_name, e)
+        return None
+
+    text_parts = [b.text for b in response.content if hasattr(b, "type") and b.type == "text"]
+    full_text = " ".join(text_parts)
+    if not full_text:
+        return None
+
+    result = _extract_price(full_text, unit_hint)
+    if result is None:
+        return None
+
+    price, unit = result
+    logger.info("Price estimated for '%s': %.0f SEK/%s (no web search)", product_name, price, unit)
+    return price, unit, "LLM-uppskattning"
+
+
 def lookup_price(product_name: str, unit_hint: str = "") -> tuple[float, str, str] | None:
     """Search the web for current Swedish market price of a building material.
 
     Returns (price_sek, unit, source_description) or None on any failure.
+    Falls back to LLM estimate without web search if web search fails.
     Never raises.
     """
     client = _get_client()
@@ -99,7 +144,7 @@ def lookup_price(product_name: str, unit_hint: str = "") -> tuple[float, str, st
         )
     except Exception as e:
         logger.warning("Pricing web search failed for '%s': %s", product_name, e)
-        return None
+        return _estimate_price_without_search(product_name, unit_hint)
 
     # Extract text and source URL from response
     text_parts = []
@@ -117,12 +162,12 @@ def lookup_price(product_name: str, unit_hint: str = "") -> tuple[float, str, st
 
     full_text = " ".join(text_parts)
     if not full_text:
-        return None
+        return _estimate_price_without_search(product_name, unit_hint)
 
     result = _extract_price(full_text, unit_hint)
     if result is None:
-        logger.info("Could not extract price for '%s' from: %s", product_name, full_text[:200])
-        return None
+        logger.info("Could not extract price for '%s' from web search, trying estimate", product_name)
+        return _estimate_price_without_search(product_name, unit_hint)
 
     price, unit = result
     source = f"Webbsökning ({source_url})" if source_url else "Webbsökning"

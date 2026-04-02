@@ -1,10 +1,10 @@
-"""Climate data provider with layered fallback: Boverket API → local data → LLM.
+"""Climate data provider with layered fallback: Boverket API → Environdec → LLM estimate.
 
 Usage:
     from aida.data.climate_provider import ClimateProvider
     provider = ClimateProvider()
     result = provider.lookup("betong")
-    print(result.name, result.co2e_per_unit, result.source, result.confidence)
+    print(result.name, result.co2e_per_unit, result.source)
 
 CLI:
     python -m aida.data.climate_provider --sync
@@ -16,10 +16,9 @@ from __future__ import annotations
 import json
 import logging
 import sys
-import time
 from dataclasses import dataclass
 
-from aida.data.climate_cache import TTL_LOCAL, CacheEntry, ClimateCache
+from aida.data.climate_cache import CacheEntry, ClimateCache
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +64,13 @@ def _match_boverket_category(boverket_cat: str) -> str | None:
 
 @dataclass
 class ClimateResult:
-    """Result from a climate data lookup. Compatible with MaterialData interface."""
+    """Result from a climate data lookup."""
     name: str
     co2e_per_unit: float
     cost_per_unit: float
     unit: str
     source: str
-    confidence: str  # "high", "medium", "low"
-    source_layer: str = ""  # "boverket", "local", "llm"
+    source_layer: str = ""  # "boverket", "environdec", "llm"
     category: str = ""
 
 
@@ -83,8 +81,10 @@ class ClimateProvider:
     1. Cache (SQLite) — returns immediately if fresh
     2. Boverket API — official Swedish building product climate data
     3. Environdec EPD database — product-specific EPDs (14,000+)
-    4. Local fallback (climate_data.py) — hardcoded verified data
-    5. LLM fallback — web search for unknown products (v1.1)
+    4. (removed — old climate_data.py fallback deprecated)
+
+    Source attribution: always "Boverket (typiskt värde)" for baseline data,
+    regardless of whether fetched live or from cache.
     """
 
     def __init__(self, cache: ClimateCache | None = None):
@@ -126,12 +126,7 @@ class ClimateProvider:
         if result:
             return self._maybe_enrich_cost(result, key)
 
-        # Layer 4: Local fallback (climate_data.py)
-        result = self._try_local(key)
-        if result:
-            return self._maybe_enrich_cost(result, key)
-
-        # Layer 5: LLM fallback (not implemented in v1 — returns None)
+        # No more local fallback — climate_data.py deprecated
         return None
 
     def lookup_without_price(
@@ -163,10 +158,6 @@ class ClimateProvider:
         if result:
             return result
 
-        result = self._try_local(key)
-        if result:
-            return result
-
         return None
 
     def ensure_synced(self) -> None:
@@ -192,7 +183,7 @@ class ClimateProvider:
                     return ClimateResult(
                         name=result.name, co2e_per_unit=result.co2e_per_unit,
                         cost_per_unit=cached.cost_per_unit, unit=result.unit,
-                        source=result.source, confidence=result.confidence,
+                        source=result.source,
                         source_layer=result.source_layer,
                         category=getattr(result, 'category', ''),
                     )
@@ -210,7 +201,7 @@ class ClimateProvider:
             return ClimateResult(
                 name=result.name, co2e_per_unit=result.co2e_per_unit,
                 cost_per_unit=price, unit=result.unit,
-                source=result.source, confidence=result.confidence,
+                source=result.source,
                 source_layer=result.source_layer,
                 category=getattr(result, 'category', ''),
             )
@@ -261,7 +252,6 @@ class ClimateProvider:
                 cost_per_unit=result.cost_per_unit,
                 unit=new_unit,
                 source=result.source,
-                confidence=result.confidence,
                 source_layer=result.source_layer,
                 category=result.category,
             )
@@ -349,6 +339,8 @@ class ClimateProvider:
         conn = self._cache._get_conn()
         hint = component_hint or key
         cat_likes = self._category_like_patterns(component_hint)
+        cols = ("product_name, name, co2e_per_unit, cost_per_unit, unit, "
+                "source, source_layer, fetched_at, expires_at, extra_json, price_enriched")
 
         def _result_from_row(row):
             entry = CacheEntry(**dict(row))
@@ -357,7 +349,7 @@ class ClimateProvider:
 
         # Rank 1: Exact match
         row = conn.execute(
-            "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+            f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
             "AND product_name = ?",
             (key,),
         ).fetchone()
@@ -368,7 +360,7 @@ class ClimateProvider:
         if cat_likes:
             for cat_like in cat_likes:
                 row = conn.execute(
-                    "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+                    f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
                     "AND product_name LIKE ? AND LOWER(extra_json) LIKE ? "
                     "ORDER BY LENGTH(product_name) LIMIT 1",
                     (f"{key}%", cat_like),
@@ -378,7 +370,7 @@ class ClimateProvider:
 
         # Rank 3: Starts-with, unfiltered
         row = conn.execute(
-            "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+            f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
             "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
             (f"{key}%",),
         ).fetchone()
@@ -389,7 +381,7 @@ class ClimateProvider:
         if cat_likes:
             for cat_like in cat_likes:
                 row = conn.execute(
-                    "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+                    f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
                     "AND product_name LIKE ? AND LOWER(extra_json) LIKE ? "
                     "ORDER BY LENGTH(product_name) LIMIT 1",
                     (f"%{key}%", cat_like),
@@ -399,7 +391,7 @@ class ClimateProvider:
 
         # Rank 5: Substring, unfiltered
         row = conn.execute(
-            "SELECT * FROM climate_cache WHERE source_layer = 'boverket' "
+            f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
             "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
             (f"%{key}%",),
         ).fetchone()
@@ -468,42 +460,6 @@ class ClimateProvider:
             logger.warning("Environdec index sync failed: %s", e)
             return 0
 
-    def _try_local(self, key: str) -> ClimateResult | None:
-        """Fall back to local climate_data.py."""
-        from aida.data.climate_data import (
-            get_baseline_for_component,
-        )
-
-        material = get_baseline_for_component(key)
-        if material:
-            # Cache it for future lookups
-            now = time.time()
-            self._cache.put(CacheEntry(
-                product_name=key,
-                name=material.name,
-                co2e_per_unit=material.co2e_per_unit,
-                cost_per_unit=material.cost_per_unit,
-                unit=material.unit,
-                source=f"Lokal data: {material.source}",
-                confidence="medium",
-                source_layer="local",
-                fetched_at=now,
-                expires_at=now + TTL_LOCAL,
-            ))
-            return ClimateResult(
-                name=material.name,
-                co2e_per_unit=material.co2e_per_unit,
-                cost_per_unit=material.cost_per_unit,
-                unit=material.unit,
-                source=f"Lokal data: {material.source}",
-                confidence="medium",
-                source_layer="local",
-                category=material.category,
-            )
-
-        return None
-
-
 def _entry_to_result(entry: CacheEntry) -> ClimateResult:
     return ClimateResult(
         name=entry.name,
@@ -511,7 +467,6 @@ def _entry_to_result(entry: CacheEntry) -> ClimateResult:
         cost_per_unit=entry.cost_per_unit,
         unit=entry.unit,
         source=entry.source,
-        confidence=entry.confidence,
         source_layer=entry.source_layer,
     )
 
@@ -556,7 +511,6 @@ def main():
             print(f"co2e_per_unit: {result.co2e_per_unit}")
             print(f"unit: {result.unit}")
             print(f"source: {result.source}")
-            print(f"confidence: {result.confidence}")
             print(f"cost_per_unit: {result.cost_per_unit}")
         else:
             print(f"No data found for: {product}")
