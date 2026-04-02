@@ -72,6 +72,9 @@ def _login() -> dict[str, str] | None:
     username = os.environ.get("PALATS_USERNAME")
     password = os.environ.get("PALATS_PASSWORD")
     if not username or not password:
+        logger.warning("Palats login skipped: PALATS_USERNAME=%s PALATS_PASSWORD=%s",
+                        "set" if username else "MISSING",
+                        "set" if password else "MISSING")
         return None
     try:
         resp = requests.post(
@@ -151,7 +154,7 @@ def _get_cookies() -> dict[str, str] | None:
         logger.debug("Using raw PALATS_SESSION env var (may be expired)")
         return {"palats_session": session}
 
-    logger.debug("No Palats credentials available")
+    logger.warning("No Palats credentials available — reuse search disabled")
     return None
 
 
