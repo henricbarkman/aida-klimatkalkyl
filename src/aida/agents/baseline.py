@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 
 from aida.api_client import (
@@ -16,6 +17,8 @@ from aida.data.climate_data import REASONING, normalize_component_name
 from aida.data.climate_provider import ClimateProvider
 from aida.data.price_validation import validate_total_price
 from aida.models import Baseline, BaselineResult, Project
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_baseline_prices(results: list[BaselineResult], components: list) -> list[BaselineResult]:
@@ -40,96 +43,70 @@ def _validate_baseline_prices(results: list[BaselineResult], components: list) -
             r.description = r.description.rstrip(". ") + f". {note}."
     return results
 
-SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare — en byggnadsexpert som beräknar baslinjen för klimatpåverkan.
 
-Baslinjen representerar standardfallet enligt NollCO2-metoden: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn. Det är referenspunkten som klimatsmartare alternativ jämförs mot. Samma metod som NollCO2 använder.
+MATCH_SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare — en byggnadsexpert som beräknar baslinjen för klimatpåverkan.
 
-Du får komponenter där klimatdata redan har hämtats från Boverkets klimatdatabas (Typical A1-A3).
-Din uppgift är att uppskatta baslinjen för komponenter som SAKNAS i vår databas.
+Baslinjen representerar standardfallet enligt NollCO2-metoden: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn.
 
-DATAKÄLLA:
-Boverkets klimatdatabas med Typical-värden (A1-A3). Inte Conservative (+25%).
-Om en komponent saknas: uppskatta baserat på materialkunskap, men markera tydligt som uppskattning.
+Du får:
+1. En lista med projektets komponenter (med id, namn, antal, enhet)
+2. Boverkets kompletta produktlista med CO2e-värden (Typical A1-A3)
+
+UPPGIFT:
+Matcha varje komponent mot den mest relevanta Boverket-produkten.
+- Tänk semantiskt: "PVC-golv" → "Golvbeläggning av vinyl", "Toalettstol" → "Sanitetsprodukt" osv.
+- Välj den produkt som bäst representerar konventionellt standardmaterial.
+- Om INGEN Boverket-produkt passar: uppskatta CO2e baserat på materialkunskap.
 
 PRISER:
-Alla priser avser installerat pris (material + arbete) i SEK exklusive moms.
+Sätt cost_sek till 0 — priser hämtas separat via webbsökning.
 
-Ange alltid vilken datakälla du använt i "source"-fältet.
-
-Svara med giltig JSON:
-{
-  "method": "NollCO2",
-  "components": [
-    {
-      "component_id": "string",
-      "component_name": "string",
-      "co2e_kg": number,
-      "cost_sek": number,
-      "method": "NollCO2",
-      "description": "Beskrivning av baslinjeberäkningen",
-      "source": "Datakälla (EPD-referens, Boverket, eller uppskattning)"
-    }
-  ]
-}
-"""
-
-
-def _friendly_source(climate) -> str:
-    """Human-readable source label for climate data."""
-    src = climate.source_layer if hasattr(climate, 'source_layer') else ""
-    if src == "boverket" or "Boverket" in (climate.source or ""):
-        return "Boverkets klimatdatabas"
-    return "Uppskattning"
-
-
-def _friendly_cost_source(climate) -> str:
-    """Human-readable source label for price data."""
-    if climate.cost_per_unit <= 0:
-        return ""
-    return "Webbsökning (AI)"
+Svara med ENBART giltig JSON (ingen markdown, inga kommentarer):
+[
+  {
+    "component_id": "string (exakt id från komponentlistan)",
+    "component_name": "string",
+    "boverket_product": "string (exakt produktnamn från Boverket-listan, eller null)",
+    "co2e_per_unit": number,
+    "unit": "string (enhet från Boverket-produkten)",
+    "co2e_kg": number (co2e_per_unit x quantity),
+    "cost_sek": 0,
+    "method": "NollCO2",
+    "description": "Kort beskrivning av matchningen",
+    "source": "Boverkets klimatdatabas" eller "Uppskattning"
+  }
+]"""
 
 
 def calculate_baseline(project: Project) -> Baseline:
     """Calculate NollCO2 baseline for each component.
 
-    Source priority: Boverket (Typical A1-A3) → LLM estimation.
-    Only Boverket typical values are used for baseline — Environdec EPDs
-    are reserved for the alternatives step.
+    Uses a single LLM call with the full Boverket product list (~229 products,
+    ~2200 tokens) for semantic matching. The LLM picks the best Boverket
+    product per component, or estimates when no match exists.
     """
     provider = ClimateProvider()
     provider.ensure_synced()
 
-    # Phase 1: Climate data lookups (no pricing — fast)
-    # Only accept Boverket sources for baseline.
-    # Everything else goes to LLM estimation.
-    climate_hits: list[tuple[Component, ClimateResult]] = []
-    unknown_components = []
+    # Phase 1: LLM-based matching against full Boverket product list
+    boverket_products = provider._cache.get_all_boverket()
+    results = _match_components_to_boverket(project, boverket_products)
 
-    for comp in project.components:
-        climate = provider.lookup_without_price(comp.name, component_hint=comp.category)
-        if climate and climate.source_layer == "boverket":
-            climate_hits.append((comp, climate))
-        else:
-            unknown_components.append(comp)
-
-    # Phase 2: Batch price enrichment (single LLM call instead of N calls)
+    # Phase 2: Batch price enrichment
     from aida.data.pricing_provider import lookup_price, lookup_prices_batch
 
-    # Batch price enrichment for any component without a web-searched installed price.
     products_needing_prices = [
-        (comp.name, climate.unit)
-        for comp, climate in climate_hits
-        if not _is_price_cached(provider, comp.name)
+        (r.component_name, "")
+        for r in results
+        if not _is_price_cached(provider, r.component_name)
     ]
 
     batch_prices: dict[str, tuple[float, str, str]] = {}
     if products_needing_prices:
         batch_prices = lookup_prices_batch(products_needing_prices)
-        # Update cache with fetched prices
         for product_key, (price, _unit, _source) in batch_prices.items():
             provider._cache.update_cost(product_key, price)
 
-        # Individual fallback for any products the batch missed
         for name, unit in products_needing_prices:
             if name.lower() not in batch_prices:
                 result = lookup_price(name, unit)
@@ -138,36 +115,15 @@ def calculate_baseline(project: Project) -> Baseline:
                     batch_prices[name.lower()] = (price, u, src)
                     provider._cache.update_cost(name.lower(), price)
 
-    # Phase 3: Build results
-    results = []
-    for comp, climate in climate_hits:
-        cost_per_unit = climate.cost_per_unit
-        cost_source = _friendly_cost_source(climate)
-
-        # Prefer web-searched installed price over local material-only price
-        batch_result = batch_prices.get(comp.name.lower())
+    # Phase 3: Apply prices to results
+    comp_map = {c.id: c for c in project.components}
+    for r in results:
+        batch_result = batch_prices.get(r.component_name.lower())
         if batch_result:
-            cost_per_unit = batch_result[0]
-            cost_source = "Webbsökning (AI)"
-
-        co2e = climate.co2e_per_unit * comp.quantity
-        cost = cost_per_unit * comp.quantity
-
-        results.append(BaselineResult(
-            component_id=comp.id,
-            component_name=comp.name,
-            co2e_kg=round(co2e, 1),
-            cost_sek=round(cost),
-            method="NollCO2",
-            description=f"Baslinje (NollCO2): {climate.name}, {climate.co2e_per_unit} kg CO2e/{climate.unit} x {comp.quantity} {comp.unit}. {REASONING['conventional']}",
-            source=_friendly_source(climate),
-            cost_source=cost_source,
-        ))
-
-    # Phase 4: LLM fallback for components not in any database
-    if unknown_components:
-        llm_results = _estimate_unknown_components(project, unknown_components)
-        results.extend(llm_results)
+            comp = comp_map.get(r.component_id)
+            quantity = comp.quantity if comp else 1
+            r.cost_sek = round(batch_result[0] * quantity)
+            r.cost_source = "Webbsökning (AI)"
 
     results = _validate_baseline_prices(results, project.components)
     return Baseline(components=results)
@@ -179,35 +135,43 @@ def _is_price_cached(provider: ClimateProvider, product_name: str) -> bool:
     return bool(cached and cached.price_enriched and cached.cost_per_unit > 0)
 
 
-def _estimate_unknown_components(project: Project, components: list) -> list[BaselineResult]:
-    """Use LLM to estimate baseline for components not in our database."""
+def _format_boverket_list(products) -> str:
+    """Format Boverket products as compact text for LLM context."""
+    lines = []
+    for p in products:
+        lines.append(f"- {p.name} | {p.co2e_per_unit} kg CO2e/{p.unit}")
+    return "\n".join(lines)
+
+
+def _match_components_to_boverket(project: Project, boverket_products) -> list[BaselineResult]:
+    """Single LLM call: match all components to Boverket products."""
     client = get_client()
 
     comp_list = "\n".join(
         f"- {c.id}: {c.name}, {c.quantity} {c.unit}"
-        for c in components
+        for c in project.components
     )
+    boverket_list = _format_boverket_list(boverket_products)
+
+    logger.info("Baseline LLM matching: %d components against %d Boverket products",
+                len(project.components), len(boverket_products))
 
     response = client.messages.create(
         model=DEFAULT_MODEL,
-        max_tokens=2000 + THINKING_DEEP,
+        max_tokens=3000 + THINKING_DEEP,
         thinking=thinking_config(THINKING_DEEP),
-        system=SYSTEM_PROMPT,
+        system=MATCH_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
             "content": f"""Projekt: {project.building_type}, {project.area_bta} m² BTA
 
-Följande komponenter finns inte i Boverkets klimatdatabas. Uppskatta baslinjen (konventionellt standardmaterial):
-
+KOMPONENTER:
 {comp_list}
 
-VIKTIGT:
-- Baslinjen representerar konventionella standardmaterial, inte worst case.
-- Använd EXAKT de component_id som anges ovan (t.ex. c1, c2, c3).
-- Om du inte har specifika värden: uppskatta, men ange "Uppskattning" som source.
-- Var ärlig om osäkerheten. Ange INTE specifika EPD-nummer eller databaskällor du inte är säker på.
+BOVERKETS PRODUKTLISTA (Typical A1-A3):
+{boverket_list}
 
-Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_sek, method, description, source."""
+Matcha varje komponent ovan mot bästa Boverket-produkt. Använd EXAKT de component_id som anges (t.ex. c1, c2, c3)."""
         }],
     )
 
@@ -221,16 +185,17 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
     if isinstance(data, dict) and "components" in data:
         data = data["components"]
 
-    # Build a lookup to force correct IDs even if LLM ignores the instruction
-    id_by_name = {c.name.lower(): c.id for c in components}
-    id_by_index = {i: c.id for i, c in enumerate(components)}
+    # Build lookups to force correct IDs
+    id_by_name = {c.name.lower(): c.id for c in project.components}
+    id_by_index = {i: c.id for i, c in enumerate(project.components)}
+    comp_map = {c.id: c for c in project.components}
 
     results = []
     for i, item in enumerate(data):
-        # Force the correct component_id from the project
         llm_id = item.get("component_id", "")
         llm_name = item.get("component_name", "")
-        known_ids = {c.id for c in components}
+        known_ids = {c.id for c in project.components}
+
         if llm_id in known_ids:
             comp_id = llm_id
         elif llm_name.lower() in id_by_name:
@@ -238,17 +203,33 @@ Svara med JSON-array av objekt med: component_id, component_name, co2e_kg, cost_
         elif i in id_by_index:
             comp_id = id_by_index[i]
         else:
-            comp_id = llm_id  # last resort
+            comp_id = llm_id
+
+        comp = comp_map.get(comp_id)
+        quantity = comp.quantity if comp else 1
+        co2e_per_unit = item.get("co2e_per_unit", 0)
+        co2e_kg = item.get("co2e_kg", co2e_per_unit * quantity)
+
+        boverket_match = item.get("boverket_product")
+        source = "Boverkets klimatdatabas" if boverket_match else "Uppskattning"
+        cost_source = "Uppskattning (AI)" if not boverket_match else ""
+
+        unit = item.get("unit", comp.unit if comp else "st")
+        description = item.get("description", "")
+        if boverket_match and not description:
+            description = f"Baslinje (NollCO2): {boverket_match}, {co2e_per_unit} kg CO2e/{unit} x {quantity} {comp.unit if comp else 'st'}. {REASONING['conventional']}"
+        elif not description:
+            description = f"LLM-uppskattning (ej i Boverkets databas). {REASONING['conventional']}"
 
         results.append(BaselineResult(
             component_id=comp_id,
             component_name=item.get("component_name", ""),
-            co2e_kg=item.get("co2e_kg", 0),
-            cost_sek=item.get("cost_sek", 0),
+            co2e_kg=round(co2e_kg, 1),
+            cost_sek=round(item.get("cost_sek", 0)),
             method="NollCO2",
-            description=item.get("description", "LLM-uppskattning (ej i standarddatabas)"),
-            source="Uppskattning",
-            cost_source="Uppskattning (AI)",
+            description=description,
+            source=source,
+            cost_source=cost_source,
         ))
 
     return results

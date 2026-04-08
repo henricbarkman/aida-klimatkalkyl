@@ -212,6 +212,17 @@ class ClimateCache:
         conn.commit()
         return cursor.rowcount > 0
 
+    def get_all_boverket(self) -> list[CacheEntry]:
+        """Return all unique Boverket products (deduplicated by name)."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT product_name, name, co2e_per_unit, cost_per_unit, unit, "
+            "source, source_layer, fetched_at, expires_at, extra_json, price_enriched "
+            "FROM climate_cache WHERE source_layer = 'boverket' "
+            "GROUP BY name ORDER BY name",
+        ).fetchall()
+        return [CacheEntry(**dict(r)) for r in rows]
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()
