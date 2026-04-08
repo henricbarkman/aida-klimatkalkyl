@@ -79,15 +79,6 @@ def _friendly_source(climate) -> str:
     src = climate.source_layer if hasattr(climate, 'source_layer') else ""
     if src == "boverket" or "Boverket" in (climate.source or ""):
         return "Boverkets klimatdatabas"
-    if src == "environdec" or "Environdec" in (climate.source or ""):
-        return "EPD (Environdec)"
-    if src == "local":
-        raw = climate.source or ""
-        if "Boverket" in raw:
-            return "Boverket (typiskt värde)"
-        if "EPD" in raw or "Environdec" in raw or "environdec" in raw:
-            return "EPD (Environdec)"
-        return "Uppskattning"
     return "Uppskattning"
 
 
@@ -101,30 +92,30 @@ def _friendly_cost_source(climate) -> str:
 def calculate_baseline(project: Project) -> Baseline:
     """Calculate NollCO2 baseline for each component.
 
-    Source priority: Boverket (Typical A1-A3) → Environdec EPD → LLM estimation.
-    Local hardcoded data is NOT used for baseline — only verified sources.
+    Source priority: Boverket (Typical A1-A3) → LLM estimation.
+    Only Boverket typical values are used for baseline — Environdec EPDs
+    are reserved for the alternatives step.
     """
     provider = ClimateProvider()
     provider.ensure_synced()
 
     # Phase 1: Climate data lookups (no pricing — fast)
-    # Only accept Boverket and Environdec sources for baseline.
-    # Local/hardcoded data goes to LLM estimation instead.
+    # Only accept Boverket sources for baseline.
+    # Everything else goes to LLM estimation.
     climate_hits: list[tuple[Component, ClimateResult]] = []
     unknown_components = []
 
     for comp in project.components:
         climate = provider.lookup_without_price(comp.name, component_hint=comp.category)
-        if climate and climate.source_layer in ("boverket", "environdec"):
+        if climate and climate.source_layer == "boverket":
             climate_hits.append((comp, climate))
         else:
             unknown_components.append(comp)
 
     # Phase 2: Batch price enrichment (single LLM call instead of N calls)
-    from aida.data.pricing_provider import lookup_prices_batch
+    from aida.data.pricing_provider import lookup_price, lookup_prices_batch
 
     # Batch price enrichment for any component without a web-searched installed price.
-    # Local/hardcoded prices are material-only — we need installed prices (material + labor).
     products_needing_prices = [
         (comp.name, climate.unit)
         for comp, climate in climate_hits
@@ -137,6 +128,15 @@ def calculate_baseline(project: Project) -> Baseline:
         # Update cache with fetched prices
         for product_key, (price, _unit, _source) in batch_prices.items():
             provider._cache.update_cost(product_key, price)
+
+        # Individual fallback for any products the batch missed
+        for name, unit in products_needing_prices:
+            if name.lower() not in batch_prices:
+                result = lookup_price(name, unit)
+                if result:
+                    price, u, src = result
+                    batch_prices[name.lower()] = (price, u, src)
+                    provider._cache.update_cost(name.lower(), price)
 
     # Phase 3: Build results
     results = []

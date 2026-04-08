@@ -46,9 +46,8 @@ Du får:
 
 Din uppgift:
 1. Analysera EPD-listan och välj de 2-4 mest relevanta alternativen med lägre klimatpåverkan
-2. Föreslå återbruk om det är möjligt för komponenttypen
-3. Beräkna total CO2e baserat på EPD-värdet × antal enheter
-4. Resonera om varför alternativet är bättre — beskriv BÅDE klimatvinsten och hur det uppfyller praktiska behov
+2. Beräkna total CO2e baserat på EPD-värdet × antal enheter
+3. Resonera om varför alternativet är bättre — beskriv BÅDE klimatvinsten och hur det uppfyller praktiska behov
 
 PRINCIPER FÖR ALTERNATIV:
 - Alla alternativ ska ha lägre klimatpåverkan än baslinjen.
@@ -59,15 +58,17 @@ PRINCIPER FÖR ALTERNATIV:
 - Förklara installationsaspekter som påverkar totalkostnaden (enklare montering kan kompensera dyrare material).
 
 TEKNISKA REGLER:
-- Använd GWP-värdena från EPD-listan — de är verifierade, inte uppskattningar
-- Om ett omräknat värde visas (efter →), använd det omräknade värdet för beräkningar
-- Ange EPD-registreringsnummer i source-fältet
-- Prioritera svenska/nordiska produkter (SE, NORD, RER)
-- Om EPD-värdet är i en annan enhet (kg) än projektets enhet (m2, st), gör en rimlig omräkning och notera det
-- EPD:er kan komma från olika register (Environdec, EPD Norge, EPD Hub). Alla är verifierade
-- Om ingen EPD i listan passar, säg det och ge en egen uppskattning med tydlig markering
+- VÄLJ BARA alternativ från EPD-listan du får. Fabricera INGA egna alternativ.
+- Om ingen EPD i listan passar komponenten, returnera en tom array [].
+- Använd GWP-värdena från EPD-listan — de är verifierade, inte uppskattningar.
+- Om ett omräknat värde visas (efter →), använd det omräknade värdet för beräkningar.
+- Ange EPD-registreringsnummer i source-fältet.
+- Prioritera svenska/nordiska produkter (SE, NORD, RER).
+- Om EPD-värdet är i en annan enhet (kg) än projektets enhet (m2, st), gör en rimlig omräkning och notera det.
 - co2e_kg MÅSTE vara > 0 — alla byggmaterial har klimatpåverkan. Returnera aldrig 0.
-- Föreslå KOMPLETTA system, inte enskilda komponenter. Om baslinjen är ett komplett taksystem (t.ex. betongpannor + underlag), ska alternativen också vara kompletta taksystem — inte bara enskilda membran, ångspärrar eller underlagsdukar.
+- Föreslå KOMPLETTA system, inte enskilda komponenter.
+- Föreslå INTE återbruksprodukter — dessa hanteras separat via Palats marknadsplats.
+- alternative_type ska ALLTID vara "climate_optimized" (aldrig "reuse").
 
 PRISER:
 - Alla priser avser installerat pris (material + arbete) i SEK exklusive moms.
@@ -81,7 +82,7 @@ Svara med giltig JSON-array:
     "cost_sek": <uppskattad kostnad i SEK, 0 om okänt>,
     "source": "[EPD] Environdec <registreringsnummer>",
     "reasoning": "Varför detta alternativ är bättre (klimat + praktiska behov)",
-    "alternative_type": "reuse" | "climate_optimized"
+    "alternative_type": "climate_optimized"
   }
 ]"""
 
@@ -430,38 +431,51 @@ def find_alternatives(
 
 
 def _enrich_alternative_prices(components: list[ComponentAlternatives]) -> None:
-    """Batch web search for alternatives that have cost_sek == 0."""
-    from aida.data.pricing_provider import lookup_prices_batch
+    """Batch web search for alternatives that have cost_sek == 0.
+
+    Two-pass strategy:
+    1. Batch web search for all missing prices (fast, single LLM call)
+    2. Individual LLM estimation for any still missing (slower, but ensures no 0-prices)
+    """
+    from aida.data.pricing_provider import lookup_price, lookup_prices_batch
 
     products_needing_prices: list[tuple[str, str]] = []
     alt_index: list[tuple[int, int]] = []  # (comp_idx, alt_idx) for mapping back
 
     for ci, comp in enumerate(components):
         for ai, alt in enumerate(comp.alternatives):
-            if alt.cost_sek <= 0 and alt.alternative_type != "baseline":
+            if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info"):
                 products_needing_prices.append((alt.name, ""))
                 alt_index.append((ci, ai))
 
     if not products_needing_prices:
         return
 
+    # Pass 1: Batch web search
     batch_prices = lookup_prices_batch(products_needing_prices)
-    if not batch_prices:
-        return
 
-    for (ci, ai), (name, _unit) in zip(alt_index, products_needing_prices):
-        price_result = batch_prices.get(name.lower())
-        if price_result:
-            price, unit, _source = price_result
-            alt = components[ci].alternatives[ai]
-            alt.cost_sek = round(price)
-            # Clean up "Pris ej tillgängligt" note since we now have a price
-            alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
-            alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
-            logger.info(
-                "Enriched price for alternative '%s': %d SEK",
-                alt.name, alt.cost_sek,
-            )
+    if batch_prices:
+        for (ci, ai), (name, _unit) in zip(alt_index, products_needing_prices):
+            price_result = batch_prices.get(name.lower())
+            if price_result:
+                price, unit, _source = price_result
+                alt = components[ci].alternatives[ai]
+                alt.cost_sek = round(price)
+                alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
+                alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
+                logger.info("Enriched price for '%s': %d SEK (batch)", alt.name, alt.cost_sek)
+
+    # Pass 2: Individual lookup for any still at 0
+    for ci, comp in enumerate(components):
+        for ai, alt in enumerate(comp.alternatives):
+            if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info"):
+                result = lookup_price(alt.name, "")
+                if result:
+                    price, unit, source = result
+                    alt.cost_sek = round(price)
+                    alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
+                    alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
+                    logger.info("Enriched price for '%s': %d SEK (individual)", alt.name, alt.cost_sek)
 
 
 def _find_alternatives_with_epds(
@@ -490,8 +504,7 @@ Prioritera svenska/nordiska produkter.
 """
     else:
         prompt += """
-Inga EPD:er tillgängliga för denna kategori. Ge din bästa uppskattning av klimatsmartare alternativ.
-Ange tydligt att det är uppskattningar.
+Inga EPD:er tillgängliga för denna kategori. Returnera en tom array [].
 """
 
     if user_feedback:
@@ -522,6 +535,11 @@ Ange tydligt att det är uppskattningar.
 
         results = []
         for item in data:
+            # Skip any LLM-fabricated reuse — reuse only comes from Palats
+            if item.get("alternative_type") == "reuse":
+                logger.info("Filtered LLM-fabricated reuse '%s'", item.get("name"))
+                continue
+
             source = item.get("source", "")
             # Tag source based on whether it references an EPD
             if not source.startswith("["):
@@ -536,7 +554,7 @@ Ange tydligt att det är uppskattningar.
                 cost_sek=item.get("cost_sek", 0),
                 source=source,
                 reasoning=item.get("reasoning", ""),
-                alternative_type=item.get("alternative_type", "climate_optimized"),
+                alternative_type="climate_optimized",
             ))
 
         return results

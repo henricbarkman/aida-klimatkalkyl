@@ -1111,10 +1111,10 @@ let activeTab = null;
 // Dynamic placeholder (Feature 4)
 const STEP_PLACEHOLDERS = {
   idle: 'Beskriv ditt ombyggnadsprojekt...',
-  intake_done: 'Skriv korrigeringar eller bekr\u00e4fta...',
-  baseline_done: 'Diskutera baslinjen eller bekr\u00e4fta...',
-  alternatives_done: 'Fr\u00e5ga om material, kostnader eller alternativ...',
-  report_done: 'St\u00e4ll fr\u00e5gor om rapporten...',
+  intake_done: 'Korrigera eller bekr\u00e4fta...',
+  baseline_done: 'Diskutera, korrigera eller bekr\u00e4fta...',
+  alternatives_done: 'Diskutera, korrigera eller generera rapport...',
+  report_done: 'Diskutera eller korrigera analysen...',
 };
 function updatePlaceholder() {
   document.getElementById('userInput').placeholder = STEP_PLACEHOLDERS[state.step] || 'Skriv ditt meddelande...';
@@ -1263,6 +1263,7 @@ function switchTab(name) {
 
 // === Chat input ===
 const ADVANCE_RE = /\b(vidare|nästa|fortsätt|kör|gå vidare|next|confirm|bekräfta)\b/i;
+const CORRECTION_RE = /\b(ändra|nej|fel|byt|korrigera|gör om|uppdatera|ta bort|lägg till|ändring|rätta|fixa|nytt? antal|inte \d|ska vara|stämmer inte|borde vara)\b/i;
 
 async function sendMessage() {
   const input = document.getElementById('userInput');
@@ -1274,6 +1275,7 @@ async function sendMessage() {
 
   // Detect "advance to next step" intent at confirmation gates
   const wantsAdvance = ADVANCE_RE.test(text);
+  const wantsCorrection = CORRECTION_RE.test(text);
 
   switch (state.step) {
     case 'idle':
@@ -1300,6 +1302,15 @@ async function sendMessage() {
       if (wantsAdvance) {
         setLoading(false);
         confirmStep();
+      } else if (wantsCorrection) {
+        // Re-run intake with correction, then auto-trigger baseline
+        addMsg('Uppdaterar projektet och r\u00e4knar om baslinjen...', 'system');
+        const compSummary = state.project.components.map(c => c.name + ' (' + c.quantity + ' ' + c.unit + ')').join(', ');
+        const ctx = state.project.building_type + ', ' + state.project.area_bta + ' m2. Komponenter: ' + compSummary;
+        await runIntake(ctx + '\n\nKorrigering fr\u00e5n anv\u00e4ndaren: ' + text);
+        if (state.step === 'intake_done') {
+          await runBaseline();
+        }
       } else {
         await runChat(text);
       }
@@ -1308,12 +1319,30 @@ async function sendMessage() {
       if (wantsAdvance) {
         setLoading(false);
         generateReport();
+      } else if (wantsCorrection) {
+        // Re-run alternatives with user feedback
+        addMsg('G\u00f6r om alternativs\u00f6kningen med dina kommentarer...', 'system');
+        await runAlternatives(text);
       } else {
         await runChat(text);
       }
       break;
     case 'report_done':
-      await runChat(text);
+      if (wantsCorrection) {
+        // Re-run from intake with correction
+        addMsg('G\u00f6r om analysen med dina kommentarer...', 'system');
+        const cs = state.project.components.map(c => c.name + ' (' + c.quantity + ' ' + c.unit + ')').join(', ');
+        const cx = state.project.building_type + ', ' + state.project.area_bta + ' m2. Komponenter: ' + cs;
+        await runIntake(cx + '\n\nKorrigering fr\u00e5n anv\u00e4ndaren: ' + text);
+        if (state.step === 'intake_done') {
+          await runBaseline();
+          if (state.step === 'baseline_done') {
+            await runAlternatives();
+          }
+        }
+      } else {
+        await runChat(text);
+      }
       break;
     default:
       setLoading(false);
