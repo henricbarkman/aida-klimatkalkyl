@@ -34,8 +34,8 @@ BOVERKET_TO_AIDA: dict[str, str] = {
     "glas": "fönster",
     "byggskivor": "innervägg",
     "skivor": "innervägg",
-    "trävaror": "golv",
-    "trä": "golv",
+    "trävaror": "stomme",
+    "trä": "stomme",
     "puts och bruk": "yttervägg",
     "tegel": "yttervägg",
     "takprodukter": "tak",
@@ -250,7 +250,7 @@ class ClimateProvider:
         if not comp_key:
             return result
 
-        density = get_density_for_component(comp_key, extra_json)
+        density = get_density_for_component(comp_key, extra_json, product_name=result.name)
         co2e_converted, new_unit = convert_to_functional_unit(
             result.co2e_per_unit, comp_key, density,
         )
@@ -339,9 +339,14 @@ class ClimateProvider:
         Ranking:
         1. Exact match on product_name
         2. Starts-with match (category-filtered if possible)
-        3. Starts-with match (unfiltered)
+        3. Starts-with match (unfiltered) — skipped when category info exists
         4. Substring match (category-filtered)
-        5. Substring match (unfiltered)
+        5. Substring match (unfiltered) — skipped when category info exists
+
+        When category filtering is available, unfiltered fuzzy matches (3, 5)
+        are skipped to avoid returning wrong-category materials.
+        E.g. "golvmatta" with category "golv" must not match "golvskiva"
+        (gipsskiva/Byggskivor).
         """
         if len(key) < 3:
             return None
@@ -378,14 +383,20 @@ class ClimateProvider:
                 if row:
                     return _result_from_row(row)
 
-        # Rank 3: Starts-with, unfiltered
-        row = conn.execute(
-            f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
-            "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
-            (f"{key}%",),
-        ).fetchone()
-        if row:
-            return _result_from_row(row)
+        # When a component_hint is provided, we know what type of product we
+        # want.  Skip unfiltered fuzzy matches to avoid cross-category pollution
+        # (e.g. "golvmatta" matching "golvskiva" which is a gypsum board).
+        has_hint = bool(component_hint and component_hint.strip())
+
+        # Rank 3: Starts-with, unfiltered (only when no hint at all)
+        if not has_hint and not cat_likes:
+            row = conn.execute(
+                f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
+                "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
+                (f"{key}%",),
+            ).fetchone()
+            if row:
+                return _result_from_row(row)
 
         # Rank 4: Substring, category-filtered
         if cat_likes:
@@ -399,14 +410,15 @@ class ClimateProvider:
                 if row:
                     return _result_from_row(row)
 
-        # Rank 5: Substring, unfiltered
-        row = conn.execute(
-            f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
-            "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
-            (f"%{key}%",),
-        ).fetchone()
-        if row:
-            return _result_from_row(row)
+        # Rank 5: Substring, unfiltered (only when no hint at all)
+        if not has_hint and not cat_likes:
+            row = conn.execute(
+                f"SELECT {cols} FROM climate_cache WHERE source_layer = 'boverket' "
+                "AND product_name LIKE ? ORDER BY LENGTH(product_name) LIMIT 1",
+                (f"%{key}%",),
+            ).fetchone()
+            if row:
+                return _result_from_row(row)
 
         return None
 
@@ -464,7 +476,7 @@ class ClimateProvider:
         """Retry lookup with normalized/simplified search terms.
 
         When intake produces verbose names like "Golvbeläggning, tambur (PVC från 2001)",
-        extract material keywords and category to find Boverket matches like "vinylgolv".
+        extract material keywords and category to find matches in Boverket or Environdec.
         """
         from aida.data.climate_data import normalize_component_name
 
@@ -485,11 +497,19 @@ class ClimateProvider:
                 logger.info("Normalized lookup hit: '%s' → '%s' (from '%s')", kw, result.name, key)
                 return result
 
-        # Try just the category key (e.g. "golv" → matches "vinylgolv" via substring)
+        # Try just the category key against Boverket
         if len(comp_key) >= 3:
             result = self._try_boverket(comp_key, comp_key)
             if result:
                 logger.info("Category lookup hit: '%s' → '%s' (from '%s')", comp_key, result.name, key)
+                return result
+
+        # Try English translations against Environdec
+        english_keywords = _get_english_search_terms(key, comp_key)
+        for en_kw in english_keywords:
+            result = self._try_environdec(en_kw, comp_key)
+            if result:
+                logger.info("Environdec normalized hit: '%s' → '%s' (from '%s')", en_kw, result.name, key)
                 return result
 
         return None
@@ -503,6 +523,62 @@ class ClimateProvider:
         except Exception as e:
             logger.warning("Environdec index sync failed: %s", e)
             return 0
+
+# Swedish product terms → English Environdec search terms.
+# Used when Boverket has no match and the Swedish name didn't match Environdec directly.
+_SWEDISH_TO_ENGLISH: dict[str, list[str]] = {
+    # Floor coverings
+    "golv": ["vinyl flooring", "floor covering"],
+    "golvmatta": ["vinyl flooring", "floor covering", "carpet"],
+    "plastgolv": ["vinyl flooring", "pvc floor covering"],
+    "plastmatta": ["vinyl flooring", "pvc floor covering"],
+    "vinylgolv": ["vinyl flooring"],
+    "linoleum": ["linoleum flooring"],
+    "parkett": ["parquet flooring", "wood floor"],
+    "laminat": ["laminate flooring"],
+    "klinker": ["ceramic tile", "porcelain tile"],
+    "kakel": ["ceramic tile"],
+    # Walls
+    "gipsskiva": ["plasterboard", "gypsum board"],
+    "innervägg": ["plasterboard", "gypsum board"],
+    "yttervägg": ["facade", "exterior wall"],
+    # Insulation
+    "mineralull": ["mineral wool insulation", "stone wool"],
+    "glasull": ["glass wool insulation"],
+    "cellplast": ["eps insulation", "expanded polystyrene"],
+    # Structural
+    "betong": ["concrete", "precast concrete"],
+    "stål": ["steel", "structural steel"],
+    "trä": ["timber", "wood"],
+    # Other
+    "tak": ["roofing", "roof tile"],
+    "fönster": ["window", "triple glazed window"],
+    "dörr": ["door", "interior door"],
+}
+
+
+def _get_english_search_terms(swedish_name: str, comp_key: str) -> list[str]:
+    """Get English Environdec search terms for a Swedish product name."""
+    name_lower = swedish_name.lower().strip()
+    terms: list[str] = []
+
+    # Direct match on full name
+    if name_lower in _SWEDISH_TO_ENGLISH:
+        terms.extend(_SWEDISH_TO_ENGLISH[name_lower])
+
+    # Match on material keywords within the name
+    for sv_term, en_terms in _SWEDISH_TO_ENGLISH.items():
+        if sv_term in name_lower and sv_term != name_lower:
+            for t in en_terms:
+                if t not in terms:
+                    terms.append(t)
+
+    # Fallback: use component key
+    if not terms and comp_key in _SWEDISH_TO_ENGLISH:
+        terms.extend(_SWEDISH_TO_ENGLISH[comp_key])
+
+    return terms
+
 
 def _extract_material_keywords(name: str) -> list[str]:
     """Extract likely material search terms from a verbose component name.

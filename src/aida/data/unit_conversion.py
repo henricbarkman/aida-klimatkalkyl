@@ -204,21 +204,54 @@ TYPICAL_DENSITIES: dict[str, float] = {
     "isolering": 30,    # mineralull/glasull ~20-40
 }
 
+# Material-specific density overrides based on product name keywords.
+# Used when the generic TYPICAL_DENSITIES is too broad (e.g. "golv" covers
+# vinyl at 1400 AND wood at 600 — very different).
+_MATERIAL_DENSITY_HINTS: list[tuple[list[str], float]] = [
+    # Wood-based flooring
+    (["parkett", "parquet", "trä", "wood", "timber", "oak", "ash", "birch",
+      "bamboo", "bambú", "hardwood", "lightwood", "maxwood"], 600),
+    # Laminate flooring
+    (["laminat", "laminate"], 850),
+    # Ceramic / stone tiles
+    (["klinker", "ceramic", "porcelain", "kakel", "tile", "stone", "marble",
+      "granite", "terrazzo", "slate"], 2200),
+    # Cork
+    (["kork", "cork"], 200),
+    # Rubber
+    (["gummi", "rubber"], 1200),
+    # Carpet
+    (["matta", "carpet", "textile"], 400),
+    # Linoleum (actual flooring, not furniture)
+    (["linoleum"], 1200),
+    # Epoxy / polyurethane coatings
+    (["epoxy", "polyuretan", "polyurethane"], 1100),
+]
+
 
 def get_density_for_component(
     component_key: str,
     extra_json: str = "",
+    product_name: str = "",
 ) -> float | None:
-    """Get density for a component, trying extra_json first, then typical values.
+    """Get density for a component, trying extra_json first, then material-specific hints.
 
     Checks:
     1. density_kg_m3 in extra_json (from Boverket API)
-    2. Typical density lookup by component key
+    2. Material-specific density from product name keywords
+    3. Typical density lookup by component key
     """
     # Try explicit density from data source
     density = get_density_from_extra(extra_json)
     if density and density > 0:
         return density
+
+    # Try material-specific density from product name
+    if product_name:
+        name_lower = product_name.lower()
+        for keywords, mat_density in _MATERIAL_DENSITY_HINTS:
+            if any(kw in name_lower for kw in keywords):
+                return mat_density
 
     # Fall back to typical density
     return TYPICAL_DENSITIES.get(component_key)

@@ -115,7 +115,7 @@ class EnvirondecClient:
             if geo_filter and epd.geo != geo_filter:
                 continue
 
-            score = _score_match(epd, query_lower, query_tokens, hint_keywords)
+            score = _score_match(epd, query_lower, query_tokens, hint_keywords, component_hint)
             if score > 0:
                 scored.append((score, epd))
 
@@ -403,15 +403,33 @@ def _get_hint_keywords(component_hint: str) -> set[str]:
     return set()
 
 
+# Terms that indicate an EPD is NOT a building material in the expected category.
+# Used to reject e.g. furniture with linoleum surfaces when searching for floor coverings.
+_NEGATIVE_TERMS: dict[str, set[str]] = {
+    "golv": {"table", "desk", "desktop", "chair", "stool", "bench", "shelf",
+             "cabinet", "wardrobe", "sofa", "bed", "furniture", "möbler",
+             "powder coating", "coating", "covered board"},
+    "innervägg": {"table", "desk", "furniture", "möbler"},
+    "tak": {"table", "desk", "furniture", "möbler"},
+}
+
+
 def _score_match(
     epd: EPDSummary,
     query_lower: str,
     query_tokens: set[str],
     hint_keywords: set[str],
+    component_hint: str = "",
 ) -> float:
     """Score an EPD match. Returns 0 for no match."""
     name_lower = epd.name.lower().strip()
     owner_lower = epd.owner.lower().strip()
+
+    # Reject items containing negative terms for this category
+    if component_hint:
+        negatives = _NEGATIVE_TERMS.get(component_hint.lower(), set())
+        if negatives and any(neg in name_lower for neg in negatives):
+            return 0.0
 
     # --- Match detection ---
     name_match = False

@@ -852,11 +852,16 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .tab.active { color: var(--kk-charcoal); border-bottom-color: var(--kk-dark-red); font-weight: 600; }
 .tab:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* === Confirm actions in chat === */
-.confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
-.btn-confirm { padding: 8px 20px; background: var(--kk-charcoal); color: white; border: none; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.2s; }
-.btn-confirm:hover { background: var(--kk-dark-red); }
-.confirm-hint { font-size: 11px; color: var(--kk-gray-400); margin-top: 6px; }
+/* === Confirm actions in chat (legacy, kept for history rendering) === */
+.confirm-actions { display: none; }
+.confirm-hint { display: none; }
+
+/* === Sticky confirm bar above chat input === */
+.confirm-bar { display: none; padding: 10px 16px; background: var(--kk-cream); border-top: 1px solid var(--kk-gray-200); align-items: center; gap: 10px; }
+.confirm-bar.visible { display: flex; }
+.confirm-bar .confirm-bar-text { flex: 1; font-size: 12px; color: var(--kk-gray-500); }
+.confirm-bar .btn-confirm-sticky { padding: 8px 20px; background: var(--kk-charcoal); color: white; border: none; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.2s; }
+.confirm-bar .btn-confirm-sticky:hover { background: var(--kk-dark-red); }
 
 /* === Typing indicator (Feature 1) === */
 .typing-indicator { display: flex; align-items: center; gap: 5px; padding: 10px 14px; }
@@ -1013,6 +1018,10 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
       <div class="messages" id="messages">
         <div class="msg bot">Hej! Beskriv ditt projekt. Ange byggnadstyp, byggnadsår, ungefärlig yta och vilka behoven är.</div>
       </div>
+      <div class="confirm-bar" id="confirmBar">
+        <span class="confirm-bar-text" id="confirmBarText"></span>
+        <button class="btn-confirm-sticky" id="confirmBarBtn" onclick="confirmStep()"></button>
+      </div>
       <div class="chat-input">
         <input id="userInput" type="text" placeholder="Skriv ditt meddelande..." onkeydown="if(event.key==='Enter')sendMessage()">
         <button id="sendBtn" onclick="sendMessage()" aria-label="Skicka">
@@ -1089,11 +1098,13 @@ if (typeof marked !== 'undefined') {
   marked.setOptions({ breaks: true, gfm: true });
 }
 
+let _step = 'idle';
 let state = {
   project: null, baseline: null, alternatives: null,
   selections: {}, pendingDesc: null, reportMarkdown: null,
   chatHistory: [],
-  step: 'idle' // idle, intake_done, baseline_done, alternatives_done, report_done
+  get step() { return _step; },
+  set step(v) { _step = v; updatePlaceholder(); },
 };
 let activeTab = null;
 
@@ -1107,6 +1118,25 @@ const STEP_PLACEHOLDERS = {
 };
 function updatePlaceholder() {
   document.getElementById('userInput').placeholder = STEP_PLACEHOLDERS[state.step] || 'Skriv ditt meddelande...';
+  updateConfirmBar();
+}
+
+// Sticky confirm bar
+const CONFIRM_BAR_CONFIG = {
+  intake_done: { text: 'Projektbeskrivning klar.', btn: 'Ber\u00e4kna baslinje \u2192' },
+  baseline_done: { text: 'Baslinjen \u00e4r klar.', btn: 'S\u00f6k alternativ \u2192' },
+  alternatives_done: { text: 'Alternativ redo.', btn: 'Generera rapport \u2192' },
+};
+function updateConfirmBar() {
+  const bar = document.getElementById('confirmBar');
+  const cfg = CONFIRM_BAR_CONFIG[state.step];
+  if (cfg) {
+    document.getElementById('confirmBarText').textContent = cfg.text;
+    document.getElementById('confirmBarBtn').textContent = cfg.btn;
+    bar.classList.add('visible');
+  } else {
+    bar.classList.remove('visible');
+  }
 }
 
 function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -1232,6 +1262,8 @@ function switchTab(name) {
 }
 
 // === Chat input ===
+const ADVANCE_RE = /\b(vidare|nästa|fortsätt|kör|gå vidare|next|confirm|bekräfta)\b/i;
+
 async function sendMessage() {
   const input = document.getElementById('userInput');
   const text = input.value.trim();
@@ -1239,6 +1271,9 @@ async function sendMessage() {
   input.value = '';
   addMsg(text, 'user');
   setLoading(true);
+
+  // Detect "advance to next step" intent at confirmation gates
+  const wantsAdvance = ADVANCE_RE.test(text);
 
   switch (state.step) {
     case 'idle':
@@ -1249,18 +1284,33 @@ async function sendMessage() {
       }
       break;
     case 'intake_done':
-      addMsg('Uppdaterar projektbeskrivning...', 'system');
-      {
-        const compSummary = state.project.components.map(c => c.name + ' (' + c.quantity + ' ' + c.unit + ')').join(', ');
-        const ctx = state.project.building_type + ', ' + state.project.area_bta + ' m2. Komponenter: ' + compSummary;
-        await runIntake(ctx + '\n\nKorrigering fr\u00e5n anv\u00e4ndaren: ' + text);
+      if (wantsAdvance) {
+        setLoading(false);
+        confirmStep();
+      } else {
+        addMsg('Uppdaterar projektbeskrivning...', 'system');
+        {
+          const compSummary = state.project.components.map(c => c.name + ' (' + c.quantity + ' ' + c.unit + ')').join(', ');
+          const ctx = state.project.building_type + ', ' + state.project.area_bta + ' m2. Komponenter: ' + compSummary;
+          await runIntake(ctx + '\n\nKorrigering fr\u00e5n anv\u00e4ndaren: ' + text);
+        }
       }
       break;
     case 'baseline_done':
-      await runChat(text);
+      if (wantsAdvance) {
+        setLoading(false);
+        confirmStep();
+      } else {
+        await runChat(text);
+      }
       break;
     case 'alternatives_done':
-      await runChat(text);
+      if (wantsAdvance) {
+        setLoading(false);
+        generateReport();
+      } else {
+        await runChat(text);
+      }
       break;
     case 'report_done':
       await runChat(text);
@@ -1272,10 +1322,11 @@ async function sendMessage() {
 
 // === Confirm step ===
 function confirmStep() {
-  // Disable button immediately (removeConfirmButtons called on success, retry on failure)
-  document.querySelectorAll('.btn-confirm').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+  document.getElementById('confirmBarBtn').disabled = true;
+  document.getElementById('confirmBarBtn').style.opacity = '0.5';
   if (state.step === 'intake_done') runBaseline();
   else if (state.step === 'baseline_done') runAlternatives();
+  else if (state.step === 'alternatives_done') generateReport();
 }
 
 // === Pipeline: Intake ===
@@ -2013,7 +2064,9 @@ function createNewProject() {
   try { localStorage.removeItem(_chatStorageKey()); } catch(e) {}
   currentAnalysisId = null;
   chatLog = [];
-  state = { project: null, baseline: null, alternatives: null, selections: {}, pendingDesc: null, reportMarkdown: null, chatHistory: [], step: 'idle' };
+  state.project = null; state.baseline = null; state.alternatives = null;
+  state.selections = {}; state.pendingDesc = null; state.reportMarkdown = null;
+  state.chatHistory = []; state.step = 'idle';
   document.getElementById('projectName').textContent = 'Nytt projekt';
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
