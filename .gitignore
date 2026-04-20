@@ -1,3 +1,4 @@
 epd_detail_cache.db
 .vercel
 .venv
+.env*
