@@ -535,7 +535,7 @@ def api_chat():
     Response:
       {
         reply: str,
-        state_updates?: {project?, selections?},
+        state_updates?: {project?, baseline?, alternatives?, selections?},
         tool_calls?: [...]
       }
     """
@@ -1583,6 +1583,8 @@ async function runChat(text) {
 function applyAgentStateUpdates(updates) {
   if (!updates || typeof updates !== 'object') return;
   let touched = false;
+  // If the agent returns a fresh baseline/alternatives bag, skaling was applied
+  // and no stale warning is needed. Otherwise we flag stale on project mutation.
   let baselineStale = false;
   let altsStale = false;
 
@@ -1592,9 +1594,8 @@ function applyAgentStateUpdates(updates) {
     const sameIds = prevIds.size === newIds.size && [...prevIds].every(id => newIds.has(id));
     state.project = updates.project;
     touched = true;
-    // Any project mutation makes baseline+alternatives suspect.
-    baselineStale = true;
-    altsStale = true;
+    if (!('baseline' in updates)) baselineStale = true;
+    if (!('alternatives' in updates)) altsStale = true;
     // If components were removed, mirror in baseline/alternatives/selections.
     if (!sameIds) {
       if (state.baseline && state.baseline.components) {
@@ -1609,6 +1610,14 @@ function applyAgentStateUpdates(updates) {
     }
   }
 
+  if (updates.baseline) {
+    state.baseline = updates.baseline;
+    touched = true;
+  }
+  if (updates.alternatives) {
+    state.alternatives = updates.alternatives;
+    touched = true;
+  }
   if (updates.selections) {
     state.selections = updates.selections;
     touched = true;
@@ -1622,7 +1631,7 @@ function applyAgentStateUpdates(updates) {
     scheduleAutoSave();
   }
 
-  // Surface staleness to the user via a subtle system note; agent usually also mentions it in text.
+  // Surface staleness only when the agent couldn't scale — i.e. project changed but baseline/alternatives didn't come back.
   if (baselineStale && state.baseline) {
     addMsg('⚠️ Baslinjen är nu inaktuell efter ändringen. Kör om den för att få nya värden.', 'system');
   }

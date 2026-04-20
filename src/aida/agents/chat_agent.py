@@ -30,7 +30,8 @@ NÄR DU SKA ANVÄNDA VERKTYG:
 
 EFTER EN MUTERING:
 - Bekräfta kort vad som ändrades.
-- Om ändringen påverkar klimat/pris (material, mängd, tillkommen eller borttagen komponent): berätta i texten att baslinjen och alternativen nu är inaktuella och föreslå en omkörning ("Klicka 'Räkna om baslinjen' för att uppdatera värdet").
+- Om ENDAST mängd ändrades: klimatvärdena skalas automatiskt (linjärt). Nämn inte omräkning — det behövs inte.
+- Om material/kategori ändrades eller en komponent togs bort: berätta att baslinjen och alternativen för just den komponenten nu är inaktuella och föreslå en omkörning ("Klicka 'Räkna om baslinjen' för att uppdatera värdet").
 - Om det är ett val (select_alternative): nämn den nya totala besparingen om baslinje och alla val finns.
 
 PRINCIPER:
@@ -172,46 +173,119 @@ def _find_component_alternatives(alternatives, component_id):
     return None
 
 
+def _scale_component_values(cid: str, factor: float, baseline, alternatives, selections) -> set[str]:
+    """Scale all cached CO₂e and cost values for a single component by `factor`.
+
+    Returns a set naming which state bags were touched. Per-unit climate and price
+    are linear in quantity under NollCO2; scaling avoids a full rerun when only
+    quantity changes.
+    """
+    touched: set[str] = set()
+    if factor == 1.0:
+        return touched
+
+    if baseline and baseline.get("components"):
+        for c in baseline["components"]:
+            if c.get("component_id") == cid:
+                c["co2e_kg"] = c.get("co2e_kg", 0) * factor
+                c["cost_sek"] = c.get("cost_sek", 0) * factor
+                touched.add("baseline")
+
+    if alternatives and alternatives.get("components"):
+        for c in alternatives["components"]:
+            if c.get("component_id") != cid:
+                continue
+            if "baseline_co2e_kg" in c:
+                c["baseline_co2e_kg"] = c.get("baseline_co2e_kg", 0) * factor
+            if "baseline_cost_sek" in c:
+                c["baseline_cost_sek"] = c.get("baseline_cost_sek", 0) * factor
+            for a in c.get("alternatives", []):
+                a["co2e_kg"] = a.get("co2e_kg", 0) * factor
+                a["cost_sek"] = a.get("cost_sek", 0) * factor
+            touched.add("alternatives")
+
+    if selections and cid in selections:
+        sel = selections[cid]
+        sel["baseline_co2e_kg"] = sel.get("baseline_co2e_kg", 0) * factor
+        sel["baseline_cost_sek"] = sel.get("baseline_cost_sek", 0) * factor
+        chosen = sel.get("selected_alternative") or {}
+        if chosen:
+            chosen["co2e_kg"] = chosen.get("co2e_kg", 0) * factor
+            chosen["cost_sek"] = chosen.get("cost_sek", 0) * factor
+        touched.add("selections")
+
+    return touched
+
+
 def _apply_update_component(inp, project, baseline, alternatives, selections):
     cid = inp.get("component_id")
     target = _find_component(project, cid)
     if not target:
-        return f"Komponent {cid} finns inte i projektet.", False
+        return f"Komponent {cid} finns inte i projektet.", False, set()
 
     changed = {}
+    old_quantity = target.get("quantity")
     for key in ("name", "quantity", "unit", "category"):
         if key in inp and inp[key] is not None:
             target[key] = inp[key]
             changed[key] = inp[key]
     if not changed:
-        return f"Ingen ändring angiven för {cid}.", False
+        return f"Ingen ändring angiven för {cid}.", False, set()
+
+    touched: set[str] = {"project"}
+
+    quantity_only = set(changed.keys()) == {"quantity"}
+    if quantity_only:
+        new_quantity = target["quantity"]
+        try:
+            old_q = float(old_quantity)
+            new_q = float(new_quantity)
+        except (TypeError, ValueError):
+            old_q = new_q = 0.0
+        if old_q > 0 and new_q > 0 and old_q != new_q:
+            factor = new_q / old_q
+            touched |= _scale_component_values(cid, factor, baseline, alternatives, selections)
+            return (
+                f"Uppdaterade {cid}: mängd {old_q:g} → {new_q:g} {target.get('unit', '')}. "
+                f"Baslinje och alternativ skalade automatiskt — ingen omräkning behövs."
+            ), True, touched
+        if old_q == new_q:
+            return f"Ingen ändring: {cid} är redan {new_q:g}.", False, set()
 
     return (
         f"Uppdaterade komponent {cid}: {changed}. "
         f"OBS: baslinjen och alternativen för denna komponent är nu inaktuella — kör om dem."
-    ), True
+    ), True, touched
 
 
 def _apply_remove_component(inp, project, baseline, alternatives, selections):
     cid = inp.get("component_id")
     target = _find_component(project, cid)
     if not target:
-        return f"Komponent {cid} finns inte i projektet.", False
+        return f"Komponent {cid} finns inte i projektet.", False, set()
 
     project["components"] = [c for c in project.get("components", []) if c.get("id") != cid]
+    touched: set[str] = {"project"}
 
     if baseline and baseline.get("components"):
+        before = len(baseline["components"])
         baseline["components"] = [c for c in baseline["components"] if c.get("component_id") != cid]
+        if len(baseline["components"]) != before:
+            touched.add("baseline")
 
     if alternatives and alternatives.get("components"):
+        before = len(alternatives["components"])
         alternatives["components"] = [
             c for c in alternatives["components"] if c.get("component_id") != cid
         ]
+        if len(alternatives["components"]) != before:
+            touched.add("alternatives")
 
     if selections and cid in selections:
         del selections[cid]
+        touched.add("selections")
 
-    return f"Komponenten {cid} ({target.get('name')}) borttagen.", True
+    return f"Komponenten {cid} ({target.get('name')}) borttagen.", True, touched
 
 
 def _apply_select_alternative(inp, project, baseline, alternatives, selections):
@@ -219,7 +293,7 @@ def _apply_select_alternative(inp, project, baseline, alternatives, selections):
     alt_query = (inp.get("alternative_name") or "").strip().lower()
     comp_alts = _find_component_alternatives(alternatives, cid)
     if not comp_alts:
-        return f"Inga alternativ finns för {cid}.", False
+        return f"Inga alternativ finns för {cid}.", False, set()
 
     if alt_query == "baslinje":
         selections[cid] = {
@@ -234,7 +308,7 @@ def _apply_select_alternative(inp, project, baseline, alternatives, selections):
             "baseline_co2e_kg": comp_alts.get("baseline_co2e_kg", 0),
             "baseline_cost_sek": comp_alts.get("baseline_cost_sek", 0),
         }
-        return f"Valde baslinjen för {comp_alts.get('component_name', cid)}.", True
+        return f"Valde baslinjen för {comp_alts.get('component_name', cid)}.", True, {"selections"}
 
     match = None
     for a in comp_alts.get("alternatives", []):
@@ -247,7 +321,7 @@ def _apply_select_alternative(inp, project, baseline, alternatives, selections):
         return (
             f"Hittade inget alternativ som matchar '{inp.get('alternative_name')}' för {cid}. "
             f"Tillgängliga: {', '.join(names)}"
-        ), False
+        ), False, set()
 
     selections[cid] = {
         "id": cid,
@@ -264,7 +338,7 @@ def _apply_select_alternative(inp, project, baseline, alternatives, selections):
     return (
         f"Valde '{match.get('name')}' för {comp_alts.get('component_name', cid)} "
         f"({round(match.get('co2e_kg', 0))} kg CO₂e, {round(match.get('cost_sek', 0))} SEK)."
-    ), True
+    ), True, {"selections"}
 
 
 _HANDLERS = {
@@ -321,8 +395,7 @@ def run_chat_agent(
     alternatives = copy.deepcopy(alternatives) if alternatives else None
     selections = copy.deepcopy(selections) if selections else {}
 
-    project_changed = False
-    selections_changed = False
+    touched_bags: set[str] = set()
     tool_calls: list[dict] = []
 
     state_block = _format_state(project, baseline, alternatives, selections)
@@ -344,8 +417,7 @@ def run_chat_agent(
             return {
                 "reply": reply.strip(),
                 "state_updates": _build_state_updates(
-                    project if project_changed else None,
-                    selections if selections_changed else None,
+                    touched_bags, project, baseline, alternatives, selections,
                 ),
                 "tool_calls": tool_calls,
             }
@@ -368,25 +440,18 @@ def run_chat_agent(
                 tool_calls.append({"name": block.name, "input": block.input, "ok": False})
                 continue
 
-            # Snapshot selection membership so we only flag selections_changed
-            # when remove_component actually dropped a selected entry.
-            removed_cid = block.input.get("component_id") if block.name == "remove_component" else None
-            had_selection_for_removed = bool(removed_cid and removed_cid in selections)
-
             try:
-                result_text, ok = handler(block.input, project, baseline, alternatives, selections)
+                result_text, ok, handler_touched = handler(
+                    block.input, project, baseline, alternatives, selections
+                )
             except Exception as e:
                 logger.exception("Tool %s failed", block.name)
                 result_text = f"Fel vid {block.name}: {e}"
                 ok = False
+                handler_touched = set()
 
             if ok:
-                if block.name in ("update_component", "remove_component"):
-                    project_changed = True
-                if block.name == "remove_component" and had_selection_for_removed:
-                    selections_changed = True
-                if block.name == "select_alternative":
-                    selections_changed = True
+                touched_bags |= handler_touched
 
             tool_calls.append({
                 "name": block.name,
@@ -408,17 +473,20 @@ def run_chat_agent(
     return {
         "reply": "Jag fastnade i en loop. Försök formulera om, eller använd knapparna för att köra om stegen.",
         "state_updates": _build_state_updates(
-            project if project_changed else None,
-            selections if selections_changed else None,
+            touched_bags, project, baseline, alternatives, selections,
         ),
         "tool_calls": tool_calls,
     }
 
 
-def _build_state_updates(project, selections):
-    updates = {}
-    if project is not None:
+def _build_state_updates(touched: set[str], project, baseline, alternatives, selections) -> dict:
+    updates: dict = {}
+    if "project" in touched:
         updates["project"] = project
-    if selections is not None:
+    if "baseline" in touched:
+        updates["baseline"] = baseline
+    if "alternatives" in touched:
+        updates["alternatives"] = alternatives
+    if "selections" in touched:
         updates["selections"] = selections
     return updates
