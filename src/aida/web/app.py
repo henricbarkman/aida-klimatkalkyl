@@ -585,27 +585,46 @@ def api_debug_palats():
     palats_client._listings_cache_time = 0
     palats_client.last_fetch_status = ""
 
-    # Try login directly
+    # Raw login attempt with full response detail
+    import requests as _req
+    u = _os.environ.get("PALATS_USERNAME")
+    p = _os.environ.get("PALATS_PASSWORD")
     try:
-        login_cookies = palats_client._login()
+        r = _req.post(
+            f"{palats_client.PALATS_BASE_URL}/v2/auth/login",
+            json={"username": u, "password": p},
+            timeout=15,
+        )
         report["login_attempt"] = {
-            "ok": bool(login_cookies),
-            "cookie_names": list(login_cookies.keys()) if login_cookies else [],
+            "status_code": r.status_code,
+            "content_type": r.headers.get("content-type", ""),
+            "body_preview": r.text[:400],
+            "set_cookies": [c.name for c in r.cookies],
+            "username_len": len(u) if u else 0,
+            "password_len": len(p) if p else 0,
         }
     except Exception as e:
-        report["login_attempt"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()}
+        report["login_attempt"] = {"error": str(e), "trace": traceback.format_exc()[:500]}
 
-    # Try remember_me refresh if available
+    # Raw refresh attempt
     rm = _os.environ.get("PALATS_REMEMBER_ME")
     if rm:
         try:
-            refresh_cookies = palats_client._refresh_with_remember_me(rm)
+            r = _req.post(
+                f"{palats_client.PALATS_BASE_URL}/v2/auth/refresh",
+                cookies={"remember_me": rm},
+                json={},
+                timeout=10,
+            )
             report["refresh_attempt"] = {
-                "ok": bool(refresh_cookies),
-                "cookie_names": list(refresh_cookies.keys()) if refresh_cookies else [],
+                "status_code": r.status_code,
+                "content_type": r.headers.get("content-type", ""),
+                "body_preview": r.text[:400],
+                "set_cookies": [c.name for c in r.cookies],
+                "remember_me_len": len(rm),
             }
         except Exception as e:
-            report["refresh_attempt"] = {"ok": False, "error": str(e)}
+            report["refresh_attempt"] = {"error": str(e)}
 
     # Try a raw GET to /v2/listings to see what status we get
     try:
