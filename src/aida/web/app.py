@@ -559,6 +559,82 @@ def api_chat():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/debug/palats', methods=['GET'])
+@require_auth
+def api_debug_palats():
+    """Diagnostic endpoint for Palats connectivity. Reports env, auth, and fetch status."""
+    import os as _os
+    import traceback
+
+    from aida.data import palats_client
+
+    report = {
+        "env": {
+            "PALATS_USERNAME": bool(_os.environ.get("PALATS_USERNAME")),
+            "PALATS_PASSWORD": bool(_os.environ.get("PALATS_PASSWORD")),
+            "PALATS_REMEMBER_ME": bool(_os.environ.get("PALATS_REMEMBER_ME")),
+            "PALATS_SESSION": bool(_os.environ.get("PALATS_SESSION")),
+        },
+        "base_url": palats_client.PALATS_BASE_URL,
+    }
+
+    # Reset cached state so we see a fresh attempt
+    palats_client._auth_cookies = None
+    palats_client._auth_time = 0
+    palats_client._listings_cache = None
+    palats_client._listings_cache_time = 0
+    palats_client.last_fetch_status = ""
+
+    # Try login directly
+    try:
+        login_cookies = palats_client._login()
+        report["login_attempt"] = {
+            "ok": bool(login_cookies),
+            "cookie_names": list(login_cookies.keys()) if login_cookies else [],
+        }
+    except Exception as e:
+        report["login_attempt"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()}
+
+    # Try remember_me refresh if available
+    rm = _os.environ.get("PALATS_REMEMBER_ME")
+    if rm:
+        try:
+            refresh_cookies = palats_client._refresh_with_remember_me(rm)
+            report["refresh_attempt"] = {
+                "ok": bool(refresh_cookies),
+                "cookie_names": list(refresh_cookies.keys()) if refresh_cookies else [],
+            }
+        except Exception as e:
+            report["refresh_attempt"] = {"ok": False, "error": str(e)}
+
+    # Try a raw GET to /v2/listings to see what status we get
+    try:
+        cookies = palats_client._get_cookies()
+        report["got_cookies"] = bool(cookies)
+        if cookies:
+            import requests as _req
+            r = _req.get(f"{palats_client.PALATS_BASE_URL}/v2/listings", cookies=cookies, timeout=15)
+            report["listings_request"] = {
+                "status_code": r.status_code,
+                "content_type": r.headers.get("content-type", ""),
+                "body_preview": r.text[:300],
+            }
+    except Exception as e:
+        report["listings_request"] = {"error": str(e)}
+
+    # Final fetch via the real function
+    try:
+        listings = palats_client.fetch_listings(force_refresh=True)
+        report["fetch_listings"] = {
+            "status": palats_client.last_fetch_status,
+            "count": len(listings),
+        }
+    except Exception as e:
+        report["fetch_listings"] = {"error": str(e)}
+
+    return jsonify(report)
+
+
 # === Analyses CRUD (Supabase) ===
 
 @app.route('/api/analyses', methods=['POST'])
