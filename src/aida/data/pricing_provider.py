@@ -98,7 +98,7 @@ def _estimate_price_without_search(product_name: str, unit_hint: str) -> tuple[f
         logger.warning("Price estimation failed for '%s': %s", product_name, e)
         return None
 
-    text_parts = [b.text for b in response.content if hasattr(b, "type") and b.type == "text"]
+    text_parts = [b.text for b in (response.content or []) if hasattr(b, "type") and b.type == "text"]
     full_text = " ".join(text_parts)
     if not full_text:
         return None
@@ -149,7 +149,7 @@ def lookup_price(product_name: str, unit_hint: str = "") -> tuple[float, str, st
     # Extract text and source URL from response
     text_parts = []
     source_url = ""
-    for block in response.content:
+    for block in (response.content or []):
         if not hasattr(block, "type"):
             continue
         if block.type == "text":
@@ -237,7 +237,7 @@ def lookup_prices_batch(
 
     text_parts = []
     source_url = ""
-    for block in response.content:
+    for block in (response.content or []):
         if not hasattr(block, "type"):
             continue
         if block.type == "text":

@@ -520,53 +520,42 @@ def api_report_docx():
 @app.route('/api/chat', methods=['POST'])
 @require_auth
 def api_chat():
-    """Handle conversational follow-ups after alternatives are shown."""
-    from aida.api_client import DEFAULT_MODEL, extract_text, get_client
+    """Conversational endpoint with tool-use.
+
+    Request:
+      {
+        message: str,
+        history: [{role, content}],
+        project?: Project,
+        baseline?: Baseline,
+        alternatives?: AlternativesResult,
+        selections?: {component_id: Selection}
+      }
+
+    Response:
+      {
+        reply: str,
+        state_updates?: {project?, selections?},
+        tool_calls?: [...]
+      }
+    """
+    from aida.agents.chat_agent import run_chat_agent
+
     data = request.json or {}
-    history = data.get('history', [])
-    user_message = data.get('message', '')
-    context = data.get('context', {})
-
-    system = ("Du är AIda — en byggnadsexpert som hjälper förvaltare och byggledare att hitta "
-              "renoveringslösningar med kraftigt minskad klimatpåverkan utan att ge avkall på praktiska behov. "
-              "Alla priser avser installerat pris (material + arbete) exkl. moms. "
-              "Svara kortfattat och konkret. Använd siffror från kontexten. Skriv på svenska.")
-
-    if context:
-        ctx = []
-        if context.get('building_type'):
-            ctx.append(f"Projekt: {context['building_type']}, {context.get('area_bta','')} m²")
-        if context.get('baseline_total'):
-            ctx.append(f"Baslinje totalt: {context['baseline_total']} kg CO₂e")
-        if context.get('baseline_components'):
-            ctx.append("Baslinjekomponenter:")
-            for bc in context['baseline_components']:
-                line = f"  - {bc.get('name','?')}: {bc.get('co2e_kg',0)} kg CO₂e"
-                if bc.get('cost_sek'):
-                    line += f", {bc['cost_sek']} SEK"
-                if bc.get('material'):
-                    line += f" ({bc['material']})"
-                if bc.get('climate_source'):
-                    line += f" [källa: {bc['climate_source']}]"
-                if bc.get('quantity') and bc.get('unit'):
-                    line += f" — {bc['quantity']} {bc['unit']}"
-                ctx.append(line)
-        if context.get('alternatives_components'):
-            ctx.append(f"Alternativ analyserade för: {', '.join(context['alternatives_components'])}")
-        if ctx:
-            system += "\n\nKontext:\n" + "\n".join(ctx)
-
-    messages = history[-10:] + [{"role": "user", "content": user_message}]
     try:
-        client = get_client()
-        response = client.messages.create(
-            model=DEFAULT_MODEL, max_tokens=600, system=system, messages=messages,
+        result = run_chat_agent(
+            message=data.get('message', ''),
+            history=data.get('history', []),
+            project=data.get('project'),
+            baseline=data.get('baseline'),
+            alternatives=data.get('alternatives'),
+            selections=data.get('selections'),
         )
-        reply = extract_text(response).strip()
-        return jsonify({'reply': reply})
+        return jsonify(result)
     except _TIMEOUT_ERRORS:
         return jsonify({'error': 'Chatten svarade inte i tid. Försök igen.'}), 504
     except Exception as e:
+        app.logger.exception("chat_agent failed")
         return jsonify({'error': str(e)}), 500
 
 
@@ -861,7 +850,8 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .confirm-bar.visible { display: flex; }
 .confirm-bar .confirm-bar-text { flex: 1; font-size: 12px; color: var(--kk-gray-500); }
 .confirm-bar .btn-confirm-sticky { padding: 8px 20px; background: var(--kk-charcoal); color: white; border: none; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.2s; }
-.confirm-bar .btn-confirm-sticky:hover { background: var(--kk-dark-red); }
+.confirm-bar .btn-confirm-sticky:hover:not(:disabled) { background: var(--kk-dark-red); }
+.confirm-bar .btn-confirm-sticky:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* === Typing indicator (Feature 1) === */
 .typing-indicator { display: flex; align-items: center; gap: 5px; padding: 10px 14px; }
@@ -1132,7 +1122,10 @@ function updateConfirmBar() {
   const cfg = CONFIRM_BAR_CONFIG[state.step];
   if (cfg) {
     document.getElementById('confirmBarText').textContent = cfg.text;
-    document.getElementById('confirmBarBtn').textContent = cfg.btn;
+    const btn = document.getElementById('confirmBarBtn');
+    btn.textContent = cfg.btn;
+    btn.disabled = false;
+    btn.style.opacity = '';
     bar.classList.add('visible');
   } else {
     bar.classList.remove('visible');
@@ -1262,7 +1255,7 @@ function switchTab(name) {
 }
 
 // === Chat input ===
-const ADVANCE_RE = /\b(vidare|nästa|fortsätt|kör|gå vidare|next|confirm|bekräfta)\b/i;
+const ADVANCE_RE = /\b(vidare|nästa|fortsätt|kör|ok|okej|gå vidare|next|confirm|bekräfta)\b/i;
 const CORRECTION_RE = /\b(ändra|nej|fel|byt|korrigera|gör om|uppdatera|ta bort|lägg till|ändring|rätta|fixa|nytt? antal|inte \d|ska vara|stämmer inte|borde vara)\b/i;
 
 async function sendMessage() {
@@ -1317,6 +1310,13 @@ async function sendMessage() {
       break;
     case 'alternatives_done':
       if (wantsAdvance) {
+        const allSel = state.alternatives && state.alternatives.components.every(c => state.selections[c.component_id]);
+        if (!allSel) {
+          const missing = state.alternatives.components.filter(c => !state.selections[c.component_id]).map(c => c.component_name);
+          addMsg('Välj alternativ för alla komponenter först: ' + missing.join(', '), 'system');
+          setLoading(false);
+          break;
+        }
         setLoading(false);
         generateReport();
       } else if (wantsCorrection) {
@@ -1355,7 +1355,17 @@ function confirmStep() {
   document.getElementById('confirmBarBtn').style.opacity = '0.5';
   if (state.step === 'intake_done') runBaseline();
   else if (state.step === 'baseline_done') runAlternatives();
-  else if (state.step === 'alternatives_done') generateReport();
+  else if (state.step === 'alternatives_done') {
+    const allSel = state.alternatives && state.alternatives.components.every(c => state.selections[c.component_id]);
+    if (!allSel) {
+      const missing = state.alternatives.components.filter(c => !state.selections[c.component_id]).map(c => c.component_name);
+      addMsg('Välj alternativ för alla komponenter först: ' + missing.join(', '), 'system');
+      document.getElementById('confirmBarBtn').disabled = false;
+      document.getElementById('confirmBarBtn').style.opacity = '';
+      return;
+    }
+    generateReport();
+  }
 }
 
 // === Pipeline: Intake ===
@@ -1521,7 +1531,13 @@ async function generateReport() {
     const sels = {components: Object.values(state.selections)};
     const r = await authFetch('/api/report', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project, selections: sels})});
     const d = await r.json();
-    if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
+    if (d.error) {
+      addMsg('Fel: ' + d.error, 'system');
+      addConfirmMsg('Rapportgenerering misslyckades.', 'Försök igen →', '');
+      const rb = document.getElementById('reportBtn'); if (rb) rb.disabled = false;
+      setLoading(false);
+      return;
+    }
     state.reportMarkdown = d.markdown;
     state.step = 'report_done';
     scheduleAutoSave();
@@ -1529,43 +1545,90 @@ async function generateReport() {
     enableTab('rapport');
     switchTab('rapport');
     setLoading(false);
-  } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
+  } catch(e) {
+    addMsg('Fel: ' + e.message, 'system');
+    addConfirmMsg('Rapportgenerering misslyckades.', 'Försök igen →', '');
+    const rb = document.getElementById('reportBtn'); if (rb) rb.disabled = false;
+    setLoading(false);
+  }
 }
 
-// === Conversational chat (Feature 4) ===
+// === Conversational chat (agent with tool-use) ===
 async function runChat(text) {
   setLoading(true);
-  const context = {};
-  if (state.project) {
-    context.building_type = state.project.building_type;
-    context.area_bta = state.project.area_bta;
-    if (state.baseline) {
-      const projComps = state.project ? Object.fromEntries((state.project.components||[]).map(c => [c.id, c])) : {};
-      context.baseline_total = Math.round(state.baseline.components.reduce((s,c)=>s+c.co2e_kg,0));
-      context.baseline_components = state.baseline.components.map(c => {
-        const pc = projComps[c.component_id] || {};
-        return {
-          name: c.component_name,
-          co2e_kg: Math.round(c.co2e_kg),
-          cost_sek: Math.round(c.cost_sek || 0),
-          source: c.source || '',
-          quantity: pc.quantity,
-          unit: pc.unit,
-        };
-      });
-    }
-    if (state.alternatives) context.alternatives_components = state.alternatives.components.map(c => c.component_name);
-  }
   state.chatHistory.push({role:'user', content: text});
   try {
+    const body = {
+      message: text,
+      history: state.chatHistory.slice(-10),
+      project: state.project || null,
+      baseline: state.baseline || null,
+      alternatives: state.alternatives || null,
+      selections: (state.selections && Object.keys(state.selections).length) ? state.selections : null,
+    };
     const r = await authFetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({message: text, history: state.chatHistory.slice(-10), context})});
+      body: JSON.stringify(body)});
     const d = await r.json();
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
+
+    applyAgentStateUpdates(d.state_updates);
+
     state.chatHistory.push({role:'assistant', content: d.reply});
     addMsg(d.reply, 'bot');
     setLoading(false);
   } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
+}
+
+// Apply state deltas returned by the chat agent.
+function applyAgentStateUpdates(updates) {
+  if (!updates || typeof updates !== 'object') return;
+  let touched = false;
+  let baselineStale = false;
+  let altsStale = false;
+
+  if (updates.project) {
+    const prevIds = new Set((state.project?.components || []).map(c => c.id));
+    const newIds = new Set((updates.project.components || []).map(c => c.id));
+    const sameIds = prevIds.size === newIds.size && [...prevIds].every(id => newIds.has(id));
+    state.project = updates.project;
+    touched = true;
+    // Any project mutation makes baseline+alternatives suspect.
+    baselineStale = true;
+    altsStale = true;
+    // If components were removed, mirror in baseline/alternatives/selections.
+    if (!sameIds) {
+      if (state.baseline && state.baseline.components) {
+        state.baseline.components = state.baseline.components.filter(c => newIds.has(c.component_id));
+      }
+      if (state.alternatives && state.alternatives.components) {
+        state.alternatives.components = state.alternatives.components.filter(c => newIds.has(c.component_id));
+      }
+      if (state.selections) {
+        Object.keys(state.selections).forEach(cid => { if (!newIds.has(cid)) delete state.selections[cid]; });
+      }
+    }
+  }
+
+  if (updates.selections) {
+    state.selections = updates.selections;
+    touched = true;
+  }
+
+  if (touched) {
+    // Re-render active tab to reflect changes.
+    if (activeTab === 'projekt' && state.project) renderProjektContent();
+    else if (activeTab === 'baslinje' && state.baseline) renderBaslinjeContent();
+    else if (activeTab === 'alternativ' && state.alternatives) renderAlternativContent();
+    scheduleAutoSave();
+  }
+
+  // Surface staleness to the user via a subtle system note; agent usually also mentions it in text.
+  if (baselineStale && state.baseline) {
+    addMsg('⚠️ Baslinjen är nu inaktuell efter ändringen. Kör om den för att få nya värden.', 'system');
+  }
+  if (altsStale && state.alternatives) {
+    addMsg('⚠️ Alternativen är nu inaktuella efter ändringen. Kör om dem för aktuella förslag.', 'system');
+  }
 }
 
 // === Helpers ===

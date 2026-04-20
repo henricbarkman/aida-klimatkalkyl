@@ -61,7 +61,7 @@ def thinking_config(budget: int):
 
 def extract_text(response) -> str:
     """Extract text content, works with both thinking and non-thinking responses."""
-    for block in response.content:
+    for block in (response.content or []):
         if block.type == "text":
             return block.text
     return ""

@@ -41,6 +41,10 @@ _listings_cache: list[dict] | None = None
 _listings_cache_time: float = 0
 _CACHE_TTL = 600
 
+# Connection status — lets callers distinguish "no products" from "connection failed"
+# Values: "ok", "no_credentials", "auth_failed", "api_error", ""
+last_fetch_status: str = ""
+
 # Auth state — cached in-process, auto-refreshed
 _auth_cookies: dict[str, str] | None = None
 _auth_time: float = 0
@@ -154,6 +158,8 @@ def _get_cookies() -> dict[str, str] | None:
         logger.debug("Using raw PALATS_SESSION env var (may be expired)")
         return {"palats_session": session}
 
+    global last_fetch_status
+    last_fetch_status = "auth_failed"
     logger.warning("No Palats credentials available — reuse search disabled")
     return None
 
@@ -225,8 +231,9 @@ def fetch_listings(force_refresh: bool = False) -> list[dict]:
 
     Returns raw API response (only PUBLISHED), cached for 10 minutes.
     Returns empty list if no credentials or API error.
+    Sets ``last_fetch_status`` so callers can distinguish failure from empty.
     """
-    global _listings_cache, _listings_cache_time
+    global _listings_cache, _listings_cache_time, last_fetch_status
 
     if (
         not force_refresh
@@ -237,6 +244,7 @@ def fetch_listings(force_refresh: bool = False) -> list[dict]:
 
     cookies = _get_cookies()
     if not cookies:
+        last_fetch_status = "no_credentials"
         logger.debug("No Palats credentials — skipping reuse search")
         return []
 
@@ -266,10 +274,12 @@ def fetch_listings(force_refresh: bool = False) -> list[dict]:
 
         _listings_cache = listings
         _listings_cache_time = time.time()
+        last_fetch_status = "ok"
         logger.info("Fetched %d published listings from Palats", len(listings))
         return listings
 
     except requests.RequestException as e:
+        last_fetch_status = "api_error"
         logger.warning("Palats API error: %s", e)
         return []
 

@@ -15,14 +15,18 @@ from aida.api_client import (
 )
 from aida.data.climate_data import REASONING, normalize_component_name
 from aida.data.climate_provider import ClimateProvider
-from aida.data.price_validation import validate_total_price
 from aida.models import Baseline, BaselineResult, Project
 
 logger = logging.getLogger(__name__)
 
 
-def _validate_baseline_prices(results: list[BaselineResult], components: list) -> list[BaselineResult]:
-    """Validate prices on baseline results and annotate descriptions."""
+def _validate_baseline(results: list[BaselineResult], components: list) -> list[BaselineResult]:
+    """Validate prices and CO2 values on baseline results.
+
+    Extreme outliers get clamped to reasonable ranges. Mild outliers get flagged.
+    """
+    from aida.data.price_validation import validate_co2e, validate_total_price
+
     comp_map = {c.id: c for c in components}
     for r in results:
         comp = comp_map.get(r.component_id)
@@ -30,17 +34,29 @@ def _validate_baseline_prices(results: list[BaselineResult], components: list) -
         category = normalize_component_name(r.component_name)
         is_estimate = "uppskattning" in (r.cost_source or "").lower()
 
+        # Validate price
         if r.cost_sek <= 0:
             r.cost_sek = 0
             if "pris ej tillgängligt" not in r.description.lower():
                 r.description = r.description.rstrip(". ") + ". Pris ej tillgängligt."
-            continue
+        else:
+            validated_cost, price_note = validate_total_price(
+                r.cost_sek, quantity, category, is_estimate=is_estimate,
+            )
+            if validated_cost != r.cost_sek:
+                r.cost_sek = validated_cost
+            if price_note and price_note.lower() not in r.description.lower():
+                r.description = r.description.rstrip(". ") + f". {price_note}."
 
-        _cost, note = validate_total_price(
-            r.cost_sek, quantity, category, is_estimate=is_estimate,
-        )
-        if note and note.lower() not in r.description.lower():
-            r.description = r.description.rstrip(". ") + f". {note}."
+        # Validate CO2
+        if quantity > 0 and r.co2e_kg > 0:
+            co2e_per_unit = r.co2e_kg / quantity
+            validated_co2, co2_note = validate_co2e(co2e_per_unit, quantity, category)
+            if validated_co2 != r.co2e_kg:
+                r.co2e_kg = validated_co2
+            if co2_note and co2_note.lower() not in r.description.lower():
+                r.description = r.description.rstrip(". ") + f". {co2_note}."
+
     return results
 
 
@@ -52,11 +68,29 @@ Du får:
 1. En lista med projektets komponenter (med id, namn, antal, enhet)
 2. Boverkets kompletta produktlista med CO2e-värden (Typical A1-A3)
 
-UPPGIFT:
-Matcha varje komponent mot den mest relevanta Boverket-produkten.
-- Tänk semantiskt: "PVC-golv" → "Golvbeläggning av vinyl", "Toalettstol" → "Sanitetsprodukt" osv.
-- Välj den produkt som bäst representerar konventionellt standardmaterial.
-- Om INGEN Boverket-produkt passar: uppskatta CO2e baserat på materialkunskap.
+UPPGIFT — följ dessa steg för VARJE komponent:
+
+STEG 1 — BESTÄM STANDARDMATERIAL:
+Fundera på vad det konventionella/typiska materialet är för denna komponent i denna byggnadstyp.
+Exempel: golv i skola → homogen vinylmatta (PVC). Innervägg → gipsskiva på stålreglar.
+
+STEG 2 — HITTA BOVERKET-PROXY:
+Boverkets databas är organiserad efter materialtyp, inte byggnadsfunktion. Den saknar t.ex.
+kategorier för "golvbeläggning" och "sanitetsprodukter". Matcha därför efter MATERIALSAMMAN-
+SÄTTNING, inte funktion:
+- Vinylgolv (PVC) → "Takduk, PVC" är samma basmaterial
+- Gipsskiva på innervägg → "Gipsskiva, standardskiva"
+- Stålreglar → "Lättreglar av stål, primär"
+
+STEG 3 — JUSTERA FÖR MATERIALEGENSKAPER:
+När du använder en proxy, tänk på skillnader i vikt/tjocklek/densitet mellan proxyn och
+det verkliga materialet. Beskriv resonemanget i description-fältet.
+Exempel: Takduk PVC är ~1.2 mm, homogent vinylgolv är ~2.0 mm och tätare.
+Justera co2e_per_unit proportionellt baserat på kg/m² eller tjocklek.
+
+STEG 4 — UPPSKATTA ENBART SOM SISTA UTVÄG:
+Bara om INGEN Boverket-produkt har liknande materialsammansättning (t.ex. sanitets-
+porslin, elektronik). Sätt då boverket_product till null.
 
 PRISER:
 Sätt cost_sek till 0 — priser hämtas separat via webbsökning.
@@ -68,11 +102,11 @@ Svara med ENBART giltig JSON (ingen markdown, inga kommentarer):
     "component_name": "string",
     "boverket_product": "string (exakt produktnamn från Boverket-listan, eller null)",
     "co2e_per_unit": number,
-    "unit": "string (enhet från Boverket-produkten)",
+    "unit": "string (enhet från Boverket-produkten, konverterad till komponentens enhet vid behov)",
     "co2e_kg": number (co2e_per_unit x quantity),
     "cost_sek": 0,
     "method": "NollCO2",
-    "description": "Kort beskrivning av matchningen",
+    "description": "Beskriv: 1) antaget standardmaterial, 2) vald Boverket-proxy, 3) eventuell justering och varför",
     "source": "Boverkets klimatdatabas" eller "Uppskattning"
   }
 ]"""
@@ -125,7 +159,7 @@ def calculate_baseline(project: Project) -> Baseline:
             r.cost_sek = round(batch_result[0] * quantity)
             r.cost_source = "Webbsökning (AI)"
 
-    results = _validate_baseline_prices(results, project.components)
+    results = _validate_baseline(results, project.components)
     return Baseline(components=results)
 
 

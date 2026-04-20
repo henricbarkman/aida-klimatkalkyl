@@ -97,7 +97,7 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
         result: dict[str, list[dict]] = {}
         for epd in data:
             cat = epd.get("category", "")
-            if cat:
+            if cat and epd.get("gwp_a1a3", 0) > 0:
                 result.setdefault(cat, []).append(epd)
         return result
     except (json.JSONDecodeError, OSError):
@@ -200,7 +200,7 @@ def _validate_alternatives(
             )
             continue
 
-        # C) Price validation
+        # C) Price validation — flag zero prices (filtered after enrichment)
         if alt.cost_sek is None or alt.cost_sek <= 0:
             alt.cost_sek = 0
             if "pris ej tillgängligt" not in alt.reasoning.lower():
@@ -323,15 +323,19 @@ def find_alternatives(
     5. Supplement with Palats reuse listings (live)
     6. Fall back to hardcoded reuse data if no Palats results
     """
+    from aida.data import palats_client
     from aida.data.palats_client import fetch_listings
 
     epd_data = _load_epd_alternatives()
 
     # Fetch Palats listings once for the entire analysis
     palats_listings = fetch_listings()
+    palats_status = palats_client.last_fetch_status
     has_palats = len(palats_listings) > 0
     if has_palats:
         logger.info("Palats: %d listings available for reuse matching", len(palats_listings))
+    elif palats_status != "ok":
+        logger.warning("Palats unavailable (status: %s)", palats_status)
 
     def _process_component(bl_comp):
         proj_comp = next(
@@ -360,24 +364,50 @@ def find_alternatives(
                 proj_comp.unit, palats_listings,
             )
 
-        # If Palats is connected but has nothing for this component, note it
+        # Show Palats status: connection error vs no matches for this category
         palats_reuse_count = sum(
             1 for a in alternatives
             if a.alternative_type == "reuse" and "[Palats]" in a.source
         )
-        if has_palats and palats_reuse_count == 0:
-            alternatives.append(Alternative(
-                name="Inget tillgängligt i Palats",
-                co2e_kg=0,
-                cost_sek=0,
-                source="[Palats] palats.app",
-                reasoning=(
-                    "Inga matchande återbruksprodukter hittades i Palats "
-                    "(Karlstads kommuns interna marknadsplats) för denna kategori "
-                    "just nu. Utbudet ändras löpande — kolla igen senare."
-                ),
-                alternative_type="info",
-            ))
+        if palats_reuse_count == 0:
+            if palats_status in ("no_credentials", "auth_failed"):
+                alternatives.append(Alternative(
+                    name="Palats ej tillgänglig (autentisering)",
+                    co2e_kg=0,
+                    cost_sek=0,
+                    source="[Palats] palats.app",
+                    reasoning=(
+                        "Kunde inte ansluta till Palats — autentisering misslyckades. "
+                        "Återbruksprodukter kan inte sökas. Kontakta systemadministratör."
+                    ),
+                    alternative_type="info",
+                ))
+            elif palats_status == "api_error":
+                alternatives.append(Alternative(
+                    name="Palats ej tillgänglig (anslutningsfel)",
+                    co2e_kg=0,
+                    cost_sek=0,
+                    source="[Palats] palats.app",
+                    reasoning=(
+                        "Kunde inte hämta data från Palats — anslutningsfel eller "
+                        "timeout. Återbruksprodukter kan inte sökas just nu. "
+                        "Försök igen senare."
+                    ),
+                    alternative_type="info",
+                ))
+            elif has_palats:
+                alternatives.append(Alternative(
+                    name="Inget tillgängligt i Palats",
+                    co2e_kg=0,
+                    cost_sek=0,
+                    source="[Palats] palats.app",
+                    reasoning=(
+                        "Inga matchande återbruksprodukter hittades i Palats "
+                        "(Karlstads kommuns interna marknadsplats) för denna kategori "
+                        "just nu. Utbudet ändras löpande — kolla igen senare."
+                    ),
+                    alternative_type="info",
+                ))
 
         selectable = [a for a in alternatives if a.alternative_type != "info"]
         if not selectable:
@@ -425,6 +455,17 @@ def find_alternatives(
     # Batch price enrichment for alternatives missing prices
     _enrich_alternative_prices(component_results)
 
+    # DoD B1: remove alternatives still at cost_sek=0 after enrichment
+    for comp in component_results:
+        before = len(comp.alternatives)
+        comp.alternatives = [
+            a for a in comp.alternatives
+            if a.alternative_type in ("baseline", "info") or (a.cost_sek is not None and a.cost_sek > 0)
+        ]
+        removed = before - len(comp.alternatives)
+        if removed:
+            logger.info("B1 filter: removed %d zero-price alternatives from %s", removed, comp.component_name)
+
     result = AlternativesResult(components=component_results)
     result.commentary = _generate_commentary(project, baseline, result)
     return result
@@ -433,11 +474,11 @@ def find_alternatives(
 def _enrich_alternative_prices(components: list[ComponentAlternatives]) -> None:
     """Batch web search for alternatives that have cost_sek == 0.
 
-    Two-pass strategy:
-    1. Batch web search for all missing prices (fast, single LLM call)
-    2. Individual LLM estimation for any still missing (slower, but ensures no 0-prices)
+    Single batch call — alternatives still at 0 after this get filtered
+    downstream (DoD B1). Individual sequential lookups were removed to
+    avoid 5+ minute timeouts.
     """
-    from aida.data.pricing_provider import lookup_price, lookup_prices_batch
+    from aida.data.pricing_provider import lookup_prices_batch
 
     products_needing_prices: list[tuple[str, str]] = []
     alt_index: list[tuple[int, int]] = []  # (comp_idx, alt_idx) for mapping back
@@ -465,17 +506,13 @@ def _enrich_alternative_prices(components: list[ComponentAlternatives]) -> None:
                 alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
                 logger.info("Enriched price for '%s': %d SEK (batch)", alt.name, alt.cost_sek)
 
-    # Pass 2: Individual lookup for any still at 0
-    for ci, comp in enumerate(components):
-        for ai, alt in enumerate(comp.alternatives):
-            if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info"):
-                result = lookup_price(alt.name, "")
-                if result:
-                    price, unit, source = result
-                    alt.cost_sek = round(price)
-                    alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
-                    alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
-                    logger.info("Enriched price for '%s': %d SEK (individual)", alt.name, alt.cost_sek)
+    # Pass 2: Log any still missing — individual lookups removed to avoid timeout
+    still_missing = sum(
+        1 for comp in components for alt in comp.alternatives
+        if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info")
+    )
+    if still_missing:
+        logger.info("%d alternatives still missing price after batch lookup", still_missing)
 
 
 def _find_alternatives_with_epds(
