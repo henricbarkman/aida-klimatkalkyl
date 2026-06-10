@@ -547,6 +547,42 @@ def api_report_docx():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/route', methods=['POST'])
+@require_auth
+def api_route():
+    """Intent router (orchestration increment 1).
+
+    Classifies the message and, when it is an advisory question, answers it in the
+    same call without touching analysis state. The frontend calls this BEFORE its
+    own flow switch: an advisory reply is rendered and stops; new_project and
+    flow_action fall through to the existing flow.
+
+    Request:  {message, history?, project?, baseline?, alternatives?, selections?}
+    Response: {intent: 'advisory_question', reply, ...} | {intent: 'new_project'|'flow_action'}
+    """
+    from aida.agents.orchestrator import route
+
+    data = request.json or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'error': 'Meddelande saknas'}), 400
+    try:
+        result = route(
+            message=message,
+            history=data.get('history', []),
+            project=data.get('project'),
+            baseline=data.get('baseline'),
+            alternatives=data.get('alternatives'),
+            selections=data.get('selections'),
+        )
+        return jsonify(result)
+    except _TIMEOUT_ERRORS:
+        return jsonify({'error': 'Routern svarade inte i tid. Försök igen.'}), 504
+    except Exception as e:
+        app.logger.exception("route failed")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/chat', methods=['POST'])
 @require_auth
 def api_chat():
@@ -1418,6 +1454,30 @@ async function sendMessage() {
   const wantsAdvance = ADVANCE_RE.test(text) || ADVANCE_EXACT_RE.test(text.trim());
   const wantsCorrection = CORRECTION_RE.test(text);
 
+  // Orchestration increment 1: route advisory questions to a server-side answer
+  // before the flow switch. This is the missing "question" branch — without it a
+  // question in `idle` falls through to runIntake and crashes the intake parser.
+  // Skip the router for messages the regexes already classify reliably: advance
+  // commands ("kör vidare") and corrections ("byt golvet"). Corrections have a
+  // working regex-gated mutation path; letting the LLM router reclassify one as
+  // advisory would silently drop the edit (advisory mutates nothing). So the
+  // router only fires on messages neither regex catches — exactly the pure
+  // questions we want it for. Any routing error falls through (fail-safe).
+  if (!wantsAdvance && !wantsCorrection) {
+    try {
+      const routed = await routeMessage(text);
+      if (routed && routed.intent === 'advisory_question') {
+        state.chatHistory.push({role:'user', content: text});
+        state.chatHistory.push({role:'assistant', content: routed.reply});
+        addMsg(routed.reply, 'bot');
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      // Router unavailable — proceed with the existing flow rather than block.
+    }
+  }
+
   switch (state.step) {
     case 'idle':
       if (state.pendingDesc) {
@@ -1701,6 +1761,24 @@ async function generateReport() {
     const rb = document.getElementById('reportBtn'); if (rb) rb.disabled = false;
     setLoading(false);
   }
+}
+
+// Orchestration increment 1: classify a message server-side, getting an advisory
+// answer back in the same call when applicable. Mirrors runChat's body shape.
+async function routeMessage(text) {
+  const body = {
+    message: text,
+    history: state.chatHistory.slice(-10),
+    project: state.project || null,
+    baseline: state.baseline || null,
+    alternatives: state.alternatives || null,
+    selections: (state.selections && Object.keys(state.selections).length) ? state.selections : null,
+  };
+  const r = await authFetch('/api/route', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)});
+  const d = await r.json();
+  if (d.error) throw new Error(d.error);
+  return d;
 }
 
 // === Conversational chat (agent with tool-use) ===
