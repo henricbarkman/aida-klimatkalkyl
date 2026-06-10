@@ -1097,7 +1097,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   </div>
   {% else %}
   <div class="topbar-center"></div>
-  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
+  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Ljud på</a><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
   {% endif %}
 </div>
 
@@ -1228,10 +1228,67 @@ let state = {
   project: null, baseline: null, alternatives: null,
   selections: {}, pendingDesc: null, reportMarkdown: null,
   chatHistory: [],
+  // Orchestration increment 2: standing user directives that shape alternatives.
+  // global = applies to every component ("bara svenska tillverkare"); byComponent
+  // = scoped to one component ("tänk bredare på golv"). Persisted per analysis and
+  // REPLAYED into every alternatives rerun so refinements stop vanishing.
+  directives: {global: [], byComponent: {}},
   get step() { return _step; },
   set step(v) { _step = v; updatePlaceholder(); },
 };
 let activeTab = null;
+
+// === Step-done chime (Johanna feedback punkt 1: pling när AIda jobbat klart) ===
+// A short two-note pling via Web Audio (no asset, works offline). On by default,
+// toggleable, persisted. Browsers require a user gesture before audio plays, so
+// we unlock the context on the first interaction and reuse it thereafter.
+let _audioCtx = null;
+let soundEnabled = true;
+try { soundEnabled = (localStorage.getItem('aida_sound') !== 'off'); } catch (e) {}
+
+function _unlockAudio() {
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  } catch (e) { /* audio unavailable — stays silent */ }
+  document.removeEventListener('pointerdown', _unlockAudio);
+  document.removeEventListener('keydown', _unlockAudio);
+}
+document.addEventListener('pointerdown', _unlockAudio);
+document.addEventListener('keydown', _unlockAudio);
+
+function playStepDone() {
+  if (!soundEnabled) return;
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    // Soft ascending C6 -> E6.
+    [[1046.5, 0], [1318.5, 0.12]].forEach(([freq, t]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + t);
+      gain.gain.linearRampToValueAtTime(0.16, now + t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.25);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(now + t); osc.stop(now + t + 0.26);
+    });
+  } catch (e) { /* audio unavailable — silent */ }
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  try { localStorage.setItem('aida_sound', soundEnabled ? 'on' : 'off'); } catch (e) {}
+  updateSoundToggle();
+  if (soundEnabled) playStepDone();  // confirm the new setting audibly
+}
+function updateSoundToggle() {
+  const el = document.getElementById('soundToggle');
+  if (el) el.textContent = soundEnabled ? '🔔 Ljud på' : '🔕 Ljud av';
+}
 
 // Dynamic placeholder (Feature 4)
 const STEP_PLACEHOLDERS = {
@@ -1597,7 +1654,13 @@ async function runIntake(desc) {
     state.selections = {};
     state.reportMarkdown = null;
     state.chatHistory = [];
+    // Intake assigns fresh component IDs, so component-scoped directives keyed on
+    // the old IDs are now orphans — drop them. Global directives are not ID-bound
+    // and survive (e.g. "bara svenska tillverkare").
+    _ensureDirectives();
+    state.directives.byComponent = {};
     state.step = 'intake_done';
+    playStepDone();
     if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.name || d.building_type || 'Nytt projekt'; }
     scheduleAutoSave();
 
@@ -1644,6 +1707,7 @@ async function runBaseline() {
     state.selections = {};
     state.reportMarkdown = null;
     state.step = 'baseline_done';
+    playStepDone();
     scheduleAutoSave();
 
     enableTab('baslinje');
@@ -1664,6 +1728,74 @@ async function runBaseline() {
   }
 }
 
+// === Orchestration increment 2: standing directives ===
+// Directives are user instructions that shape alternatives ("tänk bredare",
+// "bara svenska tillverkare"). They are stored durably and replayed into EVERY
+// alternatives rerun for their scope, so a later rerun (triggered by anything)
+// does not silently revert to defaults — the matsal bug.
+function _ensureDirectives() {
+  if (!state.directives) state.directives = {global: [], byComponent: {}};
+  if (!state.directives.global) state.directives.global = [];
+  if (!state.directives.byComponent) state.directives.byComponent = {};
+}
+// Record a new directive. Empty scopeCids = global; otherwise scoped per component.
+// Returns true if it was newly added (vs already standing).
+function addDirective(scopeCids, text) {
+  text = (text || '').trim();
+  if (!text) return false;
+  _ensureDirectives();
+  let added = false;
+  if (!scopeCids || scopeCids.length === 0) {
+    if (!state.directives.global.includes(text)) { state.directives.global.push(text); added = true; }
+  } else {
+    scopeCids.forEach(cid => {
+      if (!state.directives.byComponent[cid]) state.directives.byComponent[cid] = [];
+      if (!state.directives.byComponent[cid].includes(text)) { state.directives.byComponent[cid].push(text); added = true; }
+    });
+  }
+  return added;
+}
+// Standing directives applicable to a rerun scope. Scoped rerun = global + that
+// component's directives. Full rerun (empty scope) = GLOBAL ONLY: a component
+// wish ("tänk bredare på golv") must never leak onto other components' prompts.
+// Per-component directives still live in state and replay on that component's
+// own next scoped rerun.
+function directivesForScope(scopeCids) {
+  _ensureDirectives();
+  const out = state.directives.global.slice();
+  if (scopeCids && scopeCids.length) {
+    scopeCids.forEach(cid => (state.directives.byComponent[cid] || []).forEach(d => { if (!out.includes(d)) out.push(d); }));
+  }
+  return out;
+}
+// Persist newFeedback as a standing directive, then return the FULL standing set
+// for this scope as a single user_feedback string. This is the replay: the alt
+// search always sees every accumulated instruction, not just the latest one.
+function effectiveFeedback(scopeCids, newFeedback) {
+  if (newFeedback) addDirective(scopeCids, newFeedback);
+  let all = directivesForScope(scopeCids);
+  // Cap so a long session cannot bloat the alternatives prompt (server's chat
+  // path caps at 500; this direct path had none). Always keep global directives;
+  // fill remaining budget with the most recent scoped ones.
+  const CAP = 800;
+  if (all.join('; ').length > CAP) {
+    const globals = state.directives.global.filter(d => all.includes(d));
+    const rest = all.filter(d => !globals.includes(d));
+    const kept = [];
+    for (let i = rest.length - 1; i >= 0; i--) {
+      if ([...globals, rest[i], ...kept].join('; ').length > CAP) break;
+      kept.unshift(rest[i]);
+    }
+    all = [...globals, ...kept];
+  }
+  return all.length ? all.join('; ') : null;
+}
+// Drop directives for removed components so they cannot resurrect a deleted scope.
+function pruneDirectives(removedCids) {
+  _ensureDirectives();
+  (removedCids || []).forEach(cid => { delete state.directives.byComponent[cid]; });
+}
+
 // === Pipeline: Alternatives ===
 async function runAlternatives(userFeedback) {
   // Snapshot selections by component name before clearing (Feature 3)
@@ -1679,7 +1811,9 @@ async function runAlternatives(userFeedback) {
   }, 2000);
   try {
     const body = {project: state.project, baseline: state.baseline};
-    if (userFeedback) body.user_feedback = userFeedback;
+    // Full rerun: replay all standing directives (global + every component's).
+    const fb = effectiveFeedback([], userFeedback);
+    if (fb) body.user_feedback = fb;
     const r = await authFetch('/api/alternatives', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const d = await r.json();
     clearTimeout(subStepTimer);
@@ -1693,6 +1827,7 @@ async function runAlternatives(userFeedback) {
     state.alternatives = d;
     state.reportMarkdown = null;
     state.step = 'alternatives_done';
+    playStepDone();
 
     // Restore previous selections by component name match (Feature 3)
     state.selections = {};
@@ -1750,6 +1885,7 @@ async function generateReport() {
     }
     state.reportMarkdown = d.markdown;
     state.step = 'report_done';
+    playStepDone();
     scheduleAutoSave();
     addMsg('Rapport klar!', 'bot');
     enableTab('rapport');
@@ -1930,6 +2066,7 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
     if (activeTab === 'baslinje') renderBaslinjeContent();
     else if (activeTab === 'alternativ') renderAlternativContent();
     addMsg('Baslinje uppdaterad' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
+    playStepDone();
   } catch (e) {
     addMsg('Fel vid baslinjebberäkning: ' + e.message, 'system');
   } finally {
@@ -1947,13 +2084,17 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     ? 'alla alternativ'
     : 'alternativ för komponent(er) ' + componentIds.join(', ');
   const reasonNote = reason ? ' (' + reason + ')' : '';
-  const feedbackNote = userFeedback ? ' Önskemål: ' + userFeedback + '.' : '';
+  const feedbackNote = userFeedback ? ' Önskemål (sparas som stående): ' + userFeedback + '.' : '';
   addMsg('AIda kör om ' + scope + reasonNote + feedbackNote + '...', 'system');
   if (!orchestrated) setLoading(true);
   try {
     const body = {project: state.project, baseline: state.baseline};
     if (!isFull) body.component_ids = componentIds;
-    if (userFeedback) body.user_feedback = userFeedback;
+    // Replay standing directives for this scope (and persist any new feedback as
+    // one). So a rerun triggered by anything — even a material change with no new
+    // feedback — still carries "tänk bredare", "bara svenska" etc.
+    const fb = effectiveFeedback(isFull ? [] : componentIds, userFeedback);
+    if (fb) body.user_feedback = fb;
     const r = await authFetch('/api/alternatives', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -1981,6 +2122,7 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     scheduleAutoSave();
     if (activeTab === 'alternativ') renderAlternativContent();
     addMsg('Alternativ uppdaterade' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
+    playStepDone();
   } catch (e) {
     addMsg('Fel vid alternativsökning: ' + e.message, 'system');
   } finally {
@@ -2083,6 +2225,8 @@ function applyAgentStateUpdates(updates) {
       if (state.selections) {
         Object.keys(state.selections).forEach(cid => { if (!newIds.has(cid)) delete state.selections[cid]; });
       }
+      // Drop directives belonging to removed components.
+      pruneDirectives([...prevIds].filter(id => !newIds.has(id)));
     }
   }
 
@@ -2579,10 +2723,16 @@ async function autoSave() {
   saveInProgress = true;
   const indicator = document.getElementById('saveIndicator');
   if (indicator) { indicator.textContent = 'Sparar...'; indicator.style.display = 'inline'; indicator.style.color = 'var(--kk-gray-400)'; }
+  // Directives persist per analysis. Until a dedicated column exists, they ride
+  // inside project_data (the server's Project.from_dict ignores unknown keys).
+  // Spread so we never mutate the working state.project object.
+  const projectDataToSave = state.project
+    ? Object.assign({}, state.project, {directives: state.directives})
+    : null;
   const analysisData = {
     name: state.project ? (state.project.name || state.project.building_type || 'Nytt projekt') : 'Nytt projekt',
     status: state.step,
-    project_data: state.project,
+    project_data: projectDataToSave,
     baseline_data: state.baseline,
     alternatives_data: state.alternatives,
     selections_data: Object.keys(state.selections).length > 0 ? state.selections : null,
@@ -2618,6 +2768,9 @@ if (HAS_SUPABASE && SUPABASE_URL && SUPABASE_ANON_KEY) {
   supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   initAuth();
 }
+
+// Reflect persisted sound preference in the toggle label on load.
+updateSoundToggle();
 
 async function initAuth() {
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -2803,6 +2956,12 @@ async function loadAnalysis(id) {
     state.selections = data.selections_data || {};
     state.reportMarkdown = data.report_markdown;
     state.step = data.status || 'idle';
+    // Restore standing directives (piggybacked in project_data); keep the working
+    // project object clean of the persistence-only key.
+    state.directives = (state.project && state.project.directives)
+      ? state.project.directives : {global: [], byComponent: {}};
+    if (state.project && 'directives' in state.project) delete state.project.directives;
+    _ensureDirectives();
     document.getElementById('projectName').textContent = data.name || 'Nytt projekt';
     restoreUI();
     await loadAnalysesList();
@@ -2889,6 +3048,7 @@ function createNewProject() {
   state.project = null; state.baseline = null; state.alternatives = null;
   state.selections = {}; state.pendingDesc = null; state.reportMarkdown = null;
   state.chatHistory = []; state.step = 'idle';
+  state.directives = {global: [], byComponent: {}};
   document.getElementById('projectName').textContent = 'Nytt projekt';
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
