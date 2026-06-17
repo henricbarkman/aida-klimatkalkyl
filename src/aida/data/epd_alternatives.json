@@ -11697,18 +11697,6 @@
   },
   {
     "category": "kakel",
-    "name": "Porcelain Tiles 20 mm",
-    "owner": "Qua Granite Hayal Yapı ve Ürünleri San. Tic.A.Ş.",
-    "gwp_a1a3": 203.0,
-    "unit": "m2",
-    "geo": "TR",
-    "reg_no": "EPD-IES-0008768:002 (S-P-08768)",
-    "uuid": "91977a8f-ac80-4b75-975f-08db25ed179a",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "kakel",
     "name": "Porcelain stoneware tiles",
     "owner": "CERAMICHE MARINER SPA",
     "gwp_a1a3": 9.15,
@@ -12423,42 +12411,6 @@
   },
   {
     "category": "sanitet",
-    "name": "3M™ Stamark™ High Performance Tape Series 380ESD IMP White",
-    "owner": "3M Company (Belgium)",
-    "gwp_a1a3": 3988.0,
-    "unit": "m2",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0002166:001 (S-P-02166)",
-    "uuid": "56e665a4-ce61-4fe8-801a-fdb5a3e6c9f7",
-    "source_registry": "environdec",
-    "subcategory": "blandare"
-  },
-  {
-    "category": "sanitet",
-    "name": "3M™ Stamark™ High Performance Tape Series 380ESDc White",
-    "owner": "3M Company (Belgium)",
-    "gwp_a1a3": 3315.0,
-    "unit": "m2",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0002165:001 (S-P-02165)",
-    "uuid": "eccecd95-cb39-49c2-83e2-76c8d1d89551",
-    "source_registry": "environdec",
-    "subcategory": "blandare"
-  },
-  {
-    "category": "sanitet",
-    "name": "ALTOR bathrooms (KAURY and TRADILINE)",
-    "owner": "ALTOR INDUSTRIE",
-    "gwp_a1a3": 904.0,
-    "unit": "st",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0013547:001 (S-P-13547)",
-    "uuid": "06d34c3e-66d3-46a4-9905-08dc65c063c1",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
     "name": "ANTISTAIN AQUA 5200-01 FLOWCOAT LYE WHITE",
     "owner": "Teknos",
     "gwp_a1a3": 1.95,
@@ -12495,7 +12447,7 @@
     "reg_no": "EPD-IES-0026239:002",
     "uuid": "df952475-a3a0-4128-0aa2-08de07d020af",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -12507,7 +12459,7 @@
     "reg_no": "EPD-IES-0026238:002",
     "uuid": "d99ff26b-c882-4c0d-5b66-08de07cfde90",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -13091,7 +13043,7 @@
     "reg_no": "EPD-IES-0013077:006 (S-P-13077)",
     "uuid": "78805abb-4dc5-445c-68b9-08dc3c6d662d",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -13413,18 +13365,6 @@
   },
   {
     "category": "sanitet",
-    "name": "Orbital shower system",
-    "owner": "Orbital Systems AB",
-    "gwp_a1a3": 395.0,
-    "unit": "st",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0008231:001 (S-P-08231)",
-    "uuid": "c1e3b4c6-0db9-4c0d-bee3-08dbca6d93f2",
-    "source_registry": "environdec",
-    "subcategory": "dusch"
-  },
-  {
-    "category": "sanitet",
     "name": "PANELES ACÚSTICOS IDEATEC FLOW Panel, Tile, Rejilla y Abaraska, Hexagon, Rejilla, Bafle, Viga y Wave Cloud Felt Lwcf",
     "owner": "IDEATEC ADVANCED ACOUSTIC SOLUTIONS",
     "gwp_a1a3": 4.52,
@@ -13445,7 +13385,7 @@
     "reg_no": "EPD-IES-0010697:001",
     "uuid": "4045abb7-fd10-4361-0463-08dca0aebc13",
     "source_registry": "environdec",
-    "subcategory": "blandare",
+    "subcategory": "",
     "gwp_per_functional_unit": 43.7,
     "functional_unit": "st"
   },
@@ -13459,7 +13399,7 @@
     "reg_no": "EPD-IES-0016776:001",
     "uuid": "dfb67516-a38d-4f90-8c02-08dcdc7fd70b",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -13523,186 +13463,6 @@
   },
   {
     "category": "sanitet",
-    "name": "Project Blue Tongue 50MPa SWC (ZS5010-559) concrete",
-    "owner": "Gunlake Concrete NSW Pty Ltd",
-    "gwp_a1a3": 275.65,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0026709:001",
-    "uuid": "75c2211b-be1a-4fe8-5fc6-08de1ce13427",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Project Blue Tongue 65MPa SWC (ZS6510-655) concrete",
-    "owner": "Gunlake Concrete NSW Pty Ltd",
-    "gwp_a1a3": 317.88,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0026710:001",
-    "uuid": "b44b0343-5010-4d8c-b827-08de1ce0f3e6",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Project Stockland Momenta ZS5010-559 (50MPa SWC) concrete",
-    "owner": "Gunlake Concrete NSW Pty Ltd",
-    "gwp_a1a3": 269.29,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0026704:001",
-    "uuid": "7019c162-9bb5-4045-b824-08de1ce0f3e6",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "QLD - SEQ - Geostone Range - QX25WCAP",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 248.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014314:001",
-    "uuid": "28174af3-8c05-4725-7c41-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "QLD - SEQ - Geostone Range - QX25WCOR",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 247.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014315:001",
-    "uuid": "3031bf6c-2c5a-4a72-7c42-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-Mixed Concrete S50-SWC-JF",
-    "owner": "Gunlake Concrete NSW Pty Ltd",
-    "gwp_a1a3": 445.91,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0015920:001",
-    "uuid": "bb538d61-42fc-4f60-1d3c-08dcb1ce278c",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE201LB95",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 195.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014377:001",
-    "uuid": "9a05b66e-b395-431a-7c80-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE202L295",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 193.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014380:001",
-    "uuid": "327f1791-28d7-4732-7c83-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE251L295",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 218.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014383:001",
-    "uuid": "554f8fb3-edbc-45f8-7c86-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE252L195",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 213.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014386:001",
-    "uuid": "32d9b67a-2fca-4424-7c89-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE321L195",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 252.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014389:001",
-    "uuid": "ee0e7bc5-9932-4bae-7c8c-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE321R195",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 252.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014392:001",
-    "uuid": "f27faab3-5221-4b02-7c8f-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Ready-mix concrete -  NSW - Newcastle - ECOPact- NE322R195",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 243.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0014395:001",
-    "uuid": "aecc710b-abac-4b90-7c92-08dc7a6854e0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Readymix concrete: PC5510HWC500 - 55MPa",
-    "owner": "Daracrete Pty Ltd",
-    "gwp_a1a3": 428.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0016619:001",
-    "uuid": "ee0bc4bb-c0e3-42b5-5eaa-08dcd6c527c2",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Readymix concrete: Z62HWCB80475",
-    "owner": "Daracrete Pty Ltd",
-    "gwp_a1a3": 425.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0016624:001",
-    "uuid": "8bae7753-8b99-4453-5ead-08dcd6c527c2",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
     "name": "S-P-05054 Atlatic washbasin mixers, lead free",
     "owner": "Villeroy & Boch Gustavsberg AB",
     "gwp_a1a3": 5.44,
@@ -13742,90 +13502,6 @@
     "subcategory": "badkar",
     "gwp_per_functional_unit": 56.0,
     "functional_unit": "st"
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE401EWC",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 193.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022098:001",
-    "uuid": "a4e9b4a2-6e8e-4b01-46e7-08dd7b9e2093",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE402ESWC",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 193.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022099:001",
-    "uuid": "9676f923-71bb-41f1-46e8-08dd7b9e2093",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE501EWC",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 220.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022100:001",
-    "uuid": "46057b0a-0031-40c2-46e9-08dd7b9e2093",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE502DWCH",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 172.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022132:001",
-    "uuid": "a892d83e-90d0-40cb-46fa-08dd7b9e2093",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE502ESWC",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 220.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022101:001",
-    "uuid": "7b39dcaf-ff15-4e5a-6622-08dd7b9ded23",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE652ESWC",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 229.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022085:001",
-    "uuid": "22e5bb5f-530c-4717-46e2-08dd7b9e2093",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "SA - ADLC - ECOPact Mixes- SE802ESWC",
-    "owner": "Holcim (Australia) Pty Ltd",
-    "gwp_a1a3": 302.0,
-    "unit": "m3",
-    "geo": "AU",
-    "reg_no": "EPD-IES-0022090:001",
-    "uuid": "74fd3250-abd3-40a7-661d-08dd7b9ded23",
-    "source_registry": "environdec",
-    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -13949,7 +13625,7 @@
     "reg_no": "EPD-IES-0016777:001",
     "uuid": "bc1d3bf1-2121-41d6-19b9-08dcdc91c161",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -14177,18 +13853,6 @@
   },
   {
     "category": "sanitet",
-    "name": "Taper Leg Table",
-    "owner": "Opus Magnum",
-    "gwp_a1a3": 156.0,
-    "unit": "st",
-    "geo": "GB",
-    "reg_no": "EPD-IES-0027550:001",
-    "uuid": "532940bf-6b8d-48cc-3bf7-08de387de2d3",
-    "source_registry": "environdec",
-    "subcategory": "blandare"
-  },
-  {
-    "category": "sanitet",
     "name": "Tapi Trans Dual Series: M10R",
     "owner": "Solex Energy Limited",
     "gwp_a1a3": 0.42,
@@ -14197,7 +13861,7 @@
     "reg_no": "EPD-IES-0028871:001",
     "uuid": "d7f5ccd8-c2e1-44c6-5044-08de736305fd",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -14209,7 +13873,7 @@
     "reg_no": "EPD-IES-0028872:001",
     "uuid": "b886f11d-1fdf-425f-5045-08de736305fd",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -14221,7 +13885,7 @@
     "reg_no": "EPD-IES-0001355:002 (S-P-01355)",
     "uuid": "7eb76592-85db-44f7-9a33-0139eb82e22d",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -14391,7 +14055,7 @@
     "reg_no": "EPD-IES-0012184:001 (S-P-12184)",
     "uuid": "a2b88b76-f910-44b7-87a9-08dc0c7232d4",
     "source_registry": "environdec",
-    "subcategory": "blandare",
+    "subcategory": "",
     "gwp_per_functional_unit": 0.8,
     "functional_unit": "st"
   },
@@ -14408,18 +14072,6 @@
     "subcategory": "",
     "gwp_per_functional_unit": 24.5,
     "functional_unit": "st"
-  },
-  {
-    "category": "sanitet",
-    "name": "Vitreous China (VC) & Fine Fire Clay (FFC) Ceramic Sanitaryware",
-    "owner": "Eczacıbaşı Yapı Gereçleri San. ve Tic. A.Ş.",
-    "gwp_a1a3": 862.0,
-    "unit": "m2",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0010699:002 (S-P-10699)",
-    "uuid": "75d082ba-f5ad-4ae3-95ac-08dbafc3074c",
-    "source_registry": "environdec",
-    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -14443,7 +14095,7 @@
     "reg_no": "EPD-IES-0027838:001",
     "uuid": "e37a005e-5aed-461a-1eb0-08de3fc5e606",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "sanitet",
@@ -14519,7 +14171,7 @@
     "reg_no": "EPD-IES-0012267:001 (S-P-12267)",
     "uuid": "78ddd719-2b94-492d-880f-08dc0c7232d4",
     "source_registry": "environdec",
-    "subcategory": "blandare"
+    "subcategory": ""
   },
   {
     "category": "storköksutrustning",
