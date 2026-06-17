@@ -166,7 +166,20 @@ def _build_extra(
         "conservative_factor": resource.get("ConservativeDataConversionFactor"),
         "inventory_unit": resource.get("InventoryUnit"),
     }
-    conversions = resource.get("Conversions", [])
-    if conversions:
-        extra["density_kg_m3"] = conversions[0].get("Value")
+    # Boverket reports conversions in different units depending on the product:
+    # kg/m3 (true density) for volumetric materials, but kg/m2 (areal weight)
+    # for sheet/membrane products (tatskikt, fonster, takpapp) and MJ/liter for
+    # fuels. Storing whatever happens to be first as "density" silently corrupts
+    # the area-based CO2e math (a 5.5 kg/m2 membrane treated as 5.5 kg/m3 then
+    # multiplied by a thickness gives a result ~40x too low). Bucket each
+    # conversion by its actual unit instead.
+    for conv in resource.get("Conversions", []):
+        unit = (conv.get("Unit") or "").replace(" ", "").lower()
+        value = conv.get("Value")
+        if value is None:
+            continue
+        if unit in ("kg/m³", "kg/m3") and "density_kg_m3" not in extra:
+            extra["density_kg_m3"] = value
+        elif unit in ("kg/m²", "kg/m2") and "areal_density_kg_m2" not in extra:
+            extra["areal_density_kg_m2"] = value
     return json.dumps(extra, ensure_ascii=False)

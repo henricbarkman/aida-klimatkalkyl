@@ -36,6 +36,14 @@ from aida.models import (
 
 EPD_ALTERNATIVES_PATH = Path(__file__).parent.parent / "data" / "epd_alternatives.json"
 
+# The catalog stores every validated EPD per category (so baseline tier 2 can
+# compute an honest upper-half median over the full GWP distribution). For the
+# alternatives prompt we only want the best candidates to suggest, so we slice
+# the N lowest-GWP per category at load time. This keeps the per-component
+# prompt bounded and reproduces the pre-decoupling behaviour, where the catalog
+# was itself capped to the lowest-GWP N.
+_MAX_ALTERNATIVES_PER_CATEGORY = 80
+
 SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
 
 UPPDRAG:
@@ -100,6 +108,11 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
             cat = epd.get("category", "")
             if cat and epd.get("gwp_a1a3", 0) > 0:
                 result.setdefault(cat, []).append(epd)
+        # Slice the best-N (lowest GWP) per category for the alternatives prompt.
+        # The full distribution stays in the catalog for baseline tier 2.
+        for cat, epds in result.items():
+            epds.sort(key=lambda e: abs(e.get("gwp_a1a3", 0)))
+            result[cat] = epds[:_MAX_ALTERNATIVES_PER_CATEGORY]
         return result
     except (json.JSONDecodeError, OSError):
         return {}
@@ -460,8 +473,9 @@ def find_alternatives(
             alternatives=alternatives,
         )
 
-    # Run per-component LLM calls in parallel (I/O-bound)
-    max_workers = min(len(baseline.components), 5)
+    # Run per-component LLM calls in parallel (I/O-bound).
+    # max(1, ...) guards against an empty baseline — ThreadPoolExecutor(0) raises.
+    max_workers = max(1, min(len(baseline.components), 5))
     results_map = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_comp = {
@@ -487,12 +501,16 @@ def find_alternatives(
     # Batch price enrichment for alternatives missing prices
     _enrich_alternative_prices(component_results, project)
 
-    # DoD B1: remove alternatives still at cost_sek=0 after enrichment
+    # DoD B1: remove alternatives still at cost_sek=0 after enrichment.
+    # "reuse" is exempt: Palats reuse listings are legitimately free (cost_sek=0
+    # with note "X tillgängliga") on an internal municipal marketplace, so a zero
+    # price is real, not missing.
     for comp in component_results:
         before = len(comp.alternatives)
         comp.alternatives = [
             a for a in comp.alternatives
-            if a.alternative_type in ("baseline", "info") or (a.cost_sek is not None and a.cost_sek > 0)
+            if a.alternative_type in ("baseline", "info", "reuse")
+            or (a.cost_sek is not None and a.cost_sek > 0)
         ]
         removed = before - len(comp.alternatives)
         if removed:
@@ -536,7 +554,10 @@ def _enrich_alternative_prices(
 
     for ci, comp in enumerate(components):
         for ai, alt in enumerate(comp.alternatives):
-            if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info"):
+            # "reuse" excluded: a Palats reuse listing is a specific second-hand
+            # item; web-searching a generic market price for it is meaningless,
+            # and a zero price is legitimate (free on the municipal marketplace).
+            if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info", "reuse"):
                 products_needing_prices.append((alt.name, ""))
                 alt_index.append((ci, ai))
 
@@ -744,7 +765,9 @@ def _generate_commentary(
         if usage:
             summary_lines.append(f"  Användning: {usage}")
         for alt in comp.alternatives:
-            pct = ((bl_co2 - alt.co2e_kg) / bl_co2 * 100) if bl_co2 > 0 else 0
+            # Convention (matches the per-component prompt): minus = reduction.
+            # pct = (alt - baseline)/baseline, so a 45% saving renders as "-45%".
+            pct = ((alt.co2e_kg - bl_co2) / bl_co2 * 100) if bl_co2 > 0 else 0
             cost_str = f"{alt.cost_sek:.0f} SEK" if alt.cost_sek > 0 else "Pris ej tillgängligt"
             summary_lines.append(
                 f"  - {alt.name} ({alt.alternative_type}): {alt.co2e_kg:.0f} kg CO2e, "

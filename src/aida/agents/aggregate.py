@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import sys
 
-from aida.models import Project, Selections, AggregateResult
-
+from aida.models import AggregateResult, Project, Selections
 
 
 def compute_aggregate(project: Project, selections: Selections) -> AggregateResult:
@@ -25,6 +24,12 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
         print(f"Varning: Komponenter saknar val: {missing}", file=sys.stderr)
 
     for sel in selections.components:
+        # Skip selections for components no longer in the project (e.g. a
+        # component removed after it was selected). Summing these orphans would
+        # silently inflate the totals with phantom components.
+        if sel.id not in project_ids:
+            print(f"Varning: hoppar över urval för okänd komponent: {sel.id}", file=sys.stderr)
+            continue
         alt = sel.selected_alternative
         alt_co2e = alt.get("co2e_kg", 0)
         alt_cost = alt.get("cost_sek", 0)

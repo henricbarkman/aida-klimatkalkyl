@@ -78,25 +78,32 @@ STEG 1 — BESTÄM STANDARDMATERIAL:
 Fundera på vad det konventionella/typiska materialet är för denna komponent i denna byggnadstyp.
 Exempel: golv i skola → homogen vinylmatta (PVC). Innervägg → gipsskiva på stålreglar.
 
-STEG 2 — HITTA BOVERKET-PROXY:
-Boverkets databas är organiserad efter materialtyp, inte byggnadsfunktion. Den saknar t.ex.
-kategorier för "golvbeläggning" och "sanitetsprodukter". Matcha därför efter MATERIALSAMMAN-
-SÄTTNING, inte funktion:
-- Vinylgolv (PVC) → "Takduk, PVC" är samma basmaterial
-- Gipsskiva på innervägg → "Gipsskiva, standardskiva"
-- Stålreglar → "Lättreglar av stål, primär"
+STEG 2 — MATCHA MOT BOVERKET ENDAST VID SAMMA MATERIAL:
+Boverkets databas är organiserad efter materialtyp, inte byggnadsfunktion. Välj en Boverket-
+produkt ENBART när den faktiskt ÄR komponentens standardmaterial:
+- Gipsskiva på innervägg matchar "Gipsskiva, standardskiva" (gips är gips). OK.
+- Betongvägg matchar en betongprodukt (betong är betong). OK.
+- Stålreglar matchar "Lättreglar av stål, primär" (stål är stål). OK.
+- Mineralull som isolering matchar en mineralullsprodukt. OK.
+
+Låna ALDRIG en produkt av annan typ bara för att den delar basmaterial. Det ger en
+vilseledande baslinje. Exempel på vad som är FÖRBJUDET:
+- Vinylgolv mot "Takduk, PVC": golvbeläggning och takduk är olika produkter även om båda
+  är PVC. Sätt boverket_product=null och source="Uppskattning" istället.
+Boverket saknar bl.a. golvbeläggning, sanitetsporslin, vitvaror och belysning som egna
+produkter. Leta inte efter en ersättare för dem i Boverket.
 
 STEG 3 — JUSTERA FÖR MATERIALEGENSKAPER:
-När du använder en proxy, tänk på skillnader i vikt/tjocklek/densitet mellan proxyn och
-det verkliga materialet. Beskriv resonemanget i description-fältet.
-Exempel: Takduk PVC är ~1.2 mm, homogent vinylgolv är ~2.0 mm och tätare.
-Justera co2e_per_unit proportionellt baserat på kg/m² eller tjocklek.
+När du valt en Boverket-produkt av rätt material men dimensionerna skiljer (tjocklek,
+densitet, vikt per m²), justera co2e_per_unit proportionellt och beskriv resonemanget i
+description-fältet.
 
-STEG 4 — UPPSKATTA ENBART SOM SISTA UTVÄG:
-Bara om INGEN Boverket-produkt har liknande materialsammansättning (t.ex. sanitets-
-porslin, elektronik). Sätt då boverket_product till null. Uppskattningen ska
-alltid avse GWP-fossil A1-A3 (cradle-to-gate, exkl. biogenic carbon credit) så
-värdet är jämförbart med övriga komponenter.
+STEG 4 — UPPSKATTNING NÄR BOVERKET SAKNAR MATERIALET:
+Om komponentens standardmaterial inte finns som egen produkt i Boverket, sätt
+boverket_product till null och source="Uppskattning". Systemet ersätter då uppskattningen
+med ett EPD-typvärde (kategori-aggregat) där sådant finns. Uppskattningen ska alltid avse
+GWP-fossil A1-A3 (cradle-to-gate, exkl. biogenic carbon credit) så värdet är jämförbart med
+övriga komponenter.
 
 PRISER:
 Sätt cost_sek till 0 — priser hämtas separat via webbsökning.
@@ -112,7 +119,7 @@ Svara med ENBART giltig JSON (ingen markdown, inga kommentarer):
     "co2e_kg": number (co2e_per_unit x quantity),
     "cost_sek": 0,
     "method": "NollCO2",
-    "description": "Beskriv: 1) antaget standardmaterial, 2) vald Boverket-proxy, 3) eventuell justering och varför",
+    "description": "Beskriv: 1) antaget standardmaterial, 2) vald Boverket-produkt ELLER varför ingen passar (uppskattning), 3) eventuell justering och varför",
     "source": "Boverkets klimatdatabas" eller "Uppskattning"
   }
 ]"""
@@ -193,39 +200,67 @@ def _apply_epd_median_fallback(results: list[BaselineResult], project: Project) 
     default a user would pick if they weren't actively climate-optimizing.
     """
     from aida.data.epd_baseline_medians import get_baseline_typvärde
+    from aida.data.palats_client import component_subcategory
+    from aida.data.unit_conversion import typical_item_mass
 
     comp_map = {c.id: c for c in project.components}
     for r in results:
         if "uppskattning" not in (r.source or "").lower():
             continue
         if r.boverket_product:
-            continue  # already a Boverket-proxy hit, don't touch
+            continue  # genuine Boverket material hit, don't touch
         comp = comp_map.get(r.component_id)
         if not comp:
             continue
         category = normalize_component_name(comp.name)
         if not category:
             continue
-        typvärde_data = get_baseline_typvärde(category, comp.unit)
+        # Heterogeneous categories (sanitet, belysning, vitvaror) need the
+        # component's subcategory to pick the right per-subcategory typvärde.
+        subcategory = component_subcategory(comp.name, category)
+        typvärde_data = get_baseline_typvärde(category, comp.unit, subcategory)
+
+        # kg->st bridge: count-denominated components (a toilet, a radiator) are
+        # entered in st, but their EPDs are declared per kg. Convert the kg
+        # typvärde to per-st via a typical item mass so these get a baseline
+        # instead of falling through to LLM-uppskattning.
+        mass_note = ""
+        if not typvärde_data and comp.unit == "st":
+            kg_data = get_baseline_typvärde(category, "kg", subcategory)
+            mass = typical_item_mass(category, subcategory)
+            if kg_data and mass:
+                typvärde_data = {
+                    "baseline_co2e_per_unit": round(kg_data["baseline_co2e_per_unit"] * mass, 2),
+                    "sample_size": kg_data["sample_size"],
+                    "full_median": round(kg_data["full_median"] * mass, 2),
+                    "min": round(kg_data["min"] * mass, 2),
+                    "max": round(kg_data["max"] * mass, 2),
+                }
+                mass_note = (
+                    f" Omräknat kg→st via antagen typisk vikt {mass} kg/st "
+                    f"(approximation)."
+                )
+
         if not typvärde_data:
-            continue  # no usable EPD-typvärde for this (category, unit) — keep LLM uppskattning
+            continue  # no usable EPD-typvärde for this (category[, subcat], unit)
 
         baseline_per_unit = typvärde_data["baseline_co2e_per_unit"]
         n = typvärde_data["sample_size"]
         full_med = typvärde_data["full_median"]
         new_co2e = round(baseline_per_unit * comp.quantity, 1)
+        cat_label = f"{category}/{subcategory}" if subcategory else category
 
         r.co2e_kg = new_co2e
         r.source = "Environdec EPD-typvärde"
-        r.boverket_product = ""  # signal: not a Boverket proxy
+        r.boverket_product = ""  # signal: not a Boverket match
         r.description = (
             f"Baslinje från EPD-typvärde: median av övre halvan av "
-            f"{n} Environdec EPD:er i kategorin {category} "
-            f"({baseline_per_unit} kg CO2e/{comp.unit}) × {comp.quantity} {comp.unit}. "
+            f"{n} Environdec EPD:er i kategorin {cat_label} "
+            f"({baseline_per_unit} kg CO2e/{comp.unit}) × {comp.quantity} {comp.unit}.{mass_note} "
             f"Övre halvan används för att approximera 'standardval utan "
             f"klimathänsyn' — full median ({full_med}) hade underskattat "
             f"konventionellt val pga selection bias i EPD-databasen. "
-            f"Boverket saknar proxy för denna komponenttyp; typvärdet är ett "
+            f"Boverket saknar denna materialtyp; typvärdet är ett "
             f"kategori-aggregat (inte produktspecifikt)."
         )
 

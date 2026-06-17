@@ -184,8 +184,12 @@ def main():
     if fmt == "pdf" and output_path:
         path = generate_report_pdf(project, selections, output_path)
         print(f"Rapport sparad: {path}", file=sys.stderr)
-        with open(path) as f:
-            print(f.read())
+        # generate_report_pdf returns the .pdf path on success, or a .md path on
+        # pandoc fallback. Only the markdown is safe to read as text — opening a
+        # binary PDF in text mode raises UnicodeDecodeError on the success path.
+        if path.endswith(".md"):
+            with open(path) as f:
+                print(f.read())
     else:
         report = generate_report_markdown(project, selections)
         if output_path:

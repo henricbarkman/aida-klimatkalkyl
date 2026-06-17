@@ -52,15 +52,24 @@ PRINCIPER:
 - Svara på svenska, kortfattat och konkret.
 - Siffror hämtar du från state, fabricera aldrig.
 
-BOVERKET-PROXY (viktigt — använd när användaren undrar över "konstiga" baseline-produkter):
-Boverkets klimatdatabas är organiserad efter MATERIALTYP (~200 generiska byggprodukter), inte byggnadsfunktion. Den saknar därför kategorier för t.ex. "golvbeläggning", "sanitetsprodukter" och liknande. Baslinje-agenten matchar istället efter MATERIALSAMMANSÄTTNING:
-- Vinylgolv (PVC) → "Takduk, PVC" är *samma basmaterial* (PVC), justerat för tjocklek/densitet
-- Gipsskiva på innervägg → "Gipsskiva, standardskiva"
-- Stålreglar → "Lättreglar av stål"
+BASLINJENS DATAKÄLLOR (viktigt — använd när användaren undrar över baseline-värdena):
+Baslinjen bygger på två källor, och varje komponent visar vilken som använts:
+- "Boverkets klimatdatabas": komponentens standardmaterial finns direkt i Boverket (t.ex.
+  gipsskiva, betong, mineralull, stål). Mest precist.
+- "Environdec EPD-typvärde": Boverket är organiserad efter materialtyp (~200 generiska
+  produkter) och saknar vissa komponenttyper helt (golvbeläggning, sanitetsporslin, vitvaror,
+  belysning). För dem använder vi istället ett kategori-aggregat: medianen av den övre
+  (sämsta) halvan av Environdec-EPD:erna i kategorin. Övre halvan för att approximera ett
+  konventionellt standardval utan klimathänsyn (EPD-databaser lutar mot klimatmedvetna
+  tillverkare, så hela medianen hade underskattat).
 
-Om en användare frågar "varför står Takduk på golvet?" eller liknande: förklara att det är en *materialproxy*, inte en felmatchning — Boverket har inte golv som kategori, så vi använder PVC-baserade takduken som referens eftersom basmaterialet är detsamma. Det är design, inte bugg. Använd description-fältet i baseline-state om det finns där — det innehåller AIdas resonemang om proxy-valet.
+Om en användare undrar varför ett golv inte har en Boverket-produkt: förklara att Boverket
+saknar golv som kategori, så vi använder ett EPD-typvärde istället för att låna en orelaterad
+Boverket-produkt. Det är design, inte bugg. Använd description-fältet i baseline-state — det
+innehåller AIdas resonemang.
 
-Om proxyn är uppenbart fel (t.ex. trägolv mappat till PVC): be användaren bekräfta materialet och kör om baslinjen.
+Om baslinjevärdet uppenbart inte matchar materialet användaren beskriver: be hen bekräfta
+materialet och kör om baslinjen.
 """
 
 
@@ -325,16 +334,20 @@ def _apply_update_component(inp, project, baseline, alternatives, selections, pe
             old_q = float(old_quantity)
             new_q = float(new_quantity)
         except (TypeError, ValueError):
-            old_q = new_q = 0.0
-        if old_q > 0 and new_q > 0 and old_q != new_q:
-            factor = new_q / old_q
-            touched |= _scale_component_values(cid, factor, baseline, alternatives, selections)
-            return (
-                f"Uppdaterade {cid}: mängd {old_q:g} → {new_q:g} {target.get('unit', '')}. "
-                f"Baslinje och alternativ skalade automatiskt — ingen omräkning behövs."
-            ), True, touched
-        if old_q == new_q:
-            return f"Ingen ändring: {cid} är redan {new_q:g}.", False, set()
+            # Unparseable stored/new quantity — don't collapse to "0 == 0" and
+            # report a false no-change; fall through to the generic update so the
+            # user's edit (already written to the component) is kept.
+            old_q = new_q = None
+        if old_q is not None and new_q is not None:
+            if old_q > 0 and new_q > 0 and old_q != new_q:
+                factor = new_q / old_q
+                touched |= _scale_component_values(cid, factor, baseline, alternatives, selections)
+                return (
+                    f"Uppdaterade {cid}: mängd {old_q:g} → {new_q:g} {target.get('unit', '')}. "
+                    f"Baslinje och alternativ skalade automatiskt — ingen omräkning behövs."
+                ), True, touched
+            if old_q == new_q:
+                return f"Ingen ändring: {cid} är redan {new_q:g}.", False, set()
 
     return (
         f"Uppdaterade komponent {cid}: {changed}. "
@@ -396,6 +409,10 @@ def _apply_select_alternative(inp, project, baseline, alternatives, selections, 
 
     match = None
     for a in comp_alts.get("alternatives", []):
+        # Skip "info" pseudo-alternatives ("Inget tillgängligt i Palats" etc.):
+        # they carry co2e=0/cost=0 and selecting one would understate the total.
+        if a.get("alternative_type") == "info":
+            continue
         if alt_query in (a.get("name") or "").lower():
             match = a
             break
@@ -574,7 +591,16 @@ def run_chat_agent(
     state_block = _format_state(project, baseline, alternatives, selections)
     system_prompt = SYSTEM_PROMPT + "\n\nNUVARANDE STATE:\n" + state_block
 
-    messages: list[dict] = list(history[-10:]) + [{"role": "user", "content": message}]
+    # Anthropic requires the first message to be 'user' and forbids two same-role
+    # turns in a row. _sanitize_history guarantees internal alternation but not
+    # the boundaries: drop a leading assistant turn (e.g. a stored UI greeting)
+    # and a trailing user turn that would collide with the message we append.
+    recent = list(history[-10:])
+    if recent and recent[0]["role"] == "assistant":
+        recent = recent[1:]
+    if recent and recent[-1]["role"] == "user":
+        recent = recent[:-1]
+    messages: list[dict] = recent + [{"role": "user", "content": message}]
 
     for _ in range(max_turns):
         response = client.messages.create(

@@ -113,42 +113,55 @@ class ClimateCache:
             return None  # expired
         return entry
 
+    # NOTE: TTL is enforced here (exact-key reads) but deliberately NOT in
+    # ClimateProvider._search_boverket (fuzzy reads). On Vercel the bundled DB
+    # is effectively read-only and a re-sync may be impossible, so an aged
+    # deploy must still serve present-but-stale Boverket factors (which change
+    # very slowly) rather than return nothing. Do not add an expires_at
+    # predicate to the search queries without also guaranteeing a working
+    # re-sync path — otherwise an old deploy stops producing baselines entirely.
+
+    # Re-caching a product (e.g. an Environdec re-fetch after expiry, or a
+    # Boverket re-sync) must NOT clobber a price we already enriched via web
+    # search. A plain INSERT OR REPLACE rewrites the whole row, resetting
+    # price_enriched to 0 and the enriched cost to the fresh entry's 0.0. The
+    # UPSERT below leaves price_enriched untouched on conflict and keeps the
+    # enriched cost while still refreshing the climate data.
+    _UPSERT_SQL = """
+        INSERT INTO climate_cache
+            (product_name, name, co2e_per_unit, cost_per_unit, unit,
+             source, source_layer, fetched_at, expires_at, extra_json, price_enriched)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(product_name) DO UPDATE SET
+            name=excluded.name,
+            co2e_per_unit=excluded.co2e_per_unit,
+            unit=excluded.unit,
+            source=excluded.source,
+            source_layer=excluded.source_layer,
+            fetched_at=excluded.fetched_at,
+            expires_at=excluded.expires_at,
+            extra_json=excluded.extra_json,
+            cost_per_unit=CASE WHEN climate_cache.price_enriched = 1
+                               THEN climate_cache.cost_per_unit
+                               ELSE excluded.cost_per_unit END
+    """
+
+    @staticmethod
+    def _entry_row(e: CacheEntry) -> tuple:
+        return (
+            e.product_name.lower().strip(), e.name, e.co2e_per_unit,
+            e.cost_per_unit, e.unit, e.source, e.source_layer,
+            e.fetched_at, e.expires_at, e.extra_json, e.price_enriched,
+        )
+
     def put(self, entry: CacheEntry) -> None:
         conn = self._get_conn()
-        conn.execute("""
-            INSERT OR REPLACE INTO climate_cache
-                (product_name, name, co2e_per_unit, cost_per_unit, unit,
-                 source, source_layer, fetched_at, expires_at, extra_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            entry.product_name.lower().strip(),
-            entry.name,
-            entry.co2e_per_unit,
-            entry.cost_per_unit,
-            entry.unit,
-            entry.source,
-            entry.source_layer,
-            entry.fetched_at,
-            entry.expires_at,
-            entry.extra_json,
-        ))
+        conn.execute(self._UPSERT_SQL, self._entry_row(entry))
         conn.commit()
 
     def put_many(self, entries: list[CacheEntry]) -> None:
         conn = self._get_conn()
-        conn.executemany("""
-            INSERT OR REPLACE INTO climate_cache
-                (product_name, name, co2e_per_unit, cost_per_unit, unit,
-                 source, source_layer, fetched_at, expires_at, extra_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (
-                e.product_name.lower().strip(), e.name, e.co2e_per_unit,
-                e.cost_per_unit, e.unit, e.source,
-                e.source_layer, e.fetched_at, e.expires_at, e.extra_json,
-            )
-            for e in entries
-        ])
+        conn.executemany(self._UPSERT_SQL, [self._entry_row(e) for e in entries])
         conn.commit()
 
     def count(self, source_layer: str | None = None) -> int:

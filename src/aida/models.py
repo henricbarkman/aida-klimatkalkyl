@@ -227,8 +227,19 @@ class Selections:
 
     @classmethod
     def from_dict(cls, data: dict) -> Selections:
+        # Tolerant like the sibling from_dict methods: ignore extra/missing keys
+        # from older payloads or future fields instead of raising TypeError.
         return cls(
-            components=[ComponentSelection(**c) for c in data.get("components", [])]
+            components=[
+                ComponentSelection(
+                    id=c.get("id", ""),
+                    name=c.get("name", ""),
+                    selected_alternative=c.get("selected_alternative", {}),
+                    baseline_co2e_kg=c.get("baseline_co2e_kg", 0),
+                    baseline_cost_sek=c.get("baseline_cost_sek", 0),
+                )
+                for c in data.get("components", [])
+            ]
         )
 
     @classmethod

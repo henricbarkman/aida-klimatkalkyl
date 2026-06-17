@@ -144,6 +144,7 @@ def convert_to_functional_unit(
     co2e_per_kg: float,
     component_key: str,
     density_kg_m3: float | None = None,
+    areal_density_kg_m2: float | None = None,
 ) -> tuple[float, str]:
     """Convert kg CO2e/kg to CO2e per functional unit.
 
@@ -151,6 +152,9 @@ def convert_to_functional_unit(
         co2e_per_kg: Climate impact in kg CO2e per kg of material
         component_key: AIda component category (e.g. "golv", "fönster")
         density_kg_m3: Material density from Boverket (optional, used for area method)
+        areal_density_kg_m2: Areal weight from Boverket (optional). When present
+            it is used directly for area products (no thickness assumption), which
+            is both more accurate and avoids the density/areal-weight confusion.
 
     Returns:
         Tuple of (co2e_per_unit, unit_string)
@@ -161,6 +165,10 @@ def convert_to_functional_unit(
         return co2e_per_kg, "kg"
 
     if spec.method == "area":
+        # Prefer a measured kg/m2 (areal weight) when Boverket provides one:
+        # CO2e/m2 = CO2e/kg x kg/m2, no thickness guess needed.
+        if areal_density_kg_m2 and areal_density_kg_m2 > 0:
+            return round(co2e_per_kg * areal_density_kg_m2, 2), "m2"
         if density_kg_m3 and density_kg_m3 > 0 and spec.typical_thickness_m > 0:
             co2e_per_m2 = co2e_per_kg * density_kg_m3 * spec.typical_thickness_m
             return round(co2e_per_m2, 2), "m2"
@@ -188,6 +196,18 @@ def get_density_from_extra(extra_json: str) -> float | None:
     try:
         extra = json.loads(extra_json)
         return extra.get("density_kg_m3")
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def get_areal_density_from_extra(extra_json: str) -> float | None:
+    """Extract areal weight (kg/m2) from a cache entry's extra_json field."""
+    if not extra_json:
+        return None
+    try:
+        extra = json.loads(extra_json)
+        val = extra.get("areal_density_kg_m2")
+        return val if val and val > 0 else None
     except (json.JSONDecodeError, TypeError):
         return None
 
@@ -220,10 +240,13 @@ _MATERIAL_DENSITY_HINTS: list[tuple[list[str], float]] = [
     (["kork", "cork"], 200),
     # Rubber
     (["gummi", "rubber"], 1200),
-    # Carpet
-    (["matta", "carpet", "textile"], 400),
-    # Linoleum (actual flooring, not furniture)
+    # Resilient flooring (linoleum, vinyl, PVC) — listed BEFORE carpet so that
+    # "linoleummatta"/"plastmatta"/"vinylmatta" match here, not the "matta"
+    # carpet rule. These are ~3x denser than carpet (1200-1400 vs 400).
     (["linoleum"], 1200),
+    (["vinyl", "pvc", "plastmatta", "plastgolv"], 1400),
+    # Carpet — "matta" alone is broad, so keep it last among flooring rules
+    (["matta", "carpet", "textile"], 400),
     # Epoxy / polyurethane coatings
     (["epoxy", "polyuretan", "polyurethane"], 1100),
 ]
@@ -255,3 +278,35 @@ def get_density_for_component(
 
     # Fall back to typical density
     return TYPICAL_DENSITIES.get(component_key)
+
+
+# Typical mass per item (kg/st) for count-denominated components whose EPDs are
+# declared per kg. Lets baseline tier 2 bridge a kg typvärde to a per-st value
+# (st typvärde = kg typvärde × mass). Keyed by (category, subcategory); use
+# subcategory "" for flat categories (radiator). These are deliberate
+# approximations — flagged as such in the baseline description — since EPD
+# reference mass is "per 1 kg" and gives no product mass.
+# Sources: manufacturer spec sheets, general product knowledge.
+TYPICAL_ITEM_MASS_KG: dict[tuple[str, str], float] = {
+    ("sanitet", "toalett"): 25.0,
+    ("sanitet", "toalettsits"): 3.0,
+    ("sanitet", "handfat"): 18.0,
+    ("sanitet", "blandare"): 2.5,
+    ("sanitet", "dusch"): 30.0,
+    ("sanitet", "badkar"): 45.0,
+    ("sanitet", "urinal"): 20.0,
+    ("belysning", "armatur"): 3.0,
+    ("belysning", "taklampa"): 3.0,
+    ("belysning", "vägglampa"): 2.0,
+    ("vitvaror", "tvättmaskin"): 65.0,
+    ("vitvaror", "torktumlare"): 38.0,
+    ("vitvaror", "spis"): 50.0,
+    ("vitvaror", "köksfläkt"): 9.0,
+    ("vitvaror", "mikro"): 14.0,
+    ("radiator", ""): 30.0,
+}
+
+
+def typical_item_mass(category: str, subcategory: str = "") -> float | None:
+    """Typical kg per item for a (category, subcategory), or None if unknown."""
+    return TYPICAL_ITEM_MASS_KG.get((category, subcategory))

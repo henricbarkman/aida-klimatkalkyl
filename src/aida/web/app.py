@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import sys
@@ -25,14 +26,29 @@ from aida.agents.intake import run_intake
 from aida.agents.report import generate_report_markdown
 from aida.models import Baseline, Project, Selections
 
+logger = logging.getLogger(__name__)
+
 # Timeout errors to catch from Anthropic SDK
 _TIMEOUT_ERRORS = (anthropic.APITimeoutError, TimeoutError)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('AIDA_SECRET_KEY', secrets.token_hex(32))
 
 AIDA_PASSWORD = os.environ.get('AIDA_PASSWORD', '')
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip()
+
+# Session cookie signing key. When legacy password auth is the active mechanism
+# (no Supabase JWT), a per-process random key breaks sessions across serverless
+# instances (login loops). Require a stable key in that case. With Supabase JWT
+# the Flask session isn't used for auth, so a random fallback is harmless.
+_secret = os.environ.get('AIDA_SECRET_KEY', '')
+if not _secret:
+    if AIDA_PASSWORD and not SUPABASE_URL:
+        raise RuntimeError(
+            "AIDA_SECRET_KEY must be set when AIDA_PASSWORD is used — a random "
+            "per-instance key breaks login across serverless instances."
+        )
+    _secret = secrets.token_hex(32)
+app.secret_key = _secret
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '').strip()
 SUPABASE_JWT_SECRET = os.environ.get('SUPABASE_JWT_SECRET', '').strip()
 
@@ -125,12 +141,15 @@ def supabase_request(method, path, data=None, token=None, params=None):
     body = json.dumps(data).encode() if data else None
     req = Request(url, data=body, headers=headers, method=method)
     try:
-        with urlopen(req) as resp:
+        with urlopen(req, timeout=30) as resp:
             resp_data = resp.read().decode()
             return json.loads(resp_data) if resp_data else None
     except HTTPError as e:
         error_body = e.read().decode()
-        raise Exception(f"Supabase error {e.code}: {error_body}")
+        # Log the full Supabase error server-side, but don't leak schema/RLS
+        # details to the client (routes surface str(e) on 500).
+        logger.warning("Supabase error %s: %s", e.code, error_body)
+        raise Exception(f"Supabase error {e.code}")
 
 
 def require_auth(f):
@@ -145,6 +164,11 @@ def require_auth(f):
             return f(*args, **kwargs)
         # Legacy password auth
         if not AIDA_PASSWORD:
+            # Neither Supabase nor a password is configured. In a serverless
+            # (production) deploy that means the LLM-cost endpoints would be
+            # public — fail closed. Locally, keep the no-auth convenience.
+            if os.environ.get('VERCEL'):
+                return jsonify({'error': 'Autentisering ej konfigurerad'}), 503
             return f(*args, **kwargs)
         if session.get('authenticated'):
             return f(*args, **kwargs)
@@ -236,9 +260,11 @@ def index():
 def serve_docs(filename):
     """Serve static docs files."""
     # Resolve relative to this file: src/aida/web/app.py -> project_root/docs/
-    docs_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'docs'))
-    filepath = os.path.abspath(os.path.join(docs_dir, filename))
-    if not filepath.startswith(docs_dir):
+    docs_dir = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'docs'))
+    filepath = os.path.realpath(os.path.join(docs_dir, filename))
+    # commonpath (not startswith) so "/docs-private" can't pass the prefix check,
+    # and realpath so symlinks can't escape the docs dir.
+    if os.path.commonpath([docs_dir, filepath]) != docs_dir:
         return 'Forbidden', 403
     try:
         with open(filepath) as f:
@@ -250,7 +276,7 @@ def serve_docs(filename):
 @app.route('/api/intake', methods=['POST'])
 @require_auth
 def api_intake():
-    data = request.json
+    data = request.json or {}
     description = data.get('description', '')
     if not description:
         return jsonify({'error': 'Beskrivning saknas'}), 400
@@ -267,7 +293,7 @@ def api_intake():
 @app.route('/api/baseline', methods=['POST'])
 @require_auth
 def api_baseline():
-    data = request.json
+    data = request.json or {}
     project_data = data.get('project')
     component_ids = data.get('component_ids')
 
@@ -296,7 +322,7 @@ def api_baseline():
 @app.route('/api/alternatives', methods=['POST'])
 @require_auth
 def api_alternatives():
-    data = request.json
+    data = request.json or {}
     project_data = data.get('project')
     baseline_data = data.get('baseline')
     component_ids = data.get('component_ids')
@@ -338,7 +364,7 @@ def api_alternatives():
 @app.route('/api/aggregate', methods=['POST'])
 @require_auth
 def api_aggregate():
-    data = request.json
+    data = request.json or {}
     try:
         project = Project.from_dict(data.get('project', {}))
         selections = Selections.from_dict(data.get('selections', {}))
@@ -351,7 +377,7 @@ def api_aggregate():
 @app.route('/api/report', methods=['POST'])
 @require_auth
 def api_report():
-    data = request.json
+    data = request.json or {}
     try:
         project = Project.from_dict(data.get('project', {}))
         selections = Selections.from_dict(data.get('selections', {}))
@@ -643,7 +669,11 @@ def create_analysis():
         'report_markdown': data.get('report_markdown'),
     }
     result = supabase_request('POST', 'analyses', data=row, token=token)
-    return jsonify(result[0] if isinstance(result, list) else result)
+    if isinstance(result, list):
+        if not result:
+            return jsonify({'error': 'Kunde inte skapa analys'}), 500
+        return jsonify(result[0])
+    return jsonify(result)
 
 
 @app.route('/api/analyses', methods=['GET'])
@@ -1870,7 +1900,10 @@ async function runAlternatives(userFeedback) {
 async function generateReport() {
   setProgressStep('uppfoljning');
   addMsg('Genererar rapport...', 'system');
-  document.getElementById('reportBtn').disabled = true;
+  // #reportBtn only exists while the Alternativ tab is rendered, but the sticky
+  // confirm bar can trigger this from any tab — null-guard to avoid a throw
+  // that leaves the UI stuck (the error paths below already guard the same way).
+  const rb0 = document.getElementById('reportBtn'); if (rb0) rb0.disabled = true;
   setLoading(true);
   try {
     const sels = {components: Object.values(state.selections)};
@@ -2050,7 +2083,9 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
     const d = await r.json();
     if (d.error) {
       addMsg('Fel vid baslinjebberäkning: ' + d.error, 'system');
-      setLoading(false);
+      // Respect orchestration: runChat holds the lock for the whole pending
+      // sequence. Unlocking here would let a user message race the merges.
+      if (!orchestrated) setLoading(false);
       return;
     }
     if (isFull) {
@@ -2103,7 +2138,8 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     const d = await r.json();
     if (d.error) {
       addMsg('Fel vid alternativsökning: ' + d.error, 'system');
-      setLoading(false);
+      // Respect orchestration (see runBaselineForComponents).
+      if (!orchestrated) setLoading(false);
       return;
     }
     if (isFull) {
@@ -2503,11 +2539,11 @@ function renderBaslinjeContent() {
   html += '<div class="comp-card"><div class="comp-card-header"><h3>Per komponent</h3></div>';
   html += '<table class="comp-table"><thead><tr><th>Komponent</th><th style="text-align:right">CO\u2082e (kg)</th><th>Klimatk\u00e4lla</th><th style="text-align:right">Kostnad (SEK)</th><th>Prisk\u00e4lla</th></tr></thead><tbody>';
   d.components.forEach(c => {
-    // Frame Boverket products as proxies — Boverket has ~200 material entries,
-    // not building-component entries, so almost all matches are material-based
-    // proxies (e.g. vinylgolv → "Takduk, PVC"). Showing the bare product name
-    // reads as a category mismatch.
-    const productLine = c.boverket_product ? '<div style="font-size:11px;color:var(--kk-gray-500);margin-top:3px;font-style:italic"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Materialproxy</span>' + esc(c.boverket_product) + '</div>' : '';
+    // boverket_product is set only when the component's standard material is
+    // genuinely in Boverket (same material, e.g. gips→gips). Cross-material
+    // proxies are no longer used — components Boverket lacks get an EPD-typvärde
+    // instead, with boverket_product empty.
+    const productLine = c.boverket_product ? '<div style="font-size:11px;color:var(--kk-gray-500);margin-top:3px;font-style:italic"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Boverket-produkt</span>' + esc(c.boverket_product) + '</div>' : '';
     html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + '</td><td style="text-align:right">' + Math.round(c.cost_sek).toLocaleString('sv') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
   });
   html += '</tbody></table></div>';
@@ -2529,22 +2565,26 @@ function renderAlternativContent() {
     html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th><th></th></tr></thead><tbody>';
     const blSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === 'Baslinje';
     // Look up the Boverket product used for this component's baseline so the
-    // baseline row in the alternatives table shows the actual proxy product
-    // (e.g. "Takduk, PVC") rather than just the generic "Konventionellt".
+    // baseline row shows the actual material (e.g. "Gipsskiva, standardskiva").
+    // Set only for genuine same-material Boverket matches; empty for EPD-typvärde
+    // and LLM-uppskattning baselines.
     const blBaselineComp = (state.baseline && state.baseline.components) ? state.baseline.components.find(b => b.component_id === comp.component_id) : null;
     const blProduct = (blBaselineComp && blBaselineComp.boverket_product) ? blBaselineComp.boverket_product : '';
     const blSource = (blBaselineComp && blBaselineComp.source) ? blBaselineComp.source : 'NollCO2';
     const blMaterialCell = blProduct
-      ? '<div style="font-weight:500">Konventionellt</div><div style="font-size:11px;color:var(--kk-gray-500);font-style:italic;margin-top:2px"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Materialproxy</span>' + esc(blProduct) + '</div>'
+      ? '<div style="font-weight:500">Konventionellt</div><div style="font-size:11px;color:var(--kk-gray-500);font-style:italic;margin-top:2px"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Boverket-produkt</span>' + esc(blProduct) + '</div>'
       : '<div style="font-weight:500">Konventionellt</div>';
-    html += '<tr class="alt-row' + (blSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="baseline">' +
-      '<td><input type="radio" name="' + comp.component_id + '"' + (blSel ? ' checked' : '') + '></td>' +
+    // component_id is LLM-generated and round-trips through user-editable
+    // Supabase rows — escape it before interpolating into HTML attributes / ids.
+    const cid = esc(comp.component_id);
+    html += '<tr class="alt-row' + (blSel ? ' selected' : '') + '" data-comp="' + cid + '" data-alt="baseline">' +
+      '<td><input type="radio" name="' + cid + '"' + (blSel ? ' checked' : '') + '></td>' +
       '<td><span class="type-badge type-baseline">Baslinje</span></td>' +
-      '<td>' + blMaterialCell + '</td><td style="font-size:11px">' + (blSource.includes('Boverket') ? '<span class="source-badge source-verified">BVK</span>' : '<span class="source-badge source-estimate">Est.</span>') + ' NollCO2</td>' +
+      '<td>' + blMaterialCell + '</td><td style="font-size:11px">' + (blSource.includes('Boverket') ? '<span class="source-badge source-verified">BVK</span>' : (blSource.includes('typvärde') ? '<span class="source-badge source-aggregate">EPD-typvärde</span>' : '<span class="source-badge source-estimate">Est.</span>')) + ' NollCO2</td>' +
       '<td style="text-align:right">' + Math.round(comp.baseline_co2e_kg) + '</td>' +
       '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td><td></td></tr>';
     comp.alternatives.forEach((alt, i) => {
-      const rowId = comp.component_id + '_' + i;
+      const rowId = cid + '_' + i;
       if (alt.alternative_type === 'info') {
         html += '<tr style="opacity:0.6">' +
           '<td></td>' +
@@ -2569,8 +2609,8 @@ function renderAlternativContent() {
         : (showBreakdown
           ? '<div style="line-height:1.3">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr<div style="font-size:10px;color:var(--kk-gray-500)">' + esc(String(pc.quantity)) + ' \u00d7 ' + perUnit.toLocaleString('sv') + ' kr</div></div>'
           : Math.round(alt.cost_sek).toLocaleString('sv') + ' kr');
-      html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + comp.component_id + '" data-alt="' + i + '">' +
-        '<td><input type="radio" name="' + comp.component_id + '"' + (isSel ? ' checked' : '') + '></td>' +
+      html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + cid + '" data-alt="' + i + '">' +
+        '<td><input type="radio" name="' + cid + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
         '<td style="font-weight:500">' + esc(alt.name) + '</td>' +
         '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
@@ -2950,6 +2990,11 @@ async function loadAnalysis(id) {
     const data = await r.json();
     if (!data || data.error) return;
     currentAnalysisId = id;
+    // Reset per-conversation LLM context so the previously loaded project's chat
+    // turns don't leak into this project's /api/chat and /api/route calls. The
+    // displayed chat log is restored separately from localStorage in restoreUI.
+    state.chatHistory = [];
+    state.pendingDesc = null;
     state.project = data.project_data;
     state.baseline = data.baseline_data;
     state.alternatives = data.alternatives_data;
@@ -3042,8 +3087,10 @@ function restoreUI() {
 
 function createNewProject() {
   toggleProjectMenu();
-  try { localStorage.removeItem(_chatStorageKey()); } catch(e) {}
+  // Null the id BEFORE removing, so we clear the "new" chat bucket — not the
+  // previous project's saved chat log (which must survive switching back).
   currentAnalysisId = null;
+  try { localStorage.removeItem(_chatStorageKey()); } catch(e) {}
   chatLog = [];
   state.project = null; state.baseline = null; state.alternatives = null;
   state.selections = {}; state.pendingDesc = null; state.reportMarkdown = null;

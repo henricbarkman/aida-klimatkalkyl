@@ -26,6 +26,13 @@ REQUEST_TIMEOUT = 30
 INDEX_PAGE_SIZE = 1000
 INDEX_PATH = Path(__file__).parent / "environdec_index.json"
 
+# Physical plausibility ceiling for a per-kg cradle-to-gate GWP of a building
+# material. Even primary aluminium sits near ~18 kg CO2e/kg; nothing legitimate
+# in this domain approaches 40. A per-"kg" value above this means the declared
+# unit was misdetected (e.g. a per-tonne or per-m2 figure read as per-kg), so we
+# skip the EPD rather than cache a number that is wrong by orders of magnitude.
+MAX_PLAUSIBLE_KG_CO2E = 40.0
+
 # GWP indicator UUIDs (EN 15804+A2)
 GWP_FOSSIL_NAMES = {"gwp-fossil", "global warming potential - fossil fuels"}
 GWP_TOTAL_NAMES = {"gwp-total", "global warming potential - total"}
@@ -57,6 +64,11 @@ class EPDDetail:
     gwp_biogenic_a1a3: float | None
     modules: dict[str, float]  # module code → GWP-fossil value
     geo: str
+    # Mass (kg) of one declared reference flow, set ONLY when the declared unit
+    # is itself a mass (reference flow property == Mass). GWP is per reference
+    # flow, so per-kg = gwp / reference_mass_kg. None for Area/Volume/piece-
+    # declared EPDs, which keep their native functional unit instead.
+    reference_mass_kg: float | None = None
 
 
 class EnvirondecClient:
@@ -82,8 +94,15 @@ class EnvirondecClient:
         # Fetch from API
         self._index = self._fetch_index_from_api()
 
-        # Save to local cache
-        self._save_index_file(self._index)
+        # Only persist a complete index. A truncated fetch (mid-pagination
+        # network error) would otherwise be cached for 30 days and silently
+        # degrade every EPD search until expiry.
+        if getattr(self, "_last_fetch_complete", False):
+            self._save_index_file(self._index)
+        else:
+            logger.warning(
+                "Environdec index incomplete (%d EPDs) — not caching", len(self._index)
+            )
 
         return self._index
 
@@ -159,12 +178,34 @@ class EnvirondecClient:
 
         now = time.time()
         gwp = detail.gwp_fossil_a1a3
+        unit = detail.declared_unit
+
+        # Normalize to per-kg when we know the reference flow's mass. The GWP is
+        # reported per declared reference flow (1 section, 1 m2, 1 tonne...), and
+        # reference_mass_kg is how many kg that flow weighs, so gwp / mass gives
+        # the true per-kg figure that downstream unit conversion expects.
+        if detail.reference_mass_kg and detail.reference_mass_kg > 0:
+            gwp = gwp / detail.reference_mass_kg
+            unit = "kg"
+
+        # Plausibility backstop: a per-"kg" value above the physical ceiling means
+        # the unit was still misdetected (no mass property to normalize against).
+        # Skip rather than cache a value wrong by orders of magnitude — Boverket
+        # and the baseline median cover the component far more reliably.
+        if unit == "kg" and gwp > MAX_PLAUSIBLE_KG_CO2E:
+            logger.warning(
+                "Skipping EPD %s: implausible %.1f kg CO2e/kg (declared unit likely "
+                "misdetected, no mass property to normalize).",
+                detail.reg_no or detail.uuid[:8], gwp,
+            )
+            return None
 
         extra = {
             "uuid": detail.uuid,
             "reg_no": detail.reg_no,
             "owner": detail.owner,
-            "declared_unit": detail.declared_unit,
+            "declared_unit": unit,
+            "reference_mass_kg": detail.reference_mass_kg,
             "gwp_fossil_a1a3": detail.gwp_fossil_a1a3,
             "gwp_total_a1a3": detail.gwp_total_a1a3,
             "gwp_biogenic_a1a3": detail.gwp_biogenic_a1a3,
@@ -177,7 +218,7 @@ class EnvirondecClient:
             name=detail.name,
             co2e_per_unit=gwp,
             cost_per_unit=0.0,
-            unit=detail.declared_unit,
+            unit=unit,
             source=f"Environdec EPD {detail.reg_no}" if detail.reg_no else f"Environdec EPD {detail.uuid[:8]}",
             source_layer="environdec",
             fetched_at=now,
@@ -188,9 +229,17 @@ class EnvirondecClient:
     # --- Internal ---
 
     def _fetch_index_from_api(self) -> list[EPDSummary]:
-        """Fetch all EPDs from the soda4LCA data hub."""
+        """Fetch all EPDs from the soda4LCA data hub.
+
+        Sets self._last_fetch_complete = True only if pagination reached the
+        reported total. On a mid-pagination network error it returns whatever
+        was fetched so far with the flag left False, so the caller can avoid
+        persisting a truncated index as a 30-day cache.
+        """
         all_epds: list[EPDSummary] = []
         start = 0
+        total = 0
+        self._last_fetch_complete = False
 
         while True:
             url = (f"{self.base_url}/datastocks/{ENVIRONDATA_STOCK}"
@@ -200,7 +249,7 @@ class EnvirondecClient:
                 resp.raise_for_status()
             except requests.RequestException as e:
                 logger.warning("Environdec index fetch failed at offset %d: %s", start, e)
-                break
+                return all_epds
 
             data = resp.json()
             total = data.get("totalCount", 0)
@@ -221,6 +270,7 @@ class EnvirondecClient:
             logger.info("Environdec index: %d/%d", len(all_epds), total)
 
             if len(all_epds) >= total or not batch:
+                self._last_fetch_complete = True
                 break
             start += INDEX_PAGE_SIZE
             time.sleep(0.5)
@@ -292,8 +342,10 @@ class EnvirondecClient:
         if owner_desc:
             owner = owner_desc[0].get("value", "")
 
-        # Declared unit from reference flow
-        declared_unit = self._extract_declared_unit(data)
+        # Declared unit + reference-flow mass from the reference exchange's
+        # flow properties (authoritative). Falls back to text parsing when the
+        # exchange carries no usable flow properties.
+        declared_unit, reference_mass_kg = self._extract_reference_flow(data)
 
         # GWP values
         gwp_fossil = None
@@ -345,25 +397,77 @@ class EnvirondecClient:
             geo=data.get("processInformation", {}).get("geography", {})
                 .get("locationOfOperationSupplyOrProduction", {})
                 .get("location", ""),
+            reference_mass_kg=reference_mass_kg,
         )
 
-    def _extract_declared_unit(self, data: dict) -> str:
-        """Extract declared unit from the reference flow."""
-        pi = data.get("processInformation", {})
-        quant = pi.get("quantitativeReference", {})
-        ref_indices = quant.get("referenceToReferenceFlow", [0])
-        ref_idx = ref_indices[0] if ref_indices else 0
+    def _extract_reference_flow(self, data: dict) -> tuple[str, float | None]:
+        """Return (declared_unit, reference_mass_kg) for the reference flow.
 
+        The declared unit and the reference flow's mass live in the reference
+        exchange's ``flowProperties`` — the ``referenceFlowProperty`` entry is
+        authoritative (Mass → kg, Area → m2, Volume → m3, pieces → st). The
+        reference flow text description usually carries no unit, so the old text
+        parse silently defaulted every such EPD to "kg", which made per-tonne
+        figures (e.g. a 1490 kg CO2e / 1000 kg steel section) read as 1490 kg
+        CO2e *per kg* — a 1000x error.
+
+        ``reference_mass_kg`` is set ONLY when the declared unit is itself a
+        mass — i.e. the reference flow property is Mass. Then ``gwp / mass`` is
+        a pure per-kg figure and downstream applies no further conversion.
+        For Area/Volume/piece-declared EPDs we deliberately keep the native
+        functional unit (m2/m3/st) rather than divide by a secondary mass: the
+        downstream unit conversion already turns per-kg into per-m2/m3 using a
+        component density, so normalizing here via a different mass would make
+        the value round-trip through two densities and drift.
+        """
         exchanges = data.get("exchanges", {}).get("exchange", [])
-        if ref_idx < len(exchanges):
-            ref_ex = exchanges[ref_idx]
+        ref_ex = self._reference_exchange(data, exchanges)
+        if ref_ex is None:
+            return "kg", None
+
+        declared_unit: str | None = None
+        reference_mass_kg: float | None = None
+
+        for prop in ref_ex.get("flowProperties", []):
+            if not prop.get("referenceFlowProperty"):
+                continue
+            prop_name = " ".join(
+                n.get("value", "") for n in prop.get("name", []) if isinstance(n, dict)
+            )
+            ref_unit = prop.get("referenceUnit") or ""
+            declared_unit = _flow_property_unit(prop_name, ref_unit)
+            mean = prop.get("meanValue")
+            if "mass" in prop_name.lower() and not _is_per_product(prop_name) and mean:
+                reference_mass_kg = _mass_to_kg(mean, ref_unit)
+            break
+
+        if declared_unit is None:
+            # No usable flow property — fall back to parsing the text description.
             flow_ref = ref_ex.get("referenceToFlowDataSet", {})
             flow_desc = flow_ref.get("shortDescription", [{}])
-            if flow_desc:
-                desc_text = flow_desc[0].get("value", "")
-                return _parse_unit_from_description(desc_text)
+            desc_text = flow_desc[0].get("value", "") if flow_desc else ""
+            declared_unit = _parse_unit_from_description(desc_text)
 
-        return "kg"
+        return declared_unit, reference_mass_kg
+
+    @staticmethod
+    def _reference_exchange(data: dict, exchanges: list) -> dict | None:
+        """Locate the reference exchange. ILCD marks it with ``referenceFlow:
+        true``; we prefer that, then match ``dataSetInternalID`` against the
+        ``referenceToReferenceFlow`` pointer, and only fall back to positional
+        indexing (which assumes declaration order) as a last resort."""
+        if not exchanges:
+            return None
+        for ex in exchanges:
+            if ex.get("referenceFlow"):
+                return ex
+        quant = data.get("processInformation", {}).get("quantitativeReference", {})
+        ref_indices = quant.get("referenceToReferenceFlow", [0])
+        ref_idx = ref_indices[0] if ref_indices else 0
+        for ex in exchanges:
+            if ex.get("dataSetInternalID") == ref_idx:
+                return ex
+        return exchanges[ref_idx] if ref_idx < len(exchanges) else None
 
 
 # --- Search scoring ---
@@ -377,6 +481,9 @@ _HINT_KEYWORDS: dict[str, set[str]] = {
     "yttervägg": {"facade", "brick", "render", "cladding", "exterior wall",
                   "curtain wall", "sandwich panel", "fibre cement"},
     "betongvägg": {"concrete", "betong", "precast", "reinforced"},
+    "stomme": {"beam", "column", "girder", "structural steel", "steel section",
+               "glulam", "laminated timber", "clt", "cross-laminated",
+               "hollow core", "precast", "slab", "load-bearing", "structural"},
     "fönster": {"window", "glass", "glazing", "triple", "double"},
     "tak": {"roof", "tile", "roofing", "membrane", "bitumen", "shingle",
             "sedum", "green roof", "slate"},
@@ -427,6 +534,13 @@ _NEGATIVE_TERMS: dict[str, set[str]] = {
              "powder coating", "coating", "covered board"},
     "innervägg": {"table", "desk", "furniture", "möbler"},
     "tak": {"table", "desk", "furniture", "möbler"},
+    # Appliances/kitchen: reject component parts (a valve/hose/coupling is not a
+    # machine). Guards e.g. "Dishwasher switch valve" or "connection hose for
+    # dishwasher" from matching a search for tvättmaskin/diskmaskin.
+    "vitvaror": {"valve", "ventil", "hose", "slang", "coupling", "koppling",
+                 "connection", "fitting", "switch valve", "spare part"},
+    "storköksutrustning": {"valve", "ventil", "hose", "slang", "coupling",
+                           "koppling", "connection", "fitting", "spare part"},
 }
 
 
@@ -508,6 +622,68 @@ def _score_match(
     return score
 
 
+def _is_per_product(prop_name: str) -> bool:
+    """True for property names that report a per-product figure, not a mass.
+
+    Guards against names like "Biogenic carbon content of the product
+    (kg C/product)" being mistaken for the reference flow's mass.
+    """
+    low = prop_name.lower()
+    return "content" in low or "/product" in low or "per product" in low
+
+
+def _mass_to_kg(value: float, unit: str) -> float | None:
+    """Convert a mass value to kg. EPD mass properties are almost always in kg
+    already; tonne/gram are handled defensively. Returns None for non-positive."""
+    if not value or value <= 0:
+        return None
+    u = (unit or "kg").strip().lower()
+    if u in ("kg", "kilogram", "kilograms", ""):
+        return value
+    if u in ("t", "ton", "tonne", "tonnes", "metric ton"):
+        return value * 1000.0
+    if u in ("g", "gram", "grams"):
+        return value / 1000.0
+    if u in ("mg",):
+        return value / 1_000_000.0
+    # Unknown unit: assume kg but surface it — a silent wrong assumption here
+    # (lb, short ton...) would re-introduce the very mis-scaling this fixes.
+    logger.warning("Unrecognized mass unit %r on reference flow; assuming kg.", unit)
+    return value
+
+
+def _flow_property_unit(prop_name: str, ref_unit: str) -> str:
+    """Map a reference flow property to AIda's declared-unit vocabulary."""
+    low = prop_name.lower()
+    if "mass" in low:
+        return "kg"
+    if "area" in low:
+        return "m2"
+    if "volume" in low:
+        return "m3"
+    if "piece" in low or "number of" in low:
+        return "st"
+    if "length" in low:
+        return "lm"
+    # Strip trailing punctuation/whitespace ("pcs." -> "pcs", "m² " -> "m²").
+    u = (ref_unit or "").strip().strip(".").strip().lower()
+    if u in ("m2", "m²"):
+        return "m2"
+    if u in ("m3", "m³"):
+        return "m3"
+    if u in ("m", "lm", "lfm"):
+        return "lm"
+    if u in ("t", "tonne", "ton", "g", "kg", "kilogram"):
+        return "kg"
+    if u in ("kwh",):
+        return "kWh"
+    if u in ("mj",):
+        return "MJ"
+    if u in ("piece", "pieces", "pcs", "item", "items", "st"):
+        return "st"
+    return "kg"
+
+
 def _parse_unit_from_description(desc: str) -> str:
     """Parse unit from flow description text.
 
@@ -517,15 +693,24 @@ def _parse_unit_from_description(desc: str) -> str:
         "1 kg of insulation" → "kg"
         "1 piece (pcs) of door" → "st"
     """
+    import re
     desc_lower = desc.lower()
+    # Strip the "declared/functional/reference unit" label so the literal word
+    # "unit" in the label isn't mistaken for a pieces ("st") declared unit.
+    # Without this, "Declared unit: 1 kg of adhesive" wrongly parses as "st".
+    desc_lower = re.sub(
+        r"\b(declared|functional|reference)\s+unit(\s+of\s+measurement)?\b[:\s]*",
+        " ", desc_lower,
+    )
 
     if "m2" in desc_lower or "m²" in desc_lower or "square met" in desc_lower:
         return "m2"
     if "m3" in desc_lower or "m³" in desc_lower or "cubic met" in desc_lower:
         return "m3"
-    if "pcs" in desc_lower or "piece" in desc_lower or "unit" in desc_lower:
+    # "lm" must match as a word, not inside "film"/"laminate"; "unit" likewise.
+    if "pcs" in desc_lower or "piece" in desc_lower or re.search(r"\bunits?\b", desc_lower):
         return "st"
-    if "lm" in desc_lower or "linear met" in desc_lower or "running met" in desc_lower:
+    if re.search(r"\blm\b", desc_lower) or "linear met" in desc_lower or "running met" in desc_lower:
         return "lm"
     if "tonne" in desc_lower or "1000 kg" in desc_lower:
         return "ton"

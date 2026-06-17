@@ -318,7 +318,10 @@ def fetch_listings(force_refresh: bool = False) -> list[dict]:
 
     cookies = _get_cookies()
     if not cookies:
-        last_fetch_status = "no_credentials"
+        # _get_cookies already distinguishes "auth_failed" (login attempted but
+        # rejected) from a plain absence of credentials. Don't clobber it.
+        if last_fetch_status != "auth_failed":
+            last_fetch_status = "no_credentials"
         logger.debug("No Palats credentials — skipping reuse search")
         return []
 

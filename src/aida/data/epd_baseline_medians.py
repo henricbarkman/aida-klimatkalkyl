@@ -23,14 +23,15 @@ single outliers in small samples — important since our category sample
 sizes are often 5-15.
 
 Source labels in the pipeline:
-- "Boverkets klimatdatabas" → Tier 1: Boverket material proxy (existing)
+- "Boverkets klimatdatabas" → Tier 1: genuine same-material Boverket hit
 - "Environdec EPD-typvärde" → Tier 2: this module
 - "Uppskattning"            → Tier 3: LLM fallback when nothing else works
 
-We only publish a typvärde for (category, unit) pairs where the sample is
-large enough AND reasonably homogeneous. Heterogeneous categories like
-sanitet (a toilet, a cistern and a kitchen sink in the same bucket) are
-better left to "Uppskattning" until subcategory-aware typvärden exist.
+We publish a typvärde for (category[, subcategory], unit) keys with enough
+samples. Heterogeneous categories (sanitet, belysning, vitvaror) — a toilet,
+a cistern and a sink in one bucket — are split PER SUBCATEGORY using the
+Palats subcategory taxonomy, so each gets its own typvärde; items that don't
+classify into a subcategory stay "Uppskattning".
 """
 
 from __future__ import annotations
@@ -48,11 +49,17 @@ EPD_DATA_PATH = Path(__file__).parent / "epd_alternatives.json"
 # to be a useful default — fall back to LLM estimation.
 _MIN_SAMPLES = 5
 
-# Categories that mix structurally different product types in the same
-# bucket (e.g. sanitet covers toilets, sinks, taps — wildly different
-# CO2e profiles). A category-aggregated median is misleading here, so we
-# exclude them until subcategory-aware medians are built.
-_HETEROGENEOUS_CATEGORIES = {"sanitet", "belysning", "vitvaror", "storköksutrustning"}
+# Categories that mix structurally different product types in the same bucket
+# (sanitet covers toilets, sinks, taps — wildly different CO2e). A flat
+# category aggregate is misleading, so we aggregate PER SUBCATEGORY instead
+# (toalett, handfat, blandare...), reusing the Palats subcategory taxonomy.
+# Each (category, subcategory, unit) gets its own typvärde; items that don't
+# classify into a subcategory get no typvärde (stay LLM-uppskattning).
+_SUBCATEGORIZED_CATEGORIES = {"sanitet", "belysning", "vitvaror"}
+
+# Still excluded wholesale: no subcategory taxonomy defined, too heterogeneous
+# to aggregate meaningfully.
+_HETEROGENEOUS_CATEGORIES = {"storköksutrustning"}
 
 
 def _load_epd_data() -> list[dict]:
@@ -78,18 +85,33 @@ def _upper_half_median(values: list[float]) -> float:
     return float(median(upper))
 
 
-def _compute_typvärden() -> dict[tuple[str, str], dict]:
-    """Compute upper-half median GWP per (category, unit). Returns lookup dict.
+def _epd_subcategory(cat: str, e: dict) -> str:
+    """Subcategory for an EPD row. Reads the stored field, falling back to
+    deriving it from the name so an older catalog without the field still works.
+    """
+    sub = e.get("subcategory")
+    if sub:
+        return sub
+    if cat in _SUBCATEGORIZED_CATEGORIES:
+        from aida.data.palats_client import _normalize_to_aida_subcategory
+        return _normalize_to_aida_subcategory(cat, e.get("name", ""))
+    return ""
+
+
+def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
+    """Compute upper-half median GWP per (category, subcategory, unit).
+
+    For most categories subcategory is "" (flat aggregate). For the
+    heterogeneous-but-subcategorized ones (sanitet, belysning, vitvaror) the
+    median is computed per subcategory; rows that don't classify are skipped.
 
     Each entry has: baseline_co2e_per_unit, sample_size, full_median, min, max.
-    full_median is kept for diagnostic purposes (compare typvärde against
-    naive median).
     """
     epds = _load_epd_data()
     if not epds:
         return {}
 
-    grouped: dict[tuple[str, str], list[float]] = {}
+    grouped: dict[tuple[str, str, str], list[float]] = {}
     for e in epds:
         cat = e.get("category", "")
         unit = e.get("unit", "")
@@ -98,9 +120,21 @@ def _compute_typvärden() -> dict[tuple[str, str], dict]:
             continue
         if cat in _HETEROGENEOUS_CATEGORIES:
             continue
-        grouped.setdefault((cat, unit), []).append(float(gwp))
+        if cat in _SUBCATEGORIZED_CATEGORIES:
+            # Fixtures (toilets, taps, luminaires, appliances) are counted or
+            # weighed — never area/volume. An m2/m3-declared EPD here is a
+            # misclassification (produced absurd phantoms like blandare/m2 =
+            # 1660), so only keep st and kg.
+            if unit not in ("st", "kg"):
+                continue
+            sub = _epd_subcategory(cat, e)
+            if not sub:
+                continue  # unclassified item in a heterogeneous category
+        else:
+            sub = ""
+        grouped.setdefault((cat, sub, unit), []).append(float(gwp))
 
-    result: dict[tuple[str, str], dict] = {}
+    result: dict[tuple[str, str, str], dict] = {}
     for key, values in grouped.items():
         if len(values) < _MIN_SAMPLES:
             continue
@@ -114,29 +148,31 @@ def _compute_typvärden() -> dict[tuple[str, str], dict]:
     return result
 
 
-_TYPVÄRDEN: dict[tuple[str, str], dict] | None = None
+_TYPVÄRDEN: dict[tuple[str, str, str], dict] | None = None
 
 
-def get_baseline_typvärde(category: str, unit: str) -> dict | None:
-    """Look up EPD-baseline typvärde for a category + unit combination.
+def get_baseline_typvärde(category: str, unit: str, subcategory: str = "") -> dict | None:
+    """Look up EPD-baseline typvärde for a (category, unit[, subcategory]).
 
-    Returns a dict with baseline_co2e_per_unit, sample_size, full_median,
-    min, max — or None if no usable typvärde exists for this (category, unit)
-    pair.
+    For subcategorized categories (sanitet, belysning, vitvaror) a subcategory
+    is required — pass the component's inferred subcategory. For all other
+    categories subcategory is ignored.
 
-    Cached lazily on first call.
+    Returns a dict with baseline_co2e_per_unit, sample_size, full_median, min,
+    max — or None if no usable typvärde exists. Cached lazily on first call.
     """
     global _TYPVÄRDEN
     if _TYPVÄRDEN is None:
         _TYPVÄRDEN = _compute_typvärden()
-    return _TYPVÄRDEN.get((category, unit))
+    sub = subcategory if category in _SUBCATEGORIZED_CATEGORIES else ""
+    return _TYPVÄRDEN.get((category, sub, unit))
 
 
 # Back-compat alias — old call sites used "median" terminology before we
 # switched to upper-half methodology. Same value, clearer name.
-def get_baseline_median(category: str, unit: str) -> dict | None:
+def get_baseline_median(category: str, unit: str, subcategory: str = "") -> dict | None:
     """Deprecated — use get_baseline_typvärde. Kept for back-compat."""
-    data = get_baseline_typvärde(category, unit)
+    data = get_baseline_typvärde(category, unit, subcategory)
     if data is None:
         return None
     # Synthesize the old key name from the new structure
@@ -146,24 +182,26 @@ def get_baseline_median(category: str, unit: str) -> dict | None:
     }
 
 
-def list_available_categories() -> list[tuple[str, str, int]]:
-    """List all (category, unit, sample_size) tuples with a published typvärde."""
+def list_available_categories() -> list[tuple[str, str, str, int]]:
+    """List all (category, subcategory, unit, sample_size) with a typvärde."""
     global _TYPVÄRDEN
     if _TYPVÄRDEN is None:
         _TYPVÄRDEN = _compute_typvärden()
     return sorted(
-        [(cat, unit, data["sample_size"]) for (cat, unit), data in _TYPVÄRDEN.items()],
-        key=lambda x: (x[0], x[1]),
+        [(cat, sub, unit, data["sample_size"])
+         for (cat, sub, unit), data in _TYPVÄRDEN.items()],
+        key=lambda x: (x[0], x[1], x[2]),
     )
 
 
 def main():
     """CLI: print the typvärde table for inspection."""
-    print(f"{'Kategori':<25} {'Unit':<6} {'n':>3} {'min':>8} {'med':>8} {'typvärde':>10} {'max':>8}")
-    print("-" * 80)
-    for (cat, unit), data in sorted(_compute_typvärden().items()):
+    print(f"{'Kategori':<18} {'Subkat':<14} {'Unit':<5} {'n':>3} "
+          f"{'min':>8} {'med':>8} {'typvärde':>10} {'max':>8}")
+    print("-" * 84)
+    for (cat, sub, unit), data in sorted(_compute_typvärden().items()):
         print(
-            f"{cat:<25} {unit:<6} {data['sample_size']:>3} "
+            f"{cat:<18} {sub:<14} {unit:<5} {data['sample_size']:>3} "
             f"{data['min']:>8.2f} {data['full_median']:>8.2f} "
             f"{data['baseline_co2e_per_unit']:>10.2f} {data['max']:>8.2f}"
         )

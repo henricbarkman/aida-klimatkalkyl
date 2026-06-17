@@ -72,6 +72,13 @@ class ClimateResult:
     source: str
     source_layer: str = ""  # "boverket", "environdec", "llm"
     category: str = ""
+    cache_key: str = ""  # product_name of the cache row this result came from
+
+
+def _normalize_unit(unit: str) -> str:
+    """Normalize a unit string for comparison (m² == m2, strip/case-fold)."""
+    u = (unit or "").strip().lower()
+    return {"m²": "m2", "m³": "m3", "pcs": "st", "styck": "st"}.get(u, u)
 
 
 class ClimateProvider:
@@ -183,7 +190,11 @@ class ClimateProvider:
 
     def _maybe_enrich_cost(self, result: ClimateResult, product_name: str) -> ClimateResult:
         """Try web search for current market price. Skips if already enriched."""
-        key = product_name.lower().strip()
+        # Enrich (and read back) against the actual cache row this result came
+        # from. For fuzzy Boverket matches the matched product_name differs from
+        # the lookup query; updating under the query key would hit 0 rows and the
+        # expensive web search would re-run on every lookup of the same product.
+        key = (result.cache_key or product_name).lower().strip()
         # Check if already price-enriched in cache
         cached = self._cache.get(key)
         if cached and cached.price_enriched:
@@ -196,6 +207,7 @@ class ClimateProvider:
                         source=result.source,
                         source_layer=result.source_layer,
                         category=getattr(result, 'category', ''),
+                        cache_key=result.cache_key,
                     )
                 return result
             return result  # Enrichment was attempted but found nothing
@@ -206,7 +218,19 @@ class ClimateProvider:
                 # Mark as attempted so we don't retry every request
                 self._cache.update_cost(key, result.cost_per_unit)
                 return result
-            price, _unit, source = pricing
+            price, price_unit, source = pricing
+            # The web-searched price may be quoted in a different unit than the
+            # climate result (e.g. SEK/m2 for a window priced per st). Storing it
+            # as-is would later multiply by the wrong quantity. On mismatch, keep
+            # the result unpriced and mark enrichment as attempted.
+            if (price_unit and result.unit
+                    and _normalize_unit(price_unit) != _normalize_unit(result.unit)):
+                logger.debug(
+                    "Price unit mismatch for '%s': got %s, expected %s — skipping",
+                    product_name, price_unit, result.unit,
+                )
+                self._cache.update_cost(key, result.cost_per_unit)
+                return result
             self._cache.update_cost(key, price)
             return ClimateResult(
                 name=result.name, co2e_per_unit=result.co2e_per_unit,
@@ -214,6 +238,7 @@ class ClimateProvider:
                 source=result.source,
                 source_layer=result.source_layer,
                 category=getattr(result, 'category', ''),
+                cache_key=result.cache_key,
             )
         except Exception as e:
             logging.getLogger(__name__).debug("Price enrichment failed for '%s': %s", product_name, e)
@@ -232,6 +257,7 @@ class ClimateProvider:
         from aida.data.climate_data import normalize_component_name
         from aida.data.unit_conversion import (
             convert_to_functional_unit,
+            get_areal_density_from_extra,
             get_density_for_component,
         )
 
@@ -251,8 +277,9 @@ class ClimateProvider:
             return result
 
         density = get_density_for_component(comp_key, extra_json, product_name=result.name)
+        areal_density = get_areal_density_from_extra(extra_json)
         co2e_converted, new_unit = convert_to_functional_unit(
-            result.co2e_per_unit, comp_key, density,
+            result.co2e_per_unit, comp_key, density, areal_density,
         )
 
         if new_unit != "kg":
@@ -264,6 +291,7 @@ class ClimateProvider:
                 source=result.source,
                 source_layer=result.source_layer,
                 category=result.category,
+                cache_key=result.cache_key,
             )
         return result
 
@@ -541,8 +569,7 @@ _SWEDISH_TO_ENGLISH: dict[str, list[str]] = {
     "linoleum": ["linoleum flooring"],
     "parkett": ["parquet flooring", "wood floor"],
     "laminat": ["laminate flooring"],
-    "klinker": ["ceramic tile", "porcelain tile"],
-    "kakel": ["ceramic tile"],
+    # klinker/kakel/keramik live in the renovation-materials block below.
     # Walls
     "gipsskiva": ["plasterboard", "gypsum board"],
     "innervägg": ["plasterboard", "gypsum board"],
@@ -555,30 +582,81 @@ _SWEDISH_TO_ENGLISH: dict[str, list[str]] = {
     "betong": ["concrete", "precast concrete"],
     "stål": ["steel", "structural steel"],
     "trä": ["timber", "wood"],
+    # Stomme (load-bearing frame) — specific structural elements.
+    "stålbalk": ["structural steel beam", "steel section"],
+    "stålpelare": ["structural steel column", "steel section"],
+    "limträ": ["glulam", "glued laminated timber"],
+    "kl-trä": ["cross-laminated timber", "clt"],
+    "massivträ": ["solid timber", "clt"],
+    "bjälklag": ["precast concrete slab", "hollow core slab"],
+    "håldäck": ["hollow core slab"],
+    # Appliances (no real white-goods EPDs in the source yet, but route the
+    # search to the right English term so a future EPD is found, and so the
+    # raw Swedish name is not matched against unrelated bilingual EPD names).
+    "tvättmaskin": ["washing machine"],
+    "diskmaskin": ["dishwasher"],
+    "torktumlare": ["tumble dryer"],
     # Other
     "tak": ["roofing", "roof tile"],
     "fönster": ["window", "triple glazed window"],
-    "dörr": ["door", "interior door"],
+    # Interior door first: an unqualified "dörr" in a renovation is almost
+    # always interior, and bare "door" wrongly favours triple-glazed exterior
+    # door EPDs that start with the word "Door".
+    "dörr": ["interior door", "door"],
+    # Renovation materials (added 2026-06-17).
+    "kakel": ["ceramic tile", "wall tile"],
+    "klinker": ["ceramic tile", "porcelain tile", "floor tile"],
+    "keramik": ["ceramic tile"],
+    "rör": ["pipe", "plumbing pipe"],
+    "avloppsrör": ["drainage pipe", "sewer pipe"],
+    "vattenrör": ["water pipe", "pex pipe"],
+    "målning": ["paint", "interior paint"],
+    "väggfärg": ["wall paint", "interior paint"],
+    "färg": ["paint"],
+    "elkabel": ["electrical cable", "power cable"],
+    "kabel": ["cable", "installation cable"],
+    "radiator": ["radiator", "panel radiator"],
+    "värmeelement": ["radiator", "heating panel"],
+}
+
+# Broad category keys whose English terms are only a fallback. When a more
+# specific material is named in the same string (linoleum, parkett, vinylgolv),
+# the category default must NOT also be searched — otherwise e.g. a linoleum
+# floor matches a generic vinyl-flooring EPD because "golv" is a substring of
+# "golvbeläggning".
+_CATEGORY_DEFAULT_KEYS = {
+    "golv", "innervägg", "yttervägg", "betong", "stål", "trä",
+    "tak", "fönster", "dörr",
 }
 
 
 def _get_english_search_terms(swedish_name: str, comp_key: str) -> list[str]:
-    """Get English Environdec search terms for a Swedish product name."""
+    """Get English Environdec search terms for a Swedish product name.
+
+    Specific material terms win over broad category defaults, ordered
+    most-specific-first, so the search hits the right product before any
+    generic fallback. Returns [] when nothing maps.
+    """
     name_lower = swedish_name.lower().strip()
-    terms: list[str] = []
 
-    # Direct match on full name
-    if name_lower in _SWEDISH_TO_ENGLISH:
-        terms.extend(_SWEDISH_TO_ENGLISH[name_lower])
-
-    # Match on material keywords within the name
+    specific: list[tuple[int, list[str]]] = []  # named materials
+    generic: list[tuple[int, list[str]]] = []   # broad category defaults
     for sv_term, en_terms in _SWEDISH_TO_ENGLISH.items():
-        if sv_term in name_lower and sv_term != name_lower:
-            for t in en_terms:
-                if t not in terms:
-                    terms.append(t)
+        if sv_term in name_lower:
+            bucket = generic if sv_term in _CATEGORY_DEFAULT_KEYS else specific
+            bucket.append((len(sv_term), en_terms))
 
-    # Fallback: use component key
+    # If a specific material is named, ignore the broad category defaults.
+    chosen = specific if specific else generic
+    chosen.sort(key=lambda x: -x[0])  # longer Swedish key = more specific
+
+    terms: list[str] = []
+    for _, en_terms in chosen:
+        for t in en_terms:
+            if t not in terms:
+                terms.append(t)
+
+    # Fallback: nothing matched in the name; use the component category key.
     if not terms and comp_key in _SWEDISH_TO_ENGLISH:
         terms.extend(_SWEDISH_TO_ENGLISH[comp_key])
 
@@ -633,6 +711,7 @@ def _entry_to_result(entry: CacheEntry) -> ClimateResult:
         unit=entry.unit,
         source=entry.source,
         source_layer=entry.source_layer,
+        cache_key=entry.product_name,
     )
 
 

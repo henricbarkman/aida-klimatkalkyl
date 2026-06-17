@@ -281,27 +281,26 @@ def lookup_prices_batch(
                     "st": "st", "pcs": "st", "lm": "lm", "kg": "kg"}
         unit = unit_map.get(raw_unit.lower(), raw_unit.lower())
 
-        # Match against input product names (fuzzy: check if response name is substring)
+        # Match against input product names. On overlap prefer the LONGEST
+        # matching input name, so "Innerdörr vit" maps to "innerdörr", not the
+        # shorter "dörr" that also substring-matches.
         matched_key = None
         if prod_name in product_names_lower:
             matched_key = prod_name
         else:
-            for input_name in product_names_lower:
-                if input_name in prod_name or prod_name in input_name:
-                    matched_key = input_name
-                    break
+            candidates = [
+                input_name for input_name in product_names_lower
+                if input_name in prod_name or prod_name in input_name
+            ]
+            if candidates:
+                matched_key = max(candidates, key=len)
 
         if matched_key:
             results[matched_key] = (price, unit, source_label)
             logger.info("Batch price for '%s': %.0f SEK/%s", matched_key, price, unit)
 
-    # Fallback: try generic price extraction for any products not found in structured format
-    for name, unit_hint in products:
-        if name.lower() not in results:
-            extracted = _extract_price(full_text, unit_hint)
-            if extracted and len(products) == 1:
-                # Only use unstructured fallback for single-product edge case
-                price, unit = extracted
-                results[name.lower()] = (price, unit, source_label)
-
+    # Note: no unstructured single-price fallback here. Applying one
+    # text-extracted price to several unmatched products would assign wrong
+    # prices; products the LLM didn't return in the structured format are left
+    # unpriced (and later filtered) rather than guessed.
     return results
