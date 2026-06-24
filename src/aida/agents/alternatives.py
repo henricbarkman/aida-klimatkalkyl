@@ -44,6 +44,11 @@ EPD_ALTERNATIVES_PATH = Path(__file__).parent.parent / "data" / "epd_alternative
 # was itself capped to the lowest-GWP N.
 _MAX_ALTERNATIVES_PER_CATEGORY = 80
 
+# Heterogeneous categories whose candidates are capped and filtered PER
+# subcategory (a toilet, a tap and a basin live in "sanitet" but are not
+# interchangeable alternatives). Mirrors epd_baseline_medians.
+_SUBCATEGORIZED_CATEGORIES = {"sanitet", "belysning", "vitvaror"}
+
 SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
 
 UPPDRAG:
@@ -97,7 +102,14 @@ Svara med giltig JSON-array:
 
 
 def _load_epd_alternatives() -> dict[str, list[dict]]:
-    """Load pre-categorized EPD alternatives, grouped by AIda category."""
+    """Load pre-categorized EPD alternatives, grouped by AIda category.
+
+    The best-N (lowest GWP) are kept for the alternatives prompt; the full
+    distribution stays in the catalog for baseline tier 2. For heterogeneous
+    categories (sanitet/belysning/vitvaror) the best-N are kept PER SUBCATEGORY
+    — otherwise low-GWP taps fill the category-wide cap and starve a WC-stol
+    component of toilets (it then gets offered a tap or a toilet seat).
+    """
     if not EPD_ALTERNATIVES_PATH.exists():
         return {}
     try:
@@ -108,11 +120,19 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
             cat = epd.get("category", "")
             if cat and epd.get("gwp_a1a3", 0) > 0:
                 result.setdefault(cat, []).append(epd)
-        # Slice the best-N (lowest GWP) per category for the alternatives prompt.
-        # The full distribution stays in the catalog for baseline tier 2.
         for cat, epds in result.items():
-            epds.sort(key=lambda e: abs(e.get("gwp_a1a3", 0)))
-            result[cat] = epds[:_MAX_ALTERNATIVES_PER_CATEGORY]
+            if cat in _SUBCATEGORIZED_CATEGORIES:
+                by_sub: dict[str, list[dict]] = {}
+                for e in epds:
+                    by_sub.setdefault(e.get("subcategory", ""), []).append(e)
+                flat: list[dict] = []
+                for sub_epds in by_sub.values():
+                    sub_epds.sort(key=lambda e: abs(e.get("gwp_a1a3", 0)))
+                    flat.extend(sub_epds[:_MAX_ALTERNATIVES_PER_CATEGORY])
+                result[cat] = flat
+            else:
+                epds.sort(key=lambda e: abs(e.get("gwp_a1a3", 0)))
+                result[cat] = epds[:_MAX_ALTERNATIVES_PER_CATEGORY]
         return result
     except (json.JSONDecodeError, OSError):
         return {}
@@ -186,10 +206,12 @@ def _validate_alternatives(
     Removes:
     - Alternatives with co2e_kg <= 0 (unrealistic for building materials)
     - Component-only products when the baseline is a complete system
+    - climate_optimized alternatives that don't beat the baseline (mislabeled)
     Flags:
     - Alternatives with cost_sek == 0 get "Pris ej tillgängligt"
     - LLM-estimated prices get "Approximerat pris"
     - Out-of-range prices get "Oväntat pris — verifiera"
+    - climate_optimized alternatives with an implausibly low CO2e (broken EPD)
     """
     from aida.data.price_validation import validate_total_price
 
@@ -211,6 +233,33 @@ def _validate_alternatives(
                 alt.name, component_name,
             )
             continue
+
+        # B2) Drop climate_optimized options that don't actually beat the
+        #     baseline — a "climate-optimized" choice with co2e >= baseline is
+        #     mislabeled and produces absurd kr/sparat-kg in the ranking. Reuse
+        #     and info entries are exempt (different comparison / no number).
+        if (alt.alternative_type == "climate_optimized"
+                and baseline_co2e > 0
+                and alt.co2e_kg >= baseline_co2e):
+            logger.info(
+                "Filtered alternative '%s' for %s: co2e %.1f >= baseline %.1f "
+                "(not an improvement)",
+                alt.name, component_name, alt.co2e_kg, baseline_co2e,
+            )
+            continue
+
+        # B3) Flag implausibly-low climate_optimized values — a new product at
+        #     <3%% of the baseline is almost certainly a broken EPD (partial
+        #     module / wrong unit) that slipped past the catalog floor. Keep it
+        #     for transparency but mark it for verification.
+        if (alt.alternative_type == "climate_optimized"
+                and baseline_co2e > 0
+                and alt.co2e_kg < baseline_co2e * 0.03):
+            if "verifiera" not in alt.reasoning.lower():
+                alt.reasoning = alt.reasoning.rstrip(". ") + (
+                    ". Ovanligt lågt CO2e — verifiera mot EPD:n "
+                    "(kan vara partiell modul eller felaktig enhet)."
+                )
 
         # C) Price validation — flag zero prices (filtered after enrichment)
         if alt.cost_sek is None or alt.cost_sek <= 0:
@@ -391,6 +440,18 @@ def find_alternatives(
 
         comp_key = normalize_component_name(proj_comp.name)
         epds_for_category = epd_data.get(comp_key, [])
+
+        # For heterogeneous categories, narrow candidates to the component's
+        # subcategory so a WC-stol isn't offered a toilet seat or a tap. Safe
+        # fallback: if the subcategory has no candidates, keep the full set.
+        if comp_key in _SUBCATEGORIZED_CATEGORIES and epds_for_category:
+            from aida.data.palats_client import component_subcategory
+            sub = component_subcategory(proj_comp.name, comp_key)
+            if sub:
+                narrowed = [e for e in epds_for_category
+                            if e.get("subcategory") == sub]
+                if narrowed:
+                    epds_for_category = narrowed
 
         alternatives = _find_alternatives_with_epds(
             proj_comp, bl_comp, epds_for_category, user_feedback,

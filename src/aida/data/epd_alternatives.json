@@ -11445,18 +11445,6 @@
   },
   {
     "category": "kakel",
-    "name": "G-EVO REMINE Ceramic Granules",
-    "owner": "Tegola Canadese S.R.L.",
-    "gwp_a1a3": 0.26,
-    "unit": "kg",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0027115:001",
-    "uuid": "fec6e213-2f81-4ea9-6a8c-08de2c00cbc6",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "kakel",
     "name": "GelCeramic Lightweight",
     "owner": "Eumar Santehnika OÜ",
     "gwp_a1a3": 1.52,
@@ -11529,30 +11517,6 @@
   },
   {
     "category": "kakel",
-    "name": "Natural limestone tiles for flooring and façade cladding",
-    "owner": "Kamen d.d.",
-    "gwp_a1a3": 0.11,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0028203:001",
-    "uuid": "cd22a85b-885a-4072-690b-08de54f41c2a",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "kakel",
-    "name": "PORCELAIN STONEWARE TILES- Gres Porcelánico  (BIa classification based on EN 14411:2016) of GRES DE ARAGÓN, S.A.",
-    "owner": "GRES DE ARAGON S.A.",
-    "gwp_a1a3": 0.05,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0006930:003 (S-P-06930)",
-    "uuid": "3173c4e4-46ae-4f54-1a3c-08da8f02eee0",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "kakel",
     "name": "PPG TECNOCERAMIC SMALTO LUCIDO",
     "owner": "PPG Industries",
     "gwp_a1a3": 3.68,
@@ -11572,18 +11536,6 @@
     "geo": "RER",
     "reg_no": "EPD-IES-0027797:001",
     "uuid": "8e2fac29-be49-413b-780b-08de3edadf66",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "kakel",
-    "name": "Plasters (PL Series) Termokir PL 102s – Special Render for Stone and Ceramic tiles Adhering",
-    "owner": "Termokir Industries Ltd",
-    "gwp_a1a3": 0.29,
-    "unit": "kg",
-    "geo": "IL",
-    "reg_no": "EPD-IES-0011942:002 (S-P-11942)",
-    "uuid": "2351fb5f-3f48-4a6b-c328-08dbfcbd856b",
     "source_registry": "environdec",
     "subcategory": ""
   },
@@ -12439,30 +12391,6 @@
   },
   {
     "category": "sanitet",
-    "name": "Altech Flexi Connection Hose for Tap Water Systems 1200mm",
-    "owner": "Dahl Sverige AB",
-    "gwp_a1a3": 1.75,
-    "unit": "st",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0026239:002",
-    "uuid": "df952475-a3a0-4128-0aa2-08de07d020af",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
-    "name": "Altech Flexi Connection Hose for Tap Water Systems 200mm",
-    "owner": "Dahl Sverige AB",
-    "gwp_a1a3": 0.36,
-    "unit": "st",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0026238:002",
-    "uuid": "d99ff26b-c882-4c0d-5b66-08de07cfde90",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "sanitet",
     "name": "Altech WC Pipe connector",
     "owner": "Dahl Sverige AB",
     "gwp_a1a3": 2.8,
@@ -12667,7 +12595,7 @@
     "reg_no": "EPD-IES-0004406:001 (S-P-04406)",
     "uuid": "bbb4ebf0-78a5-4540-a6cf-08d941ecbd27",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 115.8,
     "functional_unit": "st"
   },
@@ -12695,7 +12623,7 @@
     "reg_no": "EPD-IES-0007034:001 (S-P-07034)",
     "uuid": "6b2a4df3-bd96-494c-8bc7-08da9b9d50f4",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 73.9,
     "functional_unit": "st"
   },
@@ -12711,20 +12639,6 @@
     "source_registry": "environdec",
     "subcategory": "",
     "gwp_per_functional_unit": 37.7,
-    "functional_unit": "st"
-  },
-  {
-    "category": "sanitet",
-    "name": "BATHROOM ACCESSORIES AND AIDS MADE OF STAINLESS STEEL, ALUMINUM, POLYAMIDE 6",
-    "owner": "Pba S.p.A.",
-    "gwp_a1a3": 0.06,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0015468:003",
-    "uuid": "0ad26078-1faa-4aa5-00cd-08dc9b293e28",
-    "source_registry": "environdec",
-    "subcategory": "",
-    "gwp_per_functional_unit": 0.9,
     "functional_unit": "st"
   },
   {
@@ -12761,7 +12675,7 @@
     "reg_no": "EPD-IES-0005832:001",
     "uuid": "57a0a74c-a575-4074-e8d4-08dc95894b34",
     "source_registry": "environdec",
-    "subcategory": "handfat"
+    "subcategory": "blandare"
   },
   {
     "category": "sanitet",
@@ -12773,7 +12687,7 @@
     "reg_no": "EPD-IES-0007821:002 (S-P-07821)",
     "uuid": "51f3c690-f1bd-4cec-4b02-08dad6f2627c",
     "source_registry": "environdec",
-    "subcategory": "dusch"
+    "subcategory": "blandare"
   },
   {
     "category": "sanitet",
@@ -12797,7 +12711,7 @@
     "reg_no": "EPD-IES-0007751:002 (S-P-07751)",
     "uuid": "43e63dc0-facb-40ee-207c-08dad69263c7",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 94.3,
     "functional_unit": "st"
   },
@@ -12811,7 +12725,7 @@
     "reg_no": "EPD-IES-0009171:002 (S-P-09171)",
     "uuid": "0f6e7e93-214b-4a4d-ce07-08db4750674e",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 91.3,
     "functional_unit": "st"
   },
@@ -12825,7 +12739,7 @@
     "reg_no": "EPD-IES-0010610:002 (S-P-10610)",
     "uuid": "f712e975-b6b3-4354-9551-08dbafc3074c",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 48.6,
     "functional_unit": "st"
   },
@@ -12851,7 +12765,7 @@
     "reg_no": "EPD-IES-0007752:003 (S-P-07752)",
     "uuid": "2f1676ad-dd65-49e4-207b-08dad69263c7",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 193.5,
     "functional_unit": "st"
   },
@@ -12921,7 +12835,7 @@
     "reg_no": "EPD-IES-0025374:001",
     "uuid": "6229e9a2-d6eb-4881-ecfc-08ddd8900824",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 117.6,
     "functional_unit": "st"
   },
@@ -12977,7 +12891,7 @@
     "reg_no": "EPD-IES-0011389:002 (S-P-11389)",
     "uuid": "9304049e-03f1-4500-9b28-08dbdfa8f0c9",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 60.3,
     "functional_unit": "st"
   },
@@ -13006,20 +12920,6 @@
     "uuid": "5ca0c76e-00e1-4ca7-589c-08db52400b53",
     "source_registry": "environdec",
     "subcategory": "toalettsits"
-  },
-  {
-    "category": "sanitet",
-    "name": "Escutcheons, toilet indicators & thumb turns",
-    "owner": "d line A/S",
-    "gwp_a1a3": 6.59,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0009167:002 (S-P-09167)",
-    "uuid": "9f3782c2-13a1-43f6-ce03-08db4750674e",
-    "source_registry": "environdec",
-    "subcategory": "toalett",
-    "gwp_per_functional_unit": 98.8,
-    "functional_unit": "st"
   },
   {
     "category": "sanitet",
@@ -13083,7 +12983,7 @@
     "reg_no": "EPD-IES-0009174:001 (S-P-09174)",
     "uuid": "67ab1677-d825-45f1-ce0c-08db4750674e",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 82.4,
     "functional_unit": "st"
   },
@@ -13098,20 +12998,6 @@
     "uuid": "56ee32b1-9042-431d-4b04-08dad6f2627c",
     "source_registry": "environdec",
     "subcategory": "dusch"
-  },
-  {
-    "category": "sanitet",
-    "name": "Hollowcore slabs and, purlins",
-    "owner": "MOLINS PRECAST SOLUTIONS",
-    "gwp_a1a3": 0.14,
-    "unit": "kg",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0014591:002",
-    "uuid": "47e9fda8-59e2-4d71-f876-08dc89c186f0",
-    "source_registry": "environdec",
-    "subcategory": "",
-    "gwp_per_functional_unit": 2.1,
-    "functional_unit": "st"
   },
   {
     "category": "sanitet",
@@ -13137,7 +13023,7 @@
     "reg_no": "EPD-IES-0007818:003 (S-P-07818)",
     "uuid": "d70411c9-e2f8-44ad-4afe-08dad6f2627c",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 82.6,
     "functional_unit": "st"
   },
@@ -13247,7 +13133,7 @@
     "reg_no": "EPD-IES-0020093:001",
     "uuid": "4deba932-4ca4-4ed6-2f1f-08dd5575c923",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 71.1,
     "functional_unit": "st"
   },
@@ -13303,7 +13189,7 @@
     "reg_no": "EPD-IES-0014428:001",
     "uuid": "a5610e15-575b-44d4-fbff-08dc822b29bb",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 67.5,
     "functional_unit": "st"
   },
@@ -13345,7 +13231,7 @@
     "reg_no": "EPD-IES-0007036:001 (S-P-07036)",
     "uuid": "bfa37daa-8e3c-43e1-8bc9-08da9b9d50f4",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 75.8,
     "functional_unit": "st"
   },
@@ -13403,66 +13289,6 @@
   },
   {
     "category": "sanitet",
-    "name": "Portable Toilet",
-    "owner": "KOBAK Srl",
-    "gwp_a1a3": 0.54,
-    "unit": "st",
-    "geo": "IT",
-    "reg_no": "EPD-IES-0017850:002",
-    "uuid": "55681574-ed2c-41d1-9e62-08dd07b6e0c0",
-    "source_registry": "environdec",
-    "subcategory": "toalett"
-  },
-  {
-    "category": "sanitet",
-    "name": "Portable toilet Sebach E-Block (independent version)",
-    "owner": "Sebach SpA Unipersonale",
-    "gwp_a1a3": 8.72,
-    "unit": "st",
-    "geo": "IT",
-    "reg_no": "EPD-IES-0009435:003 (S-P-09435)",
-    "uuid": "7dffd0bc-22d2-438d-87af-08db60df0aea",
-    "source_registry": "environdec",
-    "subcategory": "toalett"
-  },
-  {
-    "category": "sanitet",
-    "name": "Portable toilet Sebach Lodge White (connected version)",
-    "owner": "Sebach SpA Unipersonale",
-    "gwp_a1a3": 0.28,
-    "unit": "st",
-    "geo": "IT",
-    "reg_no": "EPD-IES-0009639:003 (S-P-09639)",
-    "uuid": "6633e4ef-25dd-4af7-4544-08db71fe4796",
-    "source_registry": "environdec",
-    "subcategory": "toalett"
-  },
-  {
-    "category": "sanitet",
-    "name": "Portable toilet Sebach No Touch",
-    "owner": "Sebach SpA Unipersonale",
-    "gwp_a1a3": 0.16,
-    "unit": "st",
-    "geo": "IT",
-    "reg_no": "EPD-IES-0000441:007 (S-P-00441)",
-    "uuid": "d587f652-6d17-40c0-848e-cca527fa3ec7",
-    "source_registry": "environdec",
-    "subcategory": "toalett"
-  },
-  {
-    "category": "sanitet",
-    "name": "Portable toilet Sebach TopSan® HN",
-    "owner": "Sebach SpA Unipersonale",
-    "gwp_a1a3": 0.52,
-    "unit": "st",
-    "geo": "IT",
-    "reg_no": "EPD-IES-0007500:004 (S-P-07500)",
-    "uuid": "aadaa275-e42c-4884-ee78-08dabcce83b0",
-    "source_registry": "environdec",
-    "subcategory": "toalett"
-  },
-  {
-    "category": "sanitet",
     "name": "S-P-05054 Atlatic washbasin mixers, lead free",
     "owner": "Villeroy & Boch Gustavsberg AB",
     "gwp_a1a3": 5.44,
@@ -13471,7 +13297,7 @@
     "reg_no": "",
     "uuid": "fb7ba5ea-8b6b-4640-8c87-08d99c62d4ab",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 81.6,
     "functional_unit": "st"
   },
@@ -13485,7 +13311,7 @@
     "reg_no": "",
     "uuid": "5e917e2a-3de3-45de-8c8d-08d99c62d4ab",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 82.5,
     "functional_unit": "st"
   },
@@ -13527,7 +13353,7 @@
     "reg_no": "EPD-IES-0023196:001",
     "uuid": "9fc663aa-e4d4-4941-cf05-08dd99454b64",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 131.4,
     "functional_unit": "st"
   },
@@ -13541,7 +13367,7 @@
     "reg_no": "EPD-IES-0023192:001",
     "uuid": "7e315175-db28-4059-e0a4-08dd9941cca0",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 114.2,
     "functional_unit": "st"
   },
@@ -13569,7 +13395,7 @@
     "reg_no": "EPD-IES-0023188:001",
     "uuid": "5dc729d7-028a-4fc9-7798-08dd993fc807",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 135.6,
     "functional_unit": "st"
   },
@@ -13583,36 +13409,8 @@
     "reg_no": "EPD-IES-0023182:001",
     "uuid": "74e32d29-335c-47d4-253d-08dd9927f7bd",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 149.1,
-    "functional_unit": "st"
-  },
-  {
-    "category": "sanitet",
-    "name": "Sanitary ceramic products with Fine Fire Clay mixture",
-    "owner": "Ceramica Dolomite",
-    "gwp_a1a3": 0.0,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0005340:001",
-    "uuid": "5a3d27ad-ec42-4a9c-d1a8-08dd19cd9ef3",
-    "source_registry": "environdec",
-    "subcategory": "",
-    "gwp_per_functional_unit": 0.1,
-    "functional_unit": "st"
-  },
-  {
-    "category": "sanitet",
-    "name": "Sanitary ceramic products with Vitreous China mixture",
-    "owner": "Ceramica Dolomite",
-    "gwp_a1a3": 0.01,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0005343:001",
-    "uuid": "a56db36d-547e-4318-d1a9-08dd19cd9ef3",
-    "source_registry": "environdec",
-    "subcategory": "",
-    "gwp_per_functional_unit": 0.1,
     "functional_unit": "st"
   },
   {
@@ -13651,7 +13449,7 @@
     "reg_no": "EPD-IES-0006397:007 (S-P-06397)",
     "uuid": "8797f1e3-9c88-4d6b-70a9-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "dusch",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 97.8,
     "functional_unit": "st"
   },
@@ -13705,7 +13503,7 @@
     "reg_no": "EPD-IES-0005747:002 (S-P-05747)",
     "uuid": "55dc148f-b0f4-4f21-4b01-08dad6f2627c",
     "source_registry": "environdec",
-    "subcategory": "dusch"
+    "subcategory": "blandare"
   },
   {
     "category": "sanitet",
@@ -13757,7 +13555,7 @@
     "reg_no": "EPD-IES-0015670:001",
     "uuid": "16cf0014-7d77-495b-447e-08dca7863510",
     "source_registry": "environdec",
-    "subcategory": "handfat"
+    "subcategory": "blandare"
   },
   {
     "category": "sanitet",
@@ -13823,7 +13621,7 @@
     "reg_no": "EPD-IES-0017639:002",
     "uuid": "c8fa7229-2ab6-4fa3-6065-08dd910b49d7",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 141.8,
     "functional_unit": "st"
   },
@@ -13849,7 +13647,7 @@
     "reg_no": "EPD-IES-0016185:002",
     "uuid": "c2c5ee00-504b-455d-602f-08dcc1bbdaff",
     "source_registry": "environdec",
-    "subcategory": "dusch"
+    "subcategory": "blandare"
   },
   {
     "category": "sanitet",
@@ -13937,7 +13735,7 @@
     "reg_no": "EPD-IES-0022400:003",
     "uuid": "d64405c0-c865-4b11-6894-08dd83006d8c",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 89.5,
     "functional_unit": "st"
   },
@@ -13963,7 +13761,7 @@
     "reg_no": "EPD-IES-0010612:004 (S-P-10612)",
     "uuid": "4b2a963b-1320-4501-9553-08dbafc3074c",
     "source_registry": "environdec",
-    "subcategory": "badkar",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 94.7,
     "functional_unit": "st"
   },
@@ -13989,7 +13787,7 @@
     "reg_no": "EPD-IES-0007753:001 (S-P-07753)",
     "uuid": "936c8b05-8783-4fb4-207a-08dad69263c7",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 87.6,
     "functional_unit": "st"
   },
@@ -14003,7 +13801,7 @@
     "reg_no": "EPD-IES-0006394:006 (S-P-06394)",
     "uuid": "abf0f9fc-d382-43cd-70a6-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 96.2,
     "functional_unit": "st"
   },
@@ -14043,20 +13841,6 @@
     "source_registry": "environdec",
     "subcategory": "urinal",
     "gwp_per_functional_unit": 129.9,
-    "functional_unit": "st"
-  },
-  {
-    "category": "sanitet",
-    "name": "VARIO® KB1 single sided adhesive tape",
-    "owner": "Saint-Gobain Isover (France)",
-    "gwp_a1a3": 0.05,
-    "unit": "kg",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0012184:001 (S-P-12184)",
-    "uuid": "a2b88b76-f910-44b7-87a9-08dc0c7232d4",
-    "source_registry": "environdec",
-    "subcategory": "",
-    "gwp_per_functional_unit": 0.8,
     "functional_unit": "st"
   },
   {
@@ -14143,7 +13927,7 @@
     "reg_no": "EPD-IES-0006391:006 (S-P-06391)",
     "uuid": "265e582e-422d-4622-70a3-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 88.8,
     "functional_unit": "st"
   },
@@ -14157,7 +13941,7 @@
     "reg_no": "EPD-IES-0010613:005 (S-P-10613)",
     "uuid": "0f5b6613-f41d-43b8-9554-08dbafc3074c",
     "source_registry": "environdec",
-    "subcategory": "handfat",
+    "subcategory": "blandare",
     "gwp_per_functional_unit": 87.1,
     "functional_unit": "st"
   },

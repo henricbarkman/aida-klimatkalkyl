@@ -245,6 +245,18 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
     """
     text = f"{title} {description}".lower()
 
+    # Structural frame elements (beams, columns, slabs) are load-bearing stomme,
+    # not renovation finish materials. "Lättklinkerbalk" contains "klinker" and
+    # would otherwise be miscategorized as golv/kakel and offered as a floor
+    # reuse option. Skip them so they aren't matched to finish components. Uses
+    # compound forms only — bare "balk" would hit "balkong" and bare "pelare"
+    # would hit "duschpelare" (a shower tower, a legit sanitet fixture).
+    _structural = ("klinkerbalk", "betongbalk", "stålbalk", "limträbalk",
+                   "håldäck", "bjälklag", "armeringsjärn", "betongpelare",
+                   "stålpelare", "limträpelare")
+    if any(t in text for t in _structural):
+        return ""
+
     # Order matters — more specific matches first
     # Multi-word patterns checked before single-word to avoid false positives
     category_keywords: list[tuple[str, list[str]]] = [
