@@ -441,17 +441,14 @@ def find_alternatives(
         comp_key = normalize_component_name(proj_comp.name)
         epds_for_category = epd_data.get(comp_key, [])
 
-        # For heterogeneous categories, narrow candidates to the component's
-        # subcategory so a WC-stol isn't offered a toilet seat or a tap. Safe
-        # fallback: if the subcategory has no candidates, keep the full set.
-        if comp_key in _SUBCATEGORIZED_CATEGORIES and epds_for_category:
-            from aida.data.palats_client import component_subcategory
-            sub = component_subcategory(proj_comp.name, comp_key)
-            if sub:
-                narrowed = [e for e in epds_for_category
-                            if e.get("subcategory") == sub]
-                if narrowed:
-                    epds_for_category = narrowed
+        # Note: candidates are NOT narrowed to the component's subcategory.
+        # Narrowing to e.g. "toalett" only starved sanitet components of the
+        # generic "Ceramic Sanitaryware" EPDs (which carry subcategory "") that
+        # are the actual usable alternatives — and the "" bucket also holds
+        # non-fixture noise, so admitting it wholesale is wrong too. Instead the
+        # loader keeps best-N PER subcategory (so real toilets aren't cut by the
+        # category cap), and the LLM picks the apt ones from the balanced set.
+        # Precise per-component subcategory retrieval is Fas 2 (semantic).
 
         alternatives = _find_alternatives_with_epds(
             proj_comp, bl_comp, epds_for_category, user_feedback,
