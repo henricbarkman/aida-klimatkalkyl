@@ -24,6 +24,7 @@ from aida.api_client import (
 )
 from aida.data.climate_data import (
     normalize_component_name,
+    resolve_category,
 )
 from aida.models import (
     Alternative,
@@ -430,7 +431,8 @@ def _route_components(
         proj_comp = next(
             (c for c in project.components if c.id == bl.component_id), None)
         name = proj_comp.name if proj_comp else bl.component_name
-        fallback[bl.component_id] = normalize_component_name(name)
+        declared = proj_comp.category if proj_comp else ""
+        fallback[bl.component_id] = resolve_category(name, declared)
         if proj_comp:
             items.append({
                 "id": bl.component_id,
@@ -561,7 +563,8 @@ def find_alternatives(
         if not proj_comp:
             return None
 
-        comp_key = routing.get(bl_comp.component_id) or normalize_component_name(proj_comp.name)
+        comp_key = routing.get(bl_comp.component_id) or resolve_category(
+            proj_comp.name, proj_comp.category)
         epds_for_category = epd_data.get(comp_key, [])
 
         # Note: candidates are NOT narrowed to the component's subcategory.

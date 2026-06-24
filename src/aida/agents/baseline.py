@@ -13,7 +13,11 @@ from aida.api_client import (
     get_client,
     thinking_config,
 )
-from aida.data.climate_data import REASONING, normalize_component_name
+from aida.data.climate_data import (
+    REASONING,
+    normalize_component_name,
+    resolve_category,
+)
 from aida.data.climate_provider import ClimateProvider
 from aida.models import Baseline, BaselineResult, Project
 
@@ -31,7 +35,7 @@ def _validate_baseline(results: list[BaselineResult], components: list) -> list[
     for r in results:
         comp = comp_map.get(r.component_id)
         quantity = comp.quantity if comp else 0
-        category = normalize_component_name(r.component_name)
+        category = resolve_category(r.component_name, comp.category if comp else "")
         is_estimate = "uppskattning" in (r.cost_source or "").lower()
 
         # Validate price
@@ -212,7 +216,7 @@ def _apply_epd_median_fallback(results: list[BaselineResult], project: Project) 
         comp = comp_map.get(r.component_id)
         if not comp:
             continue
-        category = normalize_component_name(comp.name)
+        category = resolve_category(comp.name, comp.category)
         if not category:
             continue
         # Heterogeneous categories (sanitet, belysning, vitvaror) need the

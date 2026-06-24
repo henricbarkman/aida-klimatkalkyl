@@ -95,3 +95,30 @@ def normalize_component_name(name: str) -> str:
     return ""
 
 
+# Canonical category keys produced by normalize_component_name — also the valid
+# values for a component's declared `category` field. Keep in sync with the
+# mappings above, intake's category enum, and the EPD catalog categories.
+VALID_CATEGORIES = {
+    "kakel", "golv", "innervägg", "yttervägg", "stomme", "betongvägg",
+    "fönster", "tak", "isolering", "storköksutrustning", "kylanläggning",
+    "belysning", "ventilation", "dörr", "hiss", "sanitet", "vitvaror",
+    "vvs", "farg", "el", "radiator",
+}
+
+
+def resolve_category(name: str, declared_category: str = "") -> str:
+    """Resolve a component's EPD category.
+
+    Honors the component's declared `category` (set by intake, which knows
+    kakel/vvs/farg/el/radiator) when it is a known catalog category — so a
+    tiled wall intake tagged `kakel` is treated as kakel by BOTH the baseline
+    and the alternatives step, instead of being silently re-derived to
+    innervägg from its name "Väggytskikt". Falls back to name-based
+    normalization when the declared category is missing or unknown.
+    """
+    cat = (declared_category or "").strip().lower()
+    if cat in VALID_CATEGORIES:
+        return cat
+    return normalize_component_name(name)
+
+
