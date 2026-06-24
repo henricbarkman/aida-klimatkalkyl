@@ -47,7 +47,9 @@ Regler:
 - Komponent-id ska vara c1, c2, c3 etc
 - Gissa rimlig quantity om den inte anges (baserat på area och byggnadstyp)
 - Unit ska vara m2, st, eller lm (löpmeter)
-- Category ska vara en av: golv, innervägg, yttervägg, betongvägg, tak, fönster, dörr, isolering, belysning, ventilation, hiss, kylanläggning, sanitet, vitvaror, storköksutrustning
+- Category ska vara en av: golv, kakel, innervägg, yttervägg, betongvägg, tak, fönster, dörr, isolering, belysning, ventilation, hiss, kylanläggning, sanitet, vitvaror, storköksutrustning, vvs, farg, el, radiator
+  - kakel: kaklad/klinkad yta (våtrumsvägg, -golv, kakel/klinker). Välj kakel framför golv/innervägg när ytan är keramisk.
+  - vvs: rör, stambyte, avlopp. farg: målning/ommålning. el: elkabel/elinstallation. radiator: radiator/värmeelement.
 - Om area inte anges, uppskatta baserat på byggnadstyp och komponenter
 - Svara på svenska
 

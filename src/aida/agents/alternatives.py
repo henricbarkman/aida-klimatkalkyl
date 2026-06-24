@@ -49,6 +49,10 @@ _MAX_ALTERNATIVES_PER_CATEGORY = 80
 # interchangeable alternatives). Mirrors epd_baseline_medians.
 _SUBCATEGORIZED_CATEGORIES = {"sanitet", "belysning", "vitvaror"}
 
+# Cheap, fast model for the retrieval router (same as the orchestrator's
+# intent classifier). Routing is a short structured-classification task.
+_ROUTER_MODEL = "anthropic/claude-haiku-4.5"
+
 SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
 
 UPPDRAG:
@@ -200,6 +204,7 @@ def _validate_alternatives(
     baseline_co2e: float,
     component_name: str,
     quantity: float = 0,
+    category: str | None = None,
 ) -> list[Alternative]:
     """Filter out alternatives with data quality issues.
 
@@ -215,7 +220,10 @@ def _validate_alternatives(
     """
     from aida.data.price_validation import validate_total_price
 
-    category = normalize_component_name(component_name)
+    # Use the routed category when provided so a kakel-routed wall validates
+    # prices against kakel ranges, not the name-derived innervägg ranges.
+    if category is None:
+        category = normalize_component_name(component_name)
     valid = []
     for alt in alternatives:
         # A) Filter zero/negative CO2 — all building materials have emissions
@@ -401,6 +409,114 @@ def _add_palats_reuse(
         existing_names.add(listing.title.lower())
 
 
+def _route_components(
+    project: Project,
+    baseline_components: list,
+    available_categories: set[str],
+    user_feedback: str | None = None,
+) -> dict[str, str]:
+    """LLM-route each component to the EPD category its alternatives fit best.
+
+    Why: retrieval is otherwise locked to normalize_component_name(name), which
+    maps a "Väggytskikt" to innervägg even when it's a tiled wet-room wall, and
+    a user directive ("ge kakel-alternativ") can't pull kakel EPDs. The router
+    reads the component name + usage_context + directive and picks the apt
+    catalog category. Returns {component_id: category}. Falls back to
+    normalize_component_name on ANY failure — it never blocks the pipeline.
+    """
+    fallback: dict[str, str] = {}
+    items: list[dict] = []
+    for bl in baseline_components:
+        proj_comp = next(
+            (c for c in project.components if c.id == bl.component_id), None)
+        name = proj_comp.name if proj_comp else bl.component_name
+        fallback[bl.component_id] = normalize_component_name(name)
+        if proj_comp:
+            items.append({
+                "id": bl.component_id,
+                "name": proj_comp.name,
+                "unit": proj_comp.unit,
+                "usage_context": (proj_comp.usage_context or "")[:300],
+            })
+
+    if not items or not available_categories:
+        return fallback
+
+    directive = (user_feedback or "").strip()[:500]
+    # Skip the LLM call when there's nothing to disambiguate: with no directive
+    # and no usage_context, name-based routing is already the right answer.
+    if not directive and not any(it["usage_context"] for it in items):
+        return fallback
+
+    cats = sorted(available_categories)
+    directive_clause = ""
+    if directive:
+        directive_clause = (
+            f'\nANVÄNDARENS ÖNSKEMÅL (kan gälla en eller flera komponenter): '
+            f'"{directive}". Om önskemålet anger ett material (t.ex. kakel), '
+            f'välj den kategorin för den komponent önskemålet rör, även om '
+            f'komponentnamnet antyder ett annat material.'
+        )
+    prompt = (
+        "Du mappar byggkomponenter till rätt materialkategori i en EPD-databas, "
+        "så att klimatalternativ hämtas från rätt sorts material.\n\n"
+        f"Tillgängliga kategorier: {', '.join(cats)}.\n\n"
+        "Regler:\n"
+        "- Utgå från komponentens NAMN och ANVÄNDNINGSKONTEXT (vad det faktiskt "
+        "är för material/yta).\n"
+        "- Kaklad våtrumsvägg eller -golv → kakel (inte innervägg/golv).\n"
+        "- Målad yta / ommålning → farg. Rör/stambyte → vvs. Elkabel → el. "
+        "Radiator/värmeelement → radiator.\n"
+        "- Välj EXAKT en kategori per komponent, ur listan ovan."
+        f"{directive_clause}\n\n"
+        f"Komponenter:\n{json.dumps(items, ensure_ascii=False)}\n\n"
+        'Svara ENBART med JSON: {"c1": "kategori", "c2": "kategori", ...}'
+    )
+    try:
+        client = get_client()
+        resp = client.messages.create(
+            model=_ROUTER_MODEL,
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = extract_text(resp).strip()
+        if "```" in text:
+            text = text.split("```")[1].split("```")[0]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Recover from an unfenced preamble ("Här är mappningen: {...}").
+            import re
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if not m:
+                raise
+            data = json.loads(m.group(0))
+    except Exception:
+        logger.warning("Component routing failed; using name-based fallback",
+                       exc_info=True)
+        return fallback
+
+    if not isinstance(data, dict):
+        logger.warning("Router returned %s, not a dict; name-based fallback",
+                       type(data).__name__)
+        return fallback
+
+    routed: dict[str, str] = {}
+    for cid, default_cat in fallback.items():
+        chosen = data.get(cid)
+        if isinstance(chosen, str) and chosen in available_categories:
+            if chosen != default_cat:
+                logger.info("Routed %s: %s -> %s (was name-based)",
+                            cid, default_cat, chosen)
+            routed[cid] = chosen
+        else:
+            routed[cid] = default_cat
+    return routed
+
+
 def find_alternatives(
     project: Project,
     baseline: Baseline,
@@ -421,6 +537,13 @@ def find_alternatives(
 
     epd_data = _load_epd_alternatives()
 
+    # Route each component to the apt EPD category (name + usage_context +
+    # directive), so a tiled "Väggytskikt" or a "ge kakel"-directive pulls kakel
+    # EPDs instead of being locked to normalize_component_name's guess.
+    routing = _route_components(
+        project, baseline.components, set(epd_data.keys()), user_feedback,
+    )
+
     # Fetch Palats listings once for the entire analysis
     palats_listings = fetch_listings()
     palats_status = palats_client.last_fetch_status
@@ -438,7 +561,7 @@ def find_alternatives(
         if not proj_comp:
             return None
 
-        comp_key = normalize_component_name(proj_comp.name)
+        comp_key = routing.get(bl_comp.component_id) or normalize_component_name(proj_comp.name)
         epds_for_category = epd_data.get(comp_key, [])
 
         # Note: candidates are NOT narrowed to the component's subcategory.
@@ -458,6 +581,7 @@ def find_alternatives(
         # Validate data quality: filter zero CO2, component-only parts, flag prices
         alternatives = _validate_alternatives(
             alternatives, bl_comp.co2e_kg, proj_comp.name, proj_comp.quantity,
+            category=comp_key,
         )
 
         # Add live Palats reuse listings
@@ -557,7 +681,7 @@ def find_alternatives(
     ]
 
     # Batch price enrichment for alternatives missing prices
-    _enrich_alternative_prices(component_results, project)
+    _enrich_alternative_prices(component_results, project, routing)
 
     # DoD B1: remove alternatives still at cost_sek=0 after enrichment.
     # "reuse" is exempt: Palats reuse listings are legitimately free (cost_sek=0
@@ -582,6 +706,7 @@ def find_alternatives(
 def _enrich_alternative_prices(
     components: list[ComponentAlternatives],
     project: Project,
+    routing: dict[str, str] | None = None,
 ) -> None:
     """Batch web search for alternatives that have cost_sek == 0.
 
@@ -602,8 +727,10 @@ def _enrich_alternative_prices(
     from aida.data.pricing_provider import lookup_prices_batch
 
     quantity_by_cid = {c.id: c.quantity for c in project.components}
+    routing = routing or {}
     category_by_cid = {
-        c.component_id: normalize_component_name(c.component_name)
+        c.component_id: (routing.get(c.component_id)
+                         or normalize_component_name(c.component_name))
         for c in components
     }
 
