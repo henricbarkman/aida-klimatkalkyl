@@ -288,6 +288,25 @@ def _validate_alternatives(
     return valid
 
 
+def _b1_keep_alternative(alt) -> bool:
+    """DoD B1: should this alternative survive the post-enrichment zero-price cut?
+
+    Keep an alternative if it is actionable on at least one axis:
+    - baseline/info/reuse entries are never price-cut (reuse is legitimately free)
+    - it has a real price (cost_sek > 0) → buyable
+    - it is EPD-backed ([EPD] source) → carries a verified CO2 number, the core
+      value of a climate tool, even when its obscure product name can't be priced
+
+    Only unpriced AND non-EPD alternatives (pure LLM guesses, unactionable on both
+    price and climate verifiability) are dropped.
+    """
+    if alt.alternative_type in ("baseline", "info", "reuse"):
+        return True
+    if alt.cost_sek is not None and alt.cost_sek > 0:
+        return True
+    return "[epd]" in (alt.source or "").lower()
+
+
 def _effective_baseline_co2e(
     proj_comp, bl_comp, routed_category: str | None, has_directive: bool = False,
 ) -> float:
@@ -769,20 +788,24 @@ def find_alternatives(
     # Batch price enrichment for alternatives missing prices
     _enrich_alternative_prices(component_results, project, routing)
 
-    # DoD B1: remove alternatives still at cost_sek=0 after enrichment.
-    # "reuse" is exempt: Palats reuse listings are legitimately free (cost_sek=0
-    # with note "X tillgängliga") on an internal municipal marketplace, so a zero
-    # price is real, not missing.
+    # DoD B1: drop alternatives still at cost_sek=0 after enrichment — but only
+    # those unactionable on BOTH axes (no price AND no verified EPD). An
+    # alternative earns its place by being actionable on at least one:
+    #   - has a real price → buyable
+    #   - is EPD-backed ([EPD] source) → carries a verified CO2 number, which is
+    #     the whole point of a climate tool. These obscure EPD products (foreign
+    #     ceramic manufacturers etc.) often can't be web-priced, but deleting
+    #     them lost real kakel/facade climate options entirely (Johanna's
+    #     toalettblock: every kakel alternative vanished here even after the
+    #     baseline reroute). Keep them flagged "Pris ej tillgängligt" (the
+    #     validator already adds that note) instead of hiding the climate signal.
+    # "reuse" stays exempt: Palats reuse listings are legitimately free.
     for comp in component_results:
         before = len(comp.alternatives)
-        comp.alternatives = [
-            a for a in comp.alternatives
-            if a.alternative_type in ("baseline", "info", "reuse")
-            or (a.cost_sek is not None and a.cost_sek > 0)
-        ]
+        comp.alternatives = [a for a in comp.alternatives if _b1_keep_alternative(a)]
         removed = before - len(comp.alternatives)
         if removed:
-            logger.info("B1 filter: removed %d zero-price alternatives from %s", removed, comp.component_name)
+            logger.info("B1 filter: removed %d unpriced non-EPD alternatives from %s", removed, comp.component_name)
 
     result = AlternativesResult(components=component_results)
     result.commentary = _generate_commentary(project, baseline, result)
