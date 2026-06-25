@@ -11,15 +11,21 @@ import re
 
 import anthropic
 
+from aida.api_client import call_model
+
 logger = logging.getLogger(__name__)
 
 PRICING_MODEL = "anthropic/claude-sonnet-4-6"
-THINKING_BUDGET = 5000  # STANDARD: reason about data, compare prices
+# Pricing stays on Sonnet 4.6 (cheap, web-search heavy, not the CO2 correctness
+# path). Adaptive thinking + effort replaces the deprecated budget_tokens.
+PRICING_EFFORT = "medium"
+PRICING_MAX_TOKENS = 8000  # room for adaptive thinking + a short price answer
 MAX_SEARCH_USES = 3
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
 
-LLM_CALL_TIMEOUT = 120.0
+# Non-streaming; web search + adaptive thinking can run long, so allow headroom.
+LLM_CALL_TIMEOUT = 300.0
 
 
 def _get_client() -> anthropic.Anthropic | None:
@@ -88,10 +94,11 @@ def _estimate_price_without_search(product_name: str, unit_hint: str) -> tuple[f
     )
 
     try:
-        response = client.messages.create(
+        response = call_model(
+            client,
             model=PRICING_MODEL,
-            max_tokens=512 + THINKING_BUDGET,
-            thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
+            max_tokens=PRICING_MAX_TOKENS,
+            effort=PRICING_EFFORT,
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as e:
@@ -126,10 +133,11 @@ def lookup_price(product_name: str, unit_hint: str = "") -> tuple[float, str, st
     prompt = _build_prompt(product_name, unit_hint)
 
     try:
-        response = client.messages.create(
+        response = call_model(
+            client,
             model=PRICING_MODEL,
-            max_tokens=512 + THINKING_BUDGET,
-            thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
+            max_tokens=PRICING_MAX_TOKENS,
+            effort=PRICING_EFFORT,
             messages=[{"role": "user", "content": prompt}],
             tools=[{
                 "type": "web_search_20250305",
@@ -215,10 +223,11 @@ def lookup_prices_batch(
     )
 
     try:
-        response = client.messages.create(
+        response = call_model(
+            client,
             model=PRICING_MODEL,
-            max_tokens=1024 + THINKING_BUDGET,
-            thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET},
+            max_tokens=PRICING_MAX_TOKENS,
+            effort=PRICING_EFFORT,
             messages=[{"role": "user", "content": prompt}],
             tools=[{
                 "type": "web_search_20250305",

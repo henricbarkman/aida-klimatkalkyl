@@ -8,9 +8,12 @@ import anthropic
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
-# Per-call timeout in seconds. No single LLM call should take longer than this.
-# The alternatives step makes multiple calls, so total step time can exceed this.
-LLM_CALL_TIMEOUT = 120.0
+# Per-call client timeout (seconds). Opus 4.8 with adaptive thinking runs well
+# past the old 120s on heavy reasoning steps, so this is generous. The REAL
+# ceiling is Vercel's function maxDuration (see vercel.json) — keep that >= the
+# slowest single step. Calls are non-streaming with max_tokens <= 16k, which
+# stays under the SDK's long-request guard and well under maxDuration.
+LLM_CALL_TIMEOUT = 600.0
 
 
 def get_client() -> anthropic.Anthropic:
@@ -35,28 +38,73 @@ def get_client() -> anthropic.Anthropic:
     )
 
 
-# Default model for AIda agents — OpenRouter format
-DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
+# Default model for AIda's reasoning agents (OpenRouter format).
+# Opus 4.8: adaptive thinking only — budget_tokens 400s here (see call_model).
+DEFAULT_MODEL = "anthropic/claude-opus-4-8"
 
-# Extended thinking budgets (tokens)
-# NONE: Simple parsing, no reasoning needed (chat)
-# LOW: Understand input, extract structure (intake)
-# STANDARD: Reason about data, compare, search (pricing, alternatives)
-# DEEP: Complex analysis, synthesis, conclusions (baseline, report)
-THINKING_NONE = 0
-THINKING_LOW = 1024
-THINKING_STANDARD = 5000
-THINKING_DEEP = 10000
+# Adaptive-thinking effort levels (Opus 4.8 / Sonnet 4.6). These replace the old
+# budget_tokens scheme, which returns 400 on Opus 4.8. Prior budget -> effort:
+#   LOW (1024) -> medium · STANDARD (5000) -> high · DEEP (10000) -> high.
+# Opus 4.8 "high" is already strong; bump the correctness steps (routing,
+# baseline) to "max" only if matching errors resurface — "max" can overthink.
+EFFORT_MEDIUM = "medium"
+EFFORT_HIGH = "high"
 
-# Models that support extended thinking
-_THINKING_MODELS = {"anthropic/claude-sonnet-4-6", "anthropic/claude-sonnet-4", "anthropic/claude-opus-4.6"}
+# Output ceiling for reasoning steps. Adaptive thinking tokens count toward
+# max_tokens, so this leaves room for thinking + the answer. Kept at 16k so
+# calls stay non-streaming (the SDK refuses longer non-streaming requests) and
+# well under Vercel's maxDuration. Adaptive thinking self-scales, so steps
+# rarely approach this; a project huge enough to truncate would switch that one
+# step to streaming.
+REASONING_MAX_TOKENS = 16000
+
+# Models that support adaptive thinking + effort. Anything else (the Haiku
+# classifier) degrades to no thinking rather than erroring.
+_ADAPTIVE_MODELS = {"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-4-6"}
 
 
-def thinking_config(budget: int):
-    """Return thinking parameter for API calls. NOT_GIVEN for unsupported models or NONE budget."""
-    if budget == 0 or DEFAULT_MODEL not in _THINKING_MODELS:
-        return anthropic.NOT_GIVEN
-    return {"type": "enabled", "budget_tokens": budget}
+def _thinking_request(model: str, effort: str | None) -> dict:
+    """Request kwargs for adaptive thinking at `effort`. Empty when thinking is
+    off or the model can't do adaptive thinking. output_config goes via
+    extra_body because the pinned SDK (0.86) doesn't type it; OpenRouter
+    forwards it to the model (verified against Opus 4.8)."""
+    if not effort or model not in _ADAPTIVE_MODELS:
+        return {}
+    return {
+        "thinking": {"type": "adaptive"},
+        "extra_body": {"output_config": {"effort": effort}},
+    }
+
+
+def call_model(
+    client: anthropic.Anthropic,
+    *,
+    model: str,
+    max_tokens: int,
+    effort: str | None = None,
+    extra_body: dict | None = None,
+    **kwargs,
+):
+    """One entry point for an LLM call: adaptive thinking + effort. Returns the
+    Message, so callers keep using extract_text() / block iteration unchanged.
+
+    Non-streaming: AIda's reasoning calls cap max_tokens at REASONING_MAX_TOKENS
+    (16k), under the SDK's long-request guard and Vercel's maxDuration. Adaptive
+    thinking self-scales, so this is ample headroom for thinking + the answer.
+    """
+    req: dict = dict(model=model, max_tokens=max_tokens, **kwargs)
+    think = _thinking_request(model, effort)
+    merged_extra = dict(extra_body or {})
+    if think:
+        req["thinking"] = think["thinking"]
+        # Deep-merge output_config so a caller's other output_config keys survive
+        # (a shallow update would drop them when we add effort).
+        think_oc = think["extra_body"].get("output_config", {})
+        merged_oc = {**merged_extra.get("output_config", {}), **think_oc}
+        merged_extra = {**merged_extra, "output_config": merged_oc}
+    if merged_extra:
+        req["extra_body"] = merged_extra
+    return client.messages.create(**req)
 
 
 def extract_text(response) -> str:

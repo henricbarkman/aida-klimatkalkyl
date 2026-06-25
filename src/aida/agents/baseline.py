@@ -8,10 +8,11 @@ import sys
 
 from aida.api_client import (
     DEFAULT_MODEL,
-    THINKING_DEEP,
+    EFFORT_HIGH,
+    REASONING_MAX_TOKENS,
+    call_model,
     extract_text,
     get_client,
-    thinking_config,
 )
 from aida.data.climate_data import (
     REASONING,
@@ -296,10 +297,11 @@ def _match_components_to_boverket(project: Project, boverket_products) -> list[B
     logger.info("Baseline LLM matching: %d components against %d Boverket products",
                 len(project.components), len(boverket_products))
 
-    response = client.messages.create(
+    response = call_model(
+        client,
         model=DEFAULT_MODEL,
-        max_tokens=3000 + THINKING_DEEP,
-        thinking=thinking_config(THINKING_DEEP),
+        max_tokens=REASONING_MAX_TOKENS,
+        effort=EFFORT_HIGH,  # correctness step — bump to "max" if matching regresses
         system=MATCH_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -321,7 +323,22 @@ Matcha varje komponent ovan mot bästa Boverket-produkt. Använd EXAKT de compon
     elif "```" in text:
         text = text.split("```")[1].split("```")[0]
 
-    data = json.loads(text.strip())
+    try:
+        data = json.loads(text.strip())
+    except json.JSONDecodeError as e:
+        # Opus 4.8 adaptive thinking shares the 16k max_tokens budget. If a very
+        # large project pushes thinking + output past the cap, stop_reason is
+        # "max_tokens" and the JSON is truncated. Surface it clearly instead of a
+        # cryptic decode error in the request handler.
+        logger.error(
+            "Baseline match returned unparseable JSON (stop_reason=%s, %d chars): %s",
+            getattr(response, "stop_reason", "?"), len(text), e,
+        )
+        raise RuntimeError(
+            "Baslinje-matchningen gav ett ofullständigt svar"
+            f" (stop_reason={getattr(response, 'stop_reason', '?')})."
+            " Försök igen eller dela upp projektet i färre komponenter."
+        ) from e
     if isinstance(data, dict) and "components" in data:
         data = data["components"]
 

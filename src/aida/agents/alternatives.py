@@ -17,10 +17,12 @@ logger = logging.getLogger(__name__)
 
 from aida.api_client import (
     DEFAULT_MODEL,
-    THINKING_STANDARD,
+    EFFORT_HIGH,
+    EFFORT_MEDIUM,
+    REASONING_MAX_TOKENS,
+    call_model,
     extract_text,
     get_client,
-    thinking_config,
 )
 from aida.data.climate_data import (
     normalize_component_name,
@@ -52,7 +54,9 @@ _SUBCATEGORIZED_CATEGORIES = {"sanitet", "belysning", "vitvaror"}
 
 # Cheap, fast model for the retrieval router (same as the orchestrator's
 # intent classifier). Routing is a short structured-classification task.
-_ROUTER_MODEL = "anthropic/claude-haiku-4.5"
+# Material routing is a correctness step (the toalett/kakel mis-routing lived
+# here) — runs on the default Opus 4.8 model now, not the old Haiku.
+_ROUTER_MODEL = DEFAULT_MODEL
 
 SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
 
@@ -569,9 +573,11 @@ def _route_components(
     )
     try:
         client = get_client()
-        resp = client.messages.create(
+        resp = call_model(
+            client,
             model=_ROUTER_MODEL,
-            max_tokens=600,
+            max_tokens=REASONING_MAX_TOKENS,
+            effort=EFFORT_HIGH,  # correctness step — material routing (toalett/kakel)
             messages=[{"role": "user", "content": prompt}],
         )
         text = extract_text(resp).strip()
@@ -990,10 +996,11 @@ Inga EPD:er tillgängliga för denna kategori. Returnera en tom array [].
     prompt += "\nSvara med JSON-array."
 
     try:
-        response = client.messages.create(
+        response = call_model(
+            client,
             model=DEFAULT_MODEL,
-            max_tokens=2000 + THINKING_STANDARD,
-            thinking=thinking_config(THINKING_STANDARD),
+            max_tokens=REASONING_MAX_TOKENS,
+            effort=EFFORT_HIGH,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -1106,10 +1113,11 @@ Alternativ som hittats:
 Skriv din kommentar."""
 
     try:
-        response = client.messages.create(
+        response = call_model(
+            client,
             model=DEFAULT_MODEL,
-            max_tokens=500 + THINKING_STANDARD,
-            thinking=thinking_config(THINKING_STANDARD),
+            max_tokens=REASONING_MAX_TOKENS,
+            effort=EFFORT_MEDIUM,
             system=COMMENTARY_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )

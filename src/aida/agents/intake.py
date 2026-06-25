@@ -7,10 +7,11 @@ import sys
 
 from aida.api_client import (
     DEFAULT_MODEL,
-    THINKING_LOW,
+    EFFORT_HIGH,
+    REASONING_MAX_TOKENS,
+    call_model,
     extract_text,
     get_client,
-    thinking_config,
 )
 from aida.models import Project
 
@@ -117,14 +118,15 @@ def run_intake(description: str) -> dict:
     """Extract project parameters from a natural language description."""
     client = get_client()
 
-    response = client.messages.create(
+    response = call_model(
+        client,
         model=DEFAULT_MODEL,
-        # Bumped 4000 → 8000 to accommodate project-level needs_analysis
-        # (from_user + inferred + assumptions + would_clarify) on top of
-        # per-component usage_context. Multi-bathroom / multi-room projects
-        # with many components were truncating at 6000.
-        max_tokens=8000 + THINKING_LOW,
-        thinking=thinking_config(THINKING_LOW),
+        # Opus 4.8 + adaptive thinking. REASONING_MAX_TOKENS covers thinking +
+        # the JSON output; the old 8000 was a visible-output cap only.
+        # needs_analysis (from_user + inferred + assumptions + would_clarify) plus
+        # per-component usage_context made multi-room projects truncate at 6000.
+        max_tokens=REASONING_MAX_TOKENS,
+        effort=EFFORT_HIGH,
         system=SYSTEM_PROMPT,
         messages=[
             {"role": "user", "content": description}
