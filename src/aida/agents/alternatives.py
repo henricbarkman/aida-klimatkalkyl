@@ -288,6 +288,80 @@ def _validate_alternatives(
     return valid
 
 
+def _effective_baseline_co2e(
+    proj_comp, bl_comp, routed_category: str | None, has_directive: bool = False,
+) -> float:
+    """Baseline reference that follows the routed material category.
+
+    Retroactive-directive fix (Fas 2): when a directive (or usage_context)
+    reroutes a component to a different material than its stored baseline was
+    computed for — e.g. a "Väggytskikt" whose baseline is innervägg, rerouted to
+    kakel by a "ge kakel"-directive added AFTER the baseline was set — the stored
+    baseline is for the WRONG material. Comparing kakel alternatives against an
+    innervägg baseline makes RC5 (climate_optimized must beat the baseline) drop
+    every kakel option ("noll alternativ"), and the report would show an
+    innervägg baseline next to kakel choices.
+
+    So when the routed category diverges from the baseline's original category,
+    recompute the conventional baseline on the routed category from its EPD
+    typvärde. This keeps baseline + alternatives on the SAME material (the #420
+    invariant) for the retroactive case, without a separate baseline rerun.
+
+    A genuine Boverket-material baseline (Tier 1) is more accurate than a
+    category typvärde, so it is NOT downgraded on a mere name/usage_context
+    disagreement between the router and resolve_category. It IS rerouted when the
+    user gave an explicit directive (``has_directive``) — there the user is
+    actively changing the material, so the old material match no longer applies.
+
+    Returns the stored ``bl_comp.co2e_kg`` unchanged when nothing diverged, the
+    baseline is a protected Boverket hit, or the routed category has no usable
+    typvärde (can't honestly recompute). Only the CO2e reference moves; cost
+    stays as-is (no routed-category price source).
+    """
+    from aida.data.epd_baseline_medians import get_baseline_typvärde
+    from aida.data.palats_client import component_subcategory
+    from aida.data.unit_conversion import typical_item_mass
+
+    orig_category = resolve_category(proj_comp.name, proj_comp.category)
+    if not routed_category or routed_category == orig_category:
+        return bl_comp.co2e_kg
+
+    # Tier 1 Boverket baselines: don't silently downgrade to a typvärde unless an
+    # explicit directive overrides the material (boverket_product is set only for
+    # genuine Boverket hits — cleared for typvärde/uppskattning in baseline.py).
+    if getattr(bl_comp, "boverket_product", "") and not has_directive:
+        logger.debug(
+            "Component %r has Boverket baseline and no directive; keeping it "
+            "(router said %s, baseline category %s).",
+            proj_comp.name, routed_category, orig_category,
+        )
+        return bl_comp.co2e_kg
+
+    subcat = component_subcategory(proj_comp.name, routed_category)
+    tv = get_baseline_typvärde(routed_category, proj_comp.unit, subcat)
+    # kg->st bridge, mirroring _apply_epd_median_fallback in baseline.py: a
+    # count-denominated component whose routed category only has a kg typvärde.
+    if not tv and proj_comp.unit == "st":
+        kg_tv = get_baseline_typvärde(routed_category, "kg", subcat)
+        mass = typical_item_mass(routed_category, subcat)
+        if kg_tv and mass:
+            tv = {"baseline_co2e_per_unit": kg_tv["baseline_co2e_per_unit"] * mass}
+    if not tv:
+        logger.warning(
+            "Component %r rerouted %s->%s but routed category has no typvärde; "
+            "keeping stored baseline (RC5 may still mismatch).",
+            proj_comp.name, orig_category, routed_category,
+        )
+        return bl_comp.co2e_kg
+
+    rerouted = round(tv["baseline_co2e_per_unit"] * proj_comp.quantity, 1)
+    logger.info(
+        "Component %r rerouted %s->%s: baseline %s -> %s kg (follows directive)",
+        proj_comp.name, orig_category, routed_category, bl_comp.co2e_kg, rerouted,
+    )
+    return rerouted
+
+
 def _add_palats_reuse(
     alternatives: list[Alternative],
     component_name: str,
@@ -566,6 +640,14 @@ def find_alternatives(
         comp_key = routing.get(bl_comp.component_id) or resolve_category(
             proj_comp.name, proj_comp.category)
         epds_for_category = epd_data.get(comp_key, [])
+        # Baseline reference must follow the routed material (retroactive
+        # directive): a kakel-routed wall is validated against the kakel
+        # baseline, not the stored innervägg one — else RC5 drops every kakel
+        # alternative and the report shows the wrong-material baseline.
+        eff_baseline_co2e = _effective_baseline_co2e(
+            proj_comp, bl_comp, comp_key,
+            has_directive=bool((user_feedback or "").strip()),
+        )
 
         # Note: candidates are NOT narrowed to the component's subcategory.
         # Narrowing to e.g. "toalett" only starved sanitet components of the
@@ -579,11 +661,12 @@ def find_alternatives(
         alternatives = _find_alternatives_with_epds(
             proj_comp, bl_comp, epds_for_category, user_feedback,
             needs_analysis=project.needs_analysis,
+            effective_baseline_co2e=eff_baseline_co2e,
         )
 
         # Validate data quality: filter zero CO2, component-only parts, flag prices
         alternatives = _validate_alternatives(
-            alternatives, bl_comp.co2e_kg, proj_comp.name, proj_comp.quantity,
+            alternatives, eff_baseline_co2e, proj_comp.name, proj_comp.quantity,
             category=comp_key,
         )
 
@@ -643,7 +726,7 @@ def find_alternatives(
         if not selectable:
             alternatives.append(Alternative(
                 name=f"Inga alternativ hittades för {proj_comp.name}",
-                co2e_kg=bl_comp.co2e_kg,
+                co2e_kg=eff_baseline_co2e,
                 cost_sek=bl_comp.cost_sek,
                 source="N/A",
                 reasoning="Inga alternativ identifierade.",
@@ -653,7 +736,7 @@ def find_alternatives(
         return ComponentAlternatives(
             component_id=bl_comp.component_id,
             component_name=bl_comp.component_name,
-            baseline_co2e_kg=bl_comp.co2e_kg,
+            baseline_co2e_kg=eff_baseline_co2e,
             baseline_cost_sek=bl_comp.cost_sek,
             alternatives=alternatives,
         )
@@ -803,12 +886,33 @@ def _find_alternatives_with_epds(
     epds: list[dict],
     user_feedback: str | None = None,
     needs_analysis: NeedsAnalysis | None = None,
+    effective_baseline_co2e: float | None = None,
 ) -> list[Alternative]:
-    """Use LLM to select best alternatives from EPD data."""
+    """Use LLM to select best alternatives from EPD data.
+
+    ``effective_baseline_co2e`` is the baseline reference after any
+    routed-category reroute (see _effective_baseline_co2e). When a component was
+    rerouted (e.g. innervägg→kakel by a directive), the LLM MUST reason about
+    savings against the rerouted baseline — otherwise its "−45% CO2e" reasoning
+    is computed against the wrong (stale) material and the report text
+    contradicts the actual savings math.
+    """
     client = get_client()
 
+    # Baseline the LLM reasons against: the rerouted value when it differs from
+    # the stored one, else the stored baseline.
+    rerouted = (
+        effective_baseline_co2e is not None
+        and effective_baseline_co2e != bl_comp.co2e_kg
+    )
+    baseline_for_prompt = effective_baseline_co2e if rerouted else bl_comp.co2e_kg
+
     baseline_source = (getattr(bl_comp, "source", "") or "").lower()
-    if "uppskattning" in baseline_source:
+    if rerouted:
+        # A rerouted baseline is the routed category's EPD typvärde, regardless
+        # of what the original (wrong-material) baseline source was.
+        baseline_label = "EPD-typvärde (kategori-aggregat)"
+    elif "uppskattning" in baseline_source:
         baseline_label = "uppskattning"
     elif "epd-typvärde" in baseline_source or "epd-medel" in baseline_source or "epd-median" in baseline_source:
         baseline_label = "EPD-typvärde (kategori-aggregat)"
@@ -816,7 +920,7 @@ def _find_alternatives_with_epds(
         baseline_label = "Boverket Typical"
     prompt = f"""Komponent: {proj_comp.name}
 Antal: {proj_comp.quantity} {proj_comp.unit}
-Baslinje CO2e: {bl_comp.co2e_kg} kg ({baseline_label})
+Baslinje CO2e: {baseline_for_prompt} kg ({baseline_label})
 Baslinje kostnad: {bl_comp.cost_sek} SEK
 
 Föreslå 2-4 relevanta alternativ från EPD-listan nedan. Inkludera hela spannet av CO2e-värden — användaren optimerar totalen över hela projektet, inte per komponent, så ett alternativ som ligger något över baslinjen kan vara värt att visa om det möter behoven bättre. Rangordna med lägst CO2e först. I reasoning: ange explicit hur alternativet jämför mot baslinjen (t.ex. "−45% CO2e" eller "+12% CO2e — men kortare leveranskedja och tystare drift").
@@ -900,7 +1004,7 @@ Inga EPD:er tillgängliga för denna kategori. Returnera en tom array [].
 
             results.append(Alternative(
                 name=item.get("name", "Okänt alternativ"),
-                co2e_kg=item.get("co2e_kg", bl_comp.co2e_kg),
+                co2e_kg=item.get("co2e_kg", baseline_for_prompt),
                 cost_sek=item.get("cost_sek", 0),
                 source=source,
                 reasoning=item.get("reasoning", ""),

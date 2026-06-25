@@ -49,6 +49,18 @@ EPD_DATA_PATH = Path(__file__).parent / "epd_alternatives.json"
 # to be a useful default — fall back to LLM estimation.
 _MIN_SAMPLES = 5
 
+# Per-(category, subcategory) floor overrides. Some genuine product types are
+# sparsely represented in Environdec (toilets: the index has only 4 real
+# building toilets — the rest are portable bajamajor, rejected at build time).
+# For those, 4 verified EPDs beat an LLM guess, so we publish at n=4 rather
+# than falling back to "Uppskattning". Kept targeted (not a global drop to 4)
+# so each sparse category is opted in only after its rows are inspected — a
+# global drop would also publish e.g. betongvägg/m2, whose 4-row bucket still
+# holds a misclassified steel sheet. Default stays 5 for everything else.
+_MIN_SAMPLES_OVERRIDE: dict[tuple[str, str], int] = {
+    ("sanitet", "toalett"): 4,
+}
+
 # Categories that mix structurally different product types in the same bucket
 # (sanitet covers toilets, sinks, taps — wildly different CO2e). A flat
 # category aggregate is misleading, so we aggregate PER SUBCATEGORY instead
@@ -136,7 +148,9 @@ def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
 
     result: dict[tuple[str, str, str], dict] = {}
     for key, values in grouped.items():
-        if len(values) < _MIN_SAMPLES:
+        cat, sub, _unit = key
+        min_required = _MIN_SAMPLES_OVERRIDE.get((cat, sub), _MIN_SAMPLES)
+        if len(values) < min_required:
             continue
         result[key] = {
             "baseline_co2e_per_unit": round(_upper_half_median(values), 2),
