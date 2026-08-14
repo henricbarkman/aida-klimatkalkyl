@@ -16703,18 +16703,6 @@
   },
   {
     "category": "yttervägg",
-    "name": "Aluminium - glass structures (doors, windows, curtain walls, partition kits)",
-    "owner": "Aluflam",
-    "gwp_a1a3": 187.0,
-    "unit": "m2",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0020042:002",
-    "uuid": "f04efb06-f354-465b-405b-08dd572c09bb",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "yttervägg",
     "name": "Aluminium Cladding - Boards - Anodised",
     "owner": "Aluminum Product Brands NZ Ltd t/a Nu-Wall Cladding",
     "gwp_a1a3": 36.7,
@@ -17558,54 +17546,6 @@
     "geo": "RER",
     "reg_no": "EPD-IES-0020844:001",
     "uuid": "6ebff17e-cbe4-40b6-1310-08dd6232b4bc",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "yttervägg",
-    "name": "Lyssand 105, Balcony door, wood with aluminium cladding",
-    "owner": "Lyssand-Frekhaug AS",
-    "gwp_a1a3": 52.3,
-    "unit": "m2",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0008017:001 (S-P-08017)",
-    "uuid": "37b32109-be2f-45c7-6e3d-08daec9c0555",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "yttervägg",
-    "name": "Lyssand 105, Fixed frame window, wood with aluminium cladding",
-    "owner": "Lyssand-Frekhaug AS",
-    "gwp_a1a3": 55.5,
-    "unit": "m2",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0008015:001 (S-P-08015)",
-    "uuid": "e97f1b3b-addf-4952-6e3c-08daec9c0555",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "yttervägg",
-    "name": "Lyssand 105, Side hung window, wood with aluminium cladding",
-    "owner": "Lyssand-Frekhaug AS",
-    "gwp_a1a3": 62.6,
-    "unit": "m2",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0008018:001 (S-P-08018)",
-    "uuid": "9cb8aff4-8818-41f4-6e3e-08daec9c0555",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "yttervägg",
-    "name": "Lyssand 105, Top-swing window, wood with aluminium cladding",
-    "owner": "Lyssand-Frekhaug AS",
-    "gwp_a1a3": 63.2,
-    "unit": "m2",
-    "geo": "RER",
-    "reg_no": "EPD-IES-0008016:001 (S-P-08016)",
-    "uuid": "ad59c5a4-d275-46f0-6e3b-08daec9c0555",
     "source_registry": "environdec",
     "subcategory": ""
   },

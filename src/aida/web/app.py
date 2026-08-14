@@ -24,12 +24,40 @@ from aida.agents.alternatives import find_alternatives
 from aida.agents.baseline import calculate_baseline
 from aida.agents.intake import run_intake
 from aida.agents.report import generate_report_markdown
+from aida.errors import UserFacingError
+from aida.llm_json import ModelOutputError
 from aida.models import Baseline, Project, Selections
 
 logger = logging.getLogger(__name__)
 
 # Timeout errors to catch from Anthropic SDK
 _TIMEOUT_ERRORS = (anthropic.APITimeoutError, TimeoutError)
+
+
+def step_failed(exc: Exception, step: str):
+    """Turn an unexpected step failure into something a building manager can act
+    on, and keep the detail in the server log.
+
+    Raw exception text used to go straight to the chat window. Sara's June test
+    run died on "Fel: Expecting value: line 1 column 4 (char 3)", which says
+    nothing about what to do next. Anything unrecognised now reads as a plain
+    Swedish sentence; the traceback (and, for ModelOutputError, the raw model
+    output) lands in the log instead.
+    """
+    if isinstance(exc, UserFacingError):
+        logger.warning("%s: %s", step, exc)
+        return jsonify({'error': str(exc)}), exc.status_code
+    if isinstance(exc, ModelOutputError):
+        logger.error("%s: unreadable model output: %s | raw=%r", step, exc, exc.raw[:2000])
+        return jsonify({
+            'error': f'AIda kunde inte tolka svaret från modellen under {step}. '
+                     'Försök igen, det brukar gå igenom vid nästa försök.'
+        }), 502
+    logger.exception("%s failed", step)
+    return jsonify({
+        'error': f'Något gick fel under {step}. Försök igen. '
+                 'Står felet kvar, hör av dig så tittar vi i loggarna.'
+    }), 500
 
 app = Flask(__name__)
 
@@ -287,7 +315,7 @@ def api_intake():
     except _TIMEOUT_ERRORS:
         return jsonify({'error': 'Analysen tog för lång tid. Försök igen.'}), 504
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'analysen av projektbeskrivningen')
 
 
 @app.route('/api/baseline', methods=['POST'])
@@ -316,7 +344,7 @@ def api_baseline():
     except _TIMEOUT_ERRORS:
         return jsonify({'error': 'Baslinjeberäkningen tog för lång tid. Försök igen.'}), 504
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'baslinjeberäkningen')
 
 
 @app.route('/api/alternatives', methods=['POST'])
@@ -358,7 +386,7 @@ def api_alternatives():
     except _TIMEOUT_ERRORS:
         return jsonify({'error': 'Alternativanalysen tog för lång tid. Försök igen, eller minska antal komponenter.'}), 504
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'alternativsökningen')
 
 
 @app.route('/api/aggregate', methods=['POST'])
@@ -371,7 +399,7 @@ def api_aggregate():
         result = compute_aggregate(project, selections)
         return jsonify(result.to_dict())
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'sammanställningen')
 
 
 @app.route('/api/report', methods=['POST'])
@@ -388,7 +416,7 @@ def api_report():
     except _TIMEOUT_ERRORS:
         return jsonify({'error': 'Rapportgenereringen tog för lång tid. Försök igen.'}), 504
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'rapportgenereringen')
 
 
 @app.route('/api/report/docx', methods=['POST'])
@@ -570,7 +598,7 @@ def api_report_docx():
     except ImportError:
         return jsonify({'error': 'python-docx är inte installerat på servern'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'Word-exporten')
 
 
 @app.route('/api/route', methods=['POST'])
@@ -606,7 +634,7 @@ def api_route():
         return jsonify({'error': 'Routern svarade inte i tid. Försök igen.'}), 504
     except Exception as e:
         app.logger.exception("route failed")
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'tolkningen av ditt meddelande')
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -648,7 +676,7 @@ def api_chat():
         return jsonify({'error': 'Chatten svarade inte i tid. Försök igen.'}), 504
     except Exception as e:
         app.logger.exception("chat_agent failed")
-        return jsonify({'error': str(e)}), 500
+        return step_failed(e, 'chatt-svaret')
 
 
 # === Analyses CRUD (Supabase) ===
@@ -1171,7 +1199,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
         <h2>AIda</h2>
       </div>
       <div class="messages" id="messages">
-        <div class="msg bot">Hej! Beskriv ditt projekt. Ange byggnadstyp, byggnadsår, ungefärlig yta och vilka behoven är.</div>
+        <div class="msg bot">Hej! Beskriv ditt projekt. Berätta vad byggnaden används till, byggnadsår, ungefärlig yta och vilka behoven är.</div>
       </div>
       <div class="confirm-bar" id="confirmBar">
         <span class="confirm-bar-text" id="confirmBarText"></span>
@@ -2550,6 +2578,52 @@ function renderBaslinjeContent() {
   document.getElementById('resultContent').innerHTML = html;
 }
 
+// Climate benefit per krona. Johanna, juni 2026: "Alternativen ska visas med
+// bäst klimatnytta per krona, oavsett återbruk eller nyproducerade alternativ."
+// Henric confirmed the sort key on 2026-06-10: kr per saved kg CO2e, lowest
+// first. Until now the table simply showed whatever order the agent produced.
+function altValue(comp, alt) {
+  const saved = comp.baseline_co2e_kg - alt.co2e_kg;
+  const priced = alt.cost_sek > 0;
+  const extra = alt.cost_sek - comp.baseline_cost_sek;
+  if (!priced) return { tier: 2, value: 0, saved: saved, priced: false };
+  if (saved <= 0) return { tier: 3, value: -saved, saved: saved, priced: true };
+  // Cheaper AND lower emissions is strictly better than anything you pay for,
+  // so it gets its own tier rather than competing on a negative ratio.
+  return { tier: extra <= 0 ? 0 : 1, value: extra / saved, saved: saved, priced: true };
+}
+
+// Sort for display while keeping each alternative's index into
+// comp.alternatives — selectAlt() looks rows up by that index.
+function rankedAlternatives(comp) {
+  const rows = comp.alternatives.map((alt, i) => ({ alt: alt, i: i }));
+  const info = rows.filter(r => r.alt.alternative_type === 'info');
+  const rest = rows.filter(r => r.alt.alternative_type !== 'info');
+  rest.sort((a, b) => {
+    const va = altValue(comp, a.alt), vb = altValue(comp, b.alt);
+    if (va.tier !== vb.tier) return va.tier - vb.tier;
+    if (va.value !== vb.value) return va.value - vb.value;
+    return a.i - b.i;
+  });
+  return rest.concat(info);
+}
+
+function formatCost(alt) {
+  // An EPD-verified alternative that could not be web-priced survives the B1
+  // filter with cost_sek 0. Rendering that as "0 kr" read as free; Johanna
+  // reported it as "pris visas inte för nyproducerade material".
+  if (!(alt.cost_sek > 0)) return '<span style="color:var(--kk-gray-500)">Pris saknas</span>';
+  return Math.round(alt.cost_sek).toLocaleString('sv') + ' kr';
+}
+
+function formatValuePerKg(comp, alt) {
+  const v = altValue(comp, alt);
+  if (!v.priced) return '<span style="color:var(--kk-gray-500)">-</span>';
+  if (v.saved <= 0) return '<span style="color:var(--kk-gray-500)">ingen besparing</span>';
+  if (v.tier === 0) return '<span style="color:var(--green-saving)">billigare</span>';
+  return Math.round(v.value).toLocaleString('sv') + ' kr';
+}
+
 function renderAlternativContent() {
   const data = state.alternatives;
   let html = '<div class="section-title">J\u00e4mf\u00f6relse per komponent</div>';
@@ -2562,7 +2636,7 @@ function renderAlternativContent() {
     const usageBlock = (pc && pc.usage_context) ? '<div class="usage-context"><span class="usage-context-label">Användning</span>' + esc(pc.usage_context) + '</div>' : '';
     const header = '<h3>' + esc(comp.component_name) + '</h3>' + (qtyLabel ? '<div style="font-size:12px;color:var(--kk-gray-500);margin-top:2px">Antal: ' + qtyLabel + '</div>' : '') + usageBlock;
     html += '<div class="comp-card"><div class="comp-card-header">' + header + '</div>';
-    html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th><th></th></tr></thead><tbody>';
+    html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th><th style="text-align:right" title="Merkostnad delat med sparade kilo CO\u2082e. L\u00e4gst v\u00e4rde \u00f6verst.">kr/sparat kg</th><th></th></tr></thead><tbody>';
     const blSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === 'Baslinje';
     // Look up the Boverket product used for this component's baseline so the
     // baseline row shows the actual material (e.g. "Gipsskiva, standardskiva").
@@ -2582,17 +2656,19 @@ function renderAlternativContent() {
       '<td><span class="type-badge type-baseline">Baslinje</span></td>' +
       '<td>' + blMaterialCell + '</td><td style="font-size:11px">' + (blSource.includes('Boverket') ? '<span class="source-badge source-verified">BVK</span>' : (blSource.includes('typvärde') ? '<span class="source-badge source-aggregate">EPD-typvärde</span>' : '<span class="source-badge source-estimate">Est.</span>')) + ' NollCO2</td>' +
       '<td style="text-align:right">' + Math.round(comp.baseline_co2e_kg) + '</td>' +
-      '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td><td></td></tr>';
-    comp.alternatives.forEach((alt, i) => {
+      '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td>' +
+      '<td style="text-align:right;color:var(--kk-gray-500)">referens</td><td></td></tr>';
+    rankedAlternatives(comp).forEach(entry => {
+      const alt = entry.alt, i = entry.i;
       const rowId = cid + '_' + i;
       if (alt.alternative_type === 'info') {
         html += '<tr style="opacity:0.6">' +
           '<td></td>' +
           '<td>' + getTypeBadge(alt) + '</td>' +
-          '<td colspan="4" style="font-size:12px;color:var(--kk-gray-500)">' + esc(alt.name) + '</td>' +
+          '<td colspan="5" style="font-size:12px;color:var(--kk-gray-500)">' + esc(alt.name) + '</td>' +
           '<td>' + (alt.reasoning ? '<button class="reasoning-toggle" onclick="toggleReasoning(\'' + rowId + '\',event)">Visa mer</button>' : '') + '</td></tr>';
         if (alt.reasoning) {
-          html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="7">' + esc(alt.reasoning) + '</td></tr>';
+          html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="8">' + esc(alt.reasoning) + '</td></tr>';
         }
         return;
       }
@@ -2604,11 +2680,13 @@ function renderAlternativContent() {
       // adjustability yet.
       const showBreakdown = alt.alternative_type === 'reuse' && !alt.name.endsWith('*') && pc && pc.quantity > 0 && alt.cost_sek > 0;
       const perUnit = showBreakdown ? Math.round(alt.cost_sek / pc.quantity) : 0;
-      const costCell = alt.name.endsWith('*')
-        ? Math.round(alt.cost_sek).toLocaleString('sv') + ' kr/st *'
-        : (showBreakdown
-          ? '<div style="line-height:1.3">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr<div style="font-size:10px;color:var(--kk-gray-500)">' + esc(String(pc.quantity)) + ' \u00d7 ' + perUnit.toLocaleString('sv') + ' kr</div></div>'
-          : Math.round(alt.cost_sek).toLocaleString('sv') + ' kr');
+      const costCell = !(alt.cost_sek > 0)
+        ? formatCost(alt)
+        : (alt.name.endsWith('*')
+          ? Math.round(alt.cost_sek).toLocaleString('sv') + ' kr/st *'
+          : (showBreakdown
+            ? '<div style="line-height:1.3">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr<div style="font-size:10px;color:var(--kk-gray-500)">' + esc(String(pc.quantity)) + ' \u00d7 ' + perUnit.toLocaleString('sv') + ' kr</div></div>'
+            : Math.round(alt.cost_sek).toLocaleString('sv') + ' kr'));
       html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + cid + '" data-alt="' + i + '">' +
         '<td><input type="radio" name="' + cid + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
@@ -2616,9 +2694,10 @@ function renderAlternativContent() {
         '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
         '<td style="text-align:right">' + Math.round(alt.co2e_kg) + ' <span style="color:' + (saving >= 0 ? 'var(--green-saving)' : 'var(--kk-red-orange)') + ';font-size:11px">' + (saving >= 0 ? '\u2193' : '\u2191') + Math.abs(saving) + '%</span></td>' +
         '<td style="text-align:right">' + costCell + '</td>' +
+        '<td style="text-align:right;font-size:12px">' + formatValuePerKg(comp, alt) + '</td>' +
         '<td>' + (alt.reasoning ? '<button class="reasoning-toggle" onclick="toggleReasoning(\'' + rowId + '\',event)">Visa mer</button>' : '') + '</td></tr>';
       if (alt.reasoning) {
-        html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="7">' + esc(alt.reasoning) + '</td></tr>';
+        html += '<tr class="reasoning-row" id="reasoning-' + rowId + '" style="display:none"><td colspan="8">' + esc(alt.reasoning) + '</td></tr>';
       }
     });
     html += '</tbody></table></div>';
@@ -3061,7 +3140,7 @@ function restoreUI() {
   } else {
     // Fallback: reconstruct summary from state
     if (!state.project) {
-      addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
+      addMsg('Hej! Beskriv ditt projekt. Berätta vad byggnaden används till, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
     } else {
       addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
       if (state.step === 'intake_done') {
@@ -3107,7 +3186,7 @@ function createNewProject() {
   document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
-  addMsg('Hej! Beskriv ditt projekt. Ange byggnadstyp, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
+  addMsg('Hej! Beskriv ditt projekt. Berätta vad byggnaden används till, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
   setLoading(false);
 }
 </script>

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import sys
+import time
 
 from aida.api_client import (
     DEFAULT_MODEL,
@@ -12,8 +15,12 @@ from aida.api_client import (
     call_model,
     extract_text,
     get_client,
+    remaining_budget,
 )
+from aida.llm_json import ModelOutputError, extract_json_object
 from aida.models import Project
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """Du är AIda — en byggnadsexpert som hjälper förvaltare och byggledare att hitta renoveringslösningar med kraftigt minskad klimatpåverkan, utan att ge avkall på praktiska behov.
 
@@ -30,6 +37,7 @@ Svara ALLTID med giltig JSON i detta format:
 {
   "building_type": "string",
   "area_bta": number,
+  "storeys": number,
   "name": "projektnamn om nämnt",
   "description": "original beskrivning",
   "components": [
@@ -59,6 +67,14 @@ QUANTITY_SOURCE — sätt per komponent:
 - "estimated" om du gissar antalet från area, byggnadstyp eller schablon. Även om beskrivningen ger area (t.ex. "300 m²") räknas det som "estimated" om komponenten är något annat än yta (t.ex. lampor på 300 m² → estimated, eftersom användaren inte sa hur många lampor).
 - Yta-baserade komponenter (golv, väggar, tak) där area_bta används direkt: "user_specified" om användaren gav arean explicit, annars "estimated".
 - Vid tvekan: "estimated".
+
+GEOMETRI — härled ytor, återanvänd aldrig BTA rakt av:
+`area_bta` är golvytan. En fasad, ett tak eller en yttervägg har en helt annan yta, och att sätta samma siffra på dem är ett av de fel som gör hela analysen fel.
+
+- Ange `storeys` (antal våningar) på projektnivå. Står det "enplanshus" är det 1. Framgår det inte, gissa utifrån byggnadstyp och yta och skriv antagandet i `needs_analysis.assumptions`.
+- Fasad och yttervägg: byggnadens omkrets gånger våningshöjd. Med kvadratisk approximation blir omkretsen 4 × roten ur (BTA / antal våningar), och våningshöjden är cirka 3 meter om inget annat sägs. Ett enplanshus på 700 m² får alltså ungefär 4 × √700 × 3 ≈ 320 m² fasad, inte 700.
+- Tak: motsvarar byggnadens fotavtryck, alltså BTA delat med antal våningar (plus påslag för lutning om taket är brant).
+- Skriv i komponentens `usage_context` hur du kom fram till ytan när du uppskattat den.
 
 USAGE_CONTEXT — funktionella krav per komponent:
 Du är byggnadsexpert med materialkunskap och brukarsförståelse. Det betyder att du ska resonera om komponentens *användning* — inte välja material, men identifiera de krav som styr vilka material som ens är lämpliga.
@@ -114,13 +130,93 @@ TIDIGARE DISKUSSION:
 """
 
 
-def run_intake(description: str) -> dict:
-    """Extract project parameters from a natural language description."""
-    client = get_client()
+# Facade geometry. Sara's June test got a facade area of 700 m² for a 700 m²
+# single-storey care home, i.e. the floor area copied straight across. The
+# prompt now explains the derivation, and this guard catches it when the model
+# ignores that anyway — a silently wrong envelope area poisons both the
+# baseline and every alternative for that component.
+STOREY_HEIGHT_M = 3.0
+_ENVELOPE_CATEGORIES = {"yttervägg"}
+_ENVELOPE_NAME_TOKENS = ("fasad", "yttervägg")
 
-    response = call_model(
+
+def estimate_facade_area_m2(area_bta: float, storeys: float = 1) -> float:
+    """Facade area from gross floor area, square-footprint approximation.
+
+    perimeter = 4 * sqrt(footprint), footprint = BTA / storeys.
+    700 m² on one storey -> 4*sqrt(700)*3 ≈ 317 m².
+    """
+    storeys = max(1, int(storeys or 1))
+    footprint = float(area_bta) / storeys
+    if footprint <= 0:
+        return 0.0
+    perimeter = 4 * math.sqrt(footprint)
+    return perimeter * STOREY_HEIGHT_M * storeys
+
+
+def _is_envelope(component: dict) -> bool:
+    if (component.get("category") or "").lower() in _ENVELOPE_CATEGORIES:
+        return True
+    name = (component.get("name") or "").lower()
+    return any(token in name for token in _ENVELOPE_NAME_TOKENS)
+
+
+def fix_envelope_quantities(data: dict) -> dict:
+    """Replace a facade quantity that is just the floor area repeated.
+
+    Only touches m² envelope components the model itself estimated. A quantity
+    the user stated is left alone even when it looks odd — correcting the user
+    silently would be worse than the bug.
+    """
+    area_bta = data.get("area_bta") or 0
+    if not area_bta or area_bta <= 0:
+        return data
+    storeys = data.get("storeys") or 1
+
+    for component in data.get("components") or []:
+        if (component.get("unit") or "").lower() != "m2":
+            continue
+        if component.get("quantity_source") == "user_specified":
+            continue
+        if not _is_envelope(component):
+            continue
+        quantity = component.get("quantity") or 0
+        if abs(quantity - area_bta) > 0.01 * area_bta:
+            continue
+
+        estimated = estimate_facade_area_m2(area_bta, storeys)
+        if estimated <= 0:
+            continue
+        component["quantity"] = round(estimated)
+        note = (
+            f"Fasadytan är uppskattad till {round(estimated)} m² ur byggnadens "
+            f"omkrets ({round(4 * math.sqrt(float(area_bta) / max(1, int(storeys)))) } m) "
+            f"gånger våningshöjd {STOREY_HEIGHT_M:g} m. Golvytan {round(area_bta)} m² "
+            "är inte samma sak som fasadytan. Ange rätt fasadyta i chatten om du har den."
+        )
+        existing = (component.get("usage_context") or "").strip()
+        component["usage_context"] = f"{existing} {note}".strip()
+        logger.warning(
+            "Envelope quantity equalled area_bta (%s m2) for %r; re-estimated to %s m2",
+            area_bta, component.get("name"), round(estimated),
+        )
+
+    return data
+
+
+REPAIR_INSTRUCTION = (
+    "Ditt förra svar gick inte att läsa som JSON. Svara nu med ENBART "
+    "JSON-objektet, utan inledande text, utan förklaring efteråt och utan "
+    "kodstaket. Första tecknet ska vara { och sista }."
+)
+
+
+def _call_intake(client, messages: list[dict], timeout: float | None = None):
+    extra = {"timeout": timeout} if timeout is not None else {}
+    return call_model(
         client,
         model=DEFAULT_MODEL,
+        **extra,
         # Opus 4.8 + adaptive thinking. REASONING_MAX_TOKENS covers thinking +
         # the JSON output; the old 8000 was a visible-output cap only.
         # needs_analysis (from_user + inferred + assumptions + would_clarify) plus
@@ -128,20 +224,60 @@ def run_intake(description: str) -> dict:
         max_tokens=REASONING_MAX_TOKENS,
         effort=EFFORT_HIGH,
         system=SYSTEM_PROMPT,
-        messages=[
-            {"role": "user", "content": description}
-        ],
+        messages=messages,
     )
 
+
+def run_intake(description: str) -> dict:
+    """Extract project parameters from a natural language description.
+
+    Both testers hit a hard crash here in June 2026, because the response was
+    parsed with a bare json.loads: an off-format answer surfaced in the chat as
+    "Fel: Expecting value: line 1 column 4 (char 3)". Parsing now goes through
+    extract_json_object, and a first failure buys one repair round-trip before
+    we give up.
+    """
+    client = get_client()
+    started_at = time.monotonic()
+
+    messages: list[dict] = [{"role": "user", "content": description}]
+    response = _call_intake(client, messages)
     text = extract_text(response)
 
-    # Extract JSON from response (handle markdown code blocks)
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
+    try:
+        return fix_envelope_quantities(extract_json_object(text, what="projektbeskrivningen"))
+    except ModelOutputError as first:
+        logger.warning(
+            "Intake parse failed (%s). stop_reason=%s raw=%r",
+            first, getattr(response, "stop_reason", None), text[:2000],
+        )
 
-    return json.loads(text.strip())
+    # One repair attempt, but only if the request has time for it. Retrying
+    # into a budget that has already run out just swaps our message for a
+    # gateway timeout page.
+    budget = remaining_budget(started_at)
+    if budget < 20:
+        logger.error("Intake parse failed with %.0fs budget left; skipping repair", budget)
+        raise ModelOutputError(
+            "Analysen hann inte bli klar i tid.", raw=text
+        )
+
+    repair_messages = messages + [
+        {"role": "assistant", "content": text or "(tomt svar)"},
+        {"role": "user", "content": REPAIR_INSTRUCTION},
+    ]
+    retry = _call_intake(client, repair_messages, timeout=budget)
+    retry_text = extract_text(retry)
+    try:
+        return fix_envelope_quantities(
+            extract_json_object(retry_text, what="projektbeskrivningen")
+        )
+    except ModelOutputError as second:
+        logger.error(
+            "Intake parse failed after repair (%s). stop_reason=%s raw=%r",
+            second, getattr(retry, "stop_reason", None), retry_text[:2000],
+        )
+        raise
 
 
 def intake_from_description(description: str) -> Project:

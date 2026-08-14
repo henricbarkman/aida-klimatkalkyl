@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 
 import requests
@@ -92,7 +93,8 @@ class EnvirondecClient:
                     return self._index
 
         # Fetch from API
-        self._index = self._fetch_index_from_api()
+        fetched = self._fetch_index_from_api()
+        self._index = self._reconcile_with_cached(fetched)
 
         # Only persist a complete index. A truncated fetch (mid-pagination
         # network error) would otherwise be cached for 30 days and silently
@@ -105,6 +107,65 @@ class EnvirondecClient:
             )
 
         return self._index
+
+    def _reconcile_with_cached(self, fetched: list[EPDSummary]) -> list[EPDSummary]:
+        """Merge a fresh fetch with the cached index instead of replacing it.
+
+        A refresh must never be able to lose data on its own. Two ways it did
+        (2026-08-14, measured against the committed index):
+
+        1. The list endpoint stopped returning `owner` entirely, so
+           `item.get("owner", "")` turned all 17567 rows into empty strings
+           with no error anywhere. The value still exists upstream, but only in
+           the per-EPD detail response, which is one request per EPD.
+        2. Offset pagination is not stable while the collection changes under
+           it. The refresh gained 2838 EPDs and dropped 1153, of which 1122
+           were still valid and still resolve individually in the API. They
+           were skipped pages, not withdrawals.
+
+        So: carry an owner forward whenever the fetch has none, and keep any
+        cached EPD the fetch did not return. A withdrawn EPD lingering in the
+        index is a much smaller harm than a valid one silently disappearing,
+        and `valid_until` already makes stale rows detectable.
+        """
+        if not fetched:
+            return fetched
+
+        cached = self._load_index_file()
+        if not cached:
+            return fetched
+
+        by_uuid = {e.uuid: e for e in cached if e.uuid}
+        restored_owners = 0
+        merged = []
+        for epd in fetched:
+            prev = by_uuid.get(epd.uuid)
+            if prev and not epd.owner.strip() and prev.owner.strip():
+                epd = replace(epd, owner=prev.owner)
+                restored_owners += 1
+            merged.append(epd)
+
+        seen = {e.uuid for e in fetched if e.uuid}
+        unseen = [e for e in cached if e.uuid and e.uuid not in seen]
+        merged.extend(unseen)
+
+        if restored_owners:
+            logger.warning(
+                "Environdec list endpoint returned no owner for %d EPDs — "
+                "carried the cached value forward. New EPDs keep an empty "
+                "owner until someone backfills from the detail endpoint.",
+                restored_owners,
+            )
+        if unseen:
+            logger.warning(
+                "Environdec refresh did not return %d cached EPDs (%d still "
+                "valid) — kept them rather than deleting. Suspect unstable "
+                "offset pagination, not withdrawal.",
+                len(unseen),
+                sum(1 for e in unseen if e.valid_until >= date.today().year),
+            )
+
+        return merged
 
     def search_index(
         self,

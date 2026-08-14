@@ -20,6 +20,8 @@ from aida.data.climate_data import (
     resolve_category,
 )
 from aida.data.climate_provider import ClimateProvider
+from aida.errors import UserFacingError
+from aida.llm_json import ModelOutputError, extract_json_value
 from aida.models import Baseline, BaselineResult, Project
 
 logger = logging.getLogger(__name__)
@@ -318,14 +320,10 @@ Matcha varje komponent ovan mot bästa Boverket-produkt. Använd EXAKT de compon
     )
 
     text = extract_text(response)
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
 
     try:
-        data = json.loads(text.strip())
-    except json.JSONDecodeError as e:
+        data = extract_json_value(text, what="baslinje-matchningen")
+    except ModelOutputError as e:
         # Opus 4.8 adaptive thinking shares the 16k max_tokens budget. If a very
         # large project pushes thinking + output past the cap, stop_reason is
         # "max_tokens" and the JSON is truncated. Surface it clearly instead of a
@@ -334,9 +332,8 @@ Matcha varje komponent ovan mot bästa Boverket-produkt. Använd EXAKT de compon
             "Baseline match returned unparseable JSON (stop_reason=%s, %d chars): %s",
             getattr(response, "stop_reason", "?"), len(text), e,
         )
-        raise RuntimeError(
-            "Baslinje-matchningen gav ett ofullständigt svar"
-            f" (stop_reason={getattr(response, 'stop_reason', '?')})."
+        raise UserFacingError(
+            "Baslinje-matchningen gav ett ofullständigt svar."
             " Försök igen eller dela upp projektet i färre komponenter."
         ) from e
     if isinstance(data, dict) and "components" in data:

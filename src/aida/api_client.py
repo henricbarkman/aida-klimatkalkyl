@@ -8,12 +8,34 @@ import anthropic
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
-# Per-call client timeout (seconds). Opus 4.8 with adaptive thinking runs well
-# past the old 120s on heavy reasoning steps, so this is generous. The REAL
-# ceiling is Vercel's function maxDuration (see vercel.json) — keep that >= the
-# slowest single step. Calls are non-streaming with max_tokens <= 16k, which
-# stays under the SDK's long-request guard and well under maxDuration.
-LLM_CALL_TIMEOUT = 600.0
+# Vercel kills the function at maxDuration (see vercel.json). AIDA_MAX_DURATION
+# lets another host override it without a code change.
+PLATFORM_MAX_DURATION = float(os.environ.get("AIDA_MAX_DURATION", "300"))
+
+# Left for Flask to build and return the answer, including the 504 body when a
+# step really does run long.
+_RESPONSE_HEADROOM = 30.0
+
+# Per-call client timeout (seconds). MUST stay below PLATFORM_MAX_DURATION.
+# It was 600 against a 300s ceiling, so the SDK timeout could never fire first:
+# Vercel killed the function and the browser got a gateway error page instead of
+# the app's own "Analysen tog för lång tid". That is what Johanna reported as
+# "för lång tid att analysera, fick timeout" in June 2026. Calls are
+# non-streaming with max_tokens <= 16k, under the SDK's long-request guard.
+LLM_CALL_TIMEOUT = max(30.0, PLATFORM_MAX_DURATION - _RESPONSE_HEADROOM)
+
+
+def remaining_budget(started_at: float) -> float:
+    """Seconds left of the request before the platform kills the function.
+
+    A step that makes a second call (intake's repair round-trip) must not hand
+    the SDK a timeout longer than the request has left, or the function dies
+    mid-call and the user gets a gateway page instead of our own message.
+    """
+    import time
+
+    spent = time.monotonic() - started_at
+    return max(0.0, LLM_CALL_TIMEOUT - spent)
 
 
 def get_client() -> anthropic.Anthropic:

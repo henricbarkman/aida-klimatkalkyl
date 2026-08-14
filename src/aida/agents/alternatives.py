@@ -28,6 +28,7 @@ from aida.data.climate_data import (
     normalize_component_name,
     resolve_category,
 )
+from aida.llm_json import extract_json_object, extract_json_value
 from aida.models import (
     Alternative,
     AlternativesResult,
@@ -580,21 +581,8 @@ def _route_components(
             effort=EFFORT_HIGH,  # correctness step — material routing (toalett/kakel)
             messages=[{"role": "user", "content": prompt}],
         )
-        text = extract_text(resp).strip()
-        if "```" in text:
-            text = text.split("```")[1].split("```")[0]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            # Recover from an unfenced preamble ("Här är mappningen: {...}").
-            import re
-            m = re.search(r"\{.*\}", text, re.DOTALL)
-            if not m:
-                raise
-            data = json.loads(m.group(0))
+        text = extract_text(resp)
+        data = extract_json_object(text, what="kategori-routingen")
     except Exception:
         logger.warning("Component routing failed; using name-based fallback",
                        exc_info=True)
@@ -1006,12 +994,8 @@ Inga EPD:er tillgängliga för denna kategori. Returnera en tom array [].
         )
 
         text = extract_text(response)
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0]
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0]
 
-        data = json.loads(text.strip())
+        data = extract_json_value(text, what="alternativsökningen")
         if isinstance(data, dict):
             data = data.get("alternatives", [data])
         if not isinstance(data, list):
