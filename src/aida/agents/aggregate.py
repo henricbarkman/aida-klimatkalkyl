@@ -49,6 +49,14 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
             "baslinje_kostnad_sek": sel.baseline_cost_sek,
             "co2e_besparing_kg": round(sel.baseline_co2e_kg - alt_co2e, 1),
             "källa": alt.get("source", ""),
+            # Carried through so the report can state where a reuse figure
+            # assumes more stock than Palats holds. None for non-reuse picks
+            # and for analyses saved before 2026-08-15.
+            "tillgangligt_antal": alt.get("available_quantity"),
+            "behov_antal": next(
+                (c.quantity for c in project.components if c.id == sel.id), None
+            ),
+            "prisunderlag": alt.get("price_basis", ""),
         })
 
     return AggregateResult(

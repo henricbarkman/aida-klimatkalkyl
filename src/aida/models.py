@@ -171,6 +171,19 @@ class Alternative:
     source: str
     reasoning: str = ""
     alternative_type: str = ""  # "reuse", "climate_optimized", "baseline", "info"
+    # Units in stock on Palats at analysis time, for reuse listings. cost_sek
+    # and co2e_kg are deliberately computed for the FULL component quantity
+    # regardless: AIda is an early-planning tool and stock turns over long
+    # before anything is procured (Henric, 2026-08-15). This field is what lets
+    # the UI show which part of those numbers is an assumption instead of
+    # silently implying the stock is there. None for non-reuse alternatives and
+    # for analyses saved before 2026-08-15.
+    available_quantity: int | None = None
+    # How the price was arrived at: "listing" (a real Palats asking price),
+    # "market_estimate" (web-searched installed price for the material type),
+    # or "" (unknown). Two very different kinds of number that the comparison
+    # table used to render identically.
+    price_basis: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)

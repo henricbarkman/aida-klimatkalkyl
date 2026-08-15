@@ -458,9 +458,23 @@ def _add_palats_reuse(
         total_co2e = co2e_per_unit * quantity
 
         if units_match and listing.price > 0:
-            # Units match (both "st") — total is directly comparable
+            # Units match (both "st") — total is directly comparable.
+            #
+            # The total covers the FULL component quantity even when fewer are
+            # in stock, and so does total_co2e above. That is deliberate: AIda
+            # plans early, and stock turns over long before procurement
+            # (Henric, 2026-08-15). What was wrong was saying nothing about it.
+            # Live check 2026-08-14: 30 windows needed, best listing had 3, and
+            # the row read "9 600 kr" with no hint that 27 were assumed.
             total_cost = listing.price * quantity
             price_note = f"Pris: {listing.price:.0f} SEK/st × {int(quantity)} = {int(total_cost)} SEK"
+            if listing.quantity < quantity:
+                price_note += (
+                    f" | OBS: {listing.quantity} av {int(quantity)} finns i lager just nu."
+                    " Pris och klimatnytta räknas på hela behovet, alltså som om"
+                    " resten går att få tag på begagnat. Kontrollera tillgången"
+                    " innan siffran används i ett beslutsunderlag."
+                )
             cost_is_estimate = False
         elif listing.price > 0:
             # Units don't match — show per-article price only
@@ -504,6 +518,8 @@ def _add_palats_reuse(
             source=f"[Palats] palats.app/listing/{listing.id}",
             reasoning=reasoning,
             alternative_type="reuse",
+            available_quantity=listing.quantity,
+            price_basis="listing" if listing.price > 0 else "",
         ))
         existing_names.add(listing.title.lower())
 
@@ -867,6 +883,11 @@ def _enrich_alternative_prices(
                     alt.cost_sek = round(price_per_unit * quantity)
                 else:
                     alt.cost_sek = round(price_per_unit)
+                # A typical installed price for this KIND of material, not this
+                # product's asking price. The table renders it in the same
+                # column as a real Palats listing price, so it has to be
+                # labelled as what it is.
+                alt.price_basis = "market_estimate"
                 alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
                 alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
 

@@ -2608,6 +2608,37 @@ function rankedAlternatives(comp) {
   return rest.concat(info);
 }
 
+// Reuse totals cover the whole component quantity even when Palats holds
+// fewer. That is the intended behaviour for an early-planning tool (stock turns
+// over long before procurement), but until 2026-08-15 the table said nothing
+// about it: a row could read "9 600 kr" for 30 windows off a listing with 3 in
+// stock. Show the gap instead of hiding it.
+function stockShortfall(alt, pc) {
+  if (alt.alternative_type !== 'reuse') return null;
+  if (alt.available_quantity === null || alt.available_quantity === undefined) return null;
+  if (!pc || !(pc.quantity > 0)) return null;
+  if (alt.available_quantity >= pc.quantity) return null;
+  return { have: alt.available_quantity, need: pc.quantity };
+}
+
+function stockNote(alt, pc) {
+  const short = stockShortfall(alt, pc);
+  if (!short) return '';
+  return '<div style="font-size:10px;color:var(--kk-red-orange);margin-top:2px">'
+    + esc(String(short.have)) + ' av ' + esc(String(short.need))
+    + ' i lager. Siffrorna räknas på hela behovet.</div>';
+}
+
+// "Annonspris" is what a specific second-hand item actually costs.
+// "Marknadspris" is a web-searched installed price for that KIND of material.
+// The column rendered both as a bare number, which made an estimate look like a
+// quote.
+function priceBasisNote(alt) {
+  if (alt.price_basis === 'market_estimate')
+    return '<div style="font-size:10px;color:var(--kk-gray-500)">marknadspris</div>';
+  return '';
+}
+
 function formatCost(alt) {
   // An EPD-verified alternative that could not be web-priced survives the B1
   // filter with cost_sek 0. Rendering that as "0 kr" read as free; Johanna
@@ -2685,12 +2716,12 @@ function renderAlternativContent() {
         : (alt.name.endsWith('*')
           ? Math.round(alt.cost_sek).toLocaleString('sv') + ' kr/st *'
           : (showBreakdown
-            ? '<div style="line-height:1.3">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr<div style="font-size:10px;color:var(--kk-gray-500)">' + esc(String(pc.quantity)) + ' \u00d7 ' + perUnit.toLocaleString('sv') + ' kr</div></div>'
-            : Math.round(alt.cost_sek).toLocaleString('sv') + ' kr'));
+            ? '<div style="line-height:1.3">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr<div style="font-size:10px;color:var(--kk-gray-500)">' + esc(String(pc.quantity)) + ' \u00d7 ' + perUnit.toLocaleString('sv') + ' kr annonspris</div></div>'
+            : '<div style="line-height:1.3">' + Math.round(alt.cost_sek).toLocaleString('sv') + ' kr' + priceBasisNote(alt) + '</div>'));
       html += '<tr class="alt-row' + (isSel ? ' selected' : '') + '" data-comp="' + cid + '" data-alt="' + i + '">' +
         '<td><input type="radio" name="' + cid + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
-        '<td style="font-weight:500">' + esc(alt.name) + '</td>' +
+        '<td style="font-weight:500">' + esc(alt.name) + stockNote(alt, pc) + '</td>' +
         '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
         '<td style="text-align:right">' + Math.round(alt.co2e_kg) + ' <span style="color:' + (saving >= 0 ? 'var(--green-saving)' : 'var(--kk-red-orange)') + ';font-size:11px">' + (saving >= 0 ? '\u2193' : '\u2191') + Math.abs(saving) + '%</span></td>' +
         '<td style="text-align:right">' + costCell + '</td>' +
@@ -2706,6 +2737,20 @@ function renderAlternativContent() {
   const hasPerArticle = data.components.some(c => c.alternatives.some(a => a.name.endsWith('*')));
   if (hasPerArticle) {
     html += '<div style="font-size:12px;color:var(--kk-gray-500);margin:8px 0;font-style:italic">* Pris per artikel (yta per artikel ok\u00e4nd). Se \u201cVisa mer\u201d f\u00f6r detaljer.</div>';
+  }
+  // One shared explanation when any reuse row is priced beyond current stock,
+  // so the assumption is stated once in plain language rather than only as a
+  // red line per row.
+  const hasShortfall = data.components.some(c => {
+    const pc2 = projComps.find(p => p.id === c.component_id);
+    return c.alternatives.some(a => stockShortfall(a, pc2));
+  });
+  if (hasShortfall) {
+    html += '<div style="font-size:12px;color:var(--kk-gray-500);margin:8px 0">'
+      + 'Kostnad och klimatnytta f\u00f6r \u00e5terbruk r\u00e4knas p\u00e5 hela behovet, \u00e4ven n\u00e4r Palats '
+      + 'har f\u00e4rre artiklar just nu. Det \u00e4r avsiktligt i ett tidigt planeringsskede, '
+      + 'eftersom lagret oms\u00e4tts innan n\u00e5got handlas upp. St\u00e4m av tillg\u00e5ngen innan '
+      + 'siffran g\u00e5r vidare till ett beslutsunderlag.</div>';
   }
   html += '<div id="summaryArea"></div>';
   html += '<button class="btn" id="reportBtn" onclick="generateReport()" disabled title="V\u00e4lj ett alternativ per komponent">Generera rapport</button>';
@@ -2756,7 +2801,13 @@ function selectAlt(compId, altIdx, row) {
   } else {
     const alt = comp.alternatives[parseInt(altIdx)];
     state.selections[compId] = { id: compId, name: comp.component_name,
-      selected_alternative: {name: alt.name, co2e_kg: alt.co2e_kg, cost_sek: alt.cost_sek, source: alt.source},
+      // available_quantity and price_basis travel with the selection so the
+      // report can state the stock assumption behind a reuse figure. The
+      // report is the artifact that leaves the tool, so the caveat has to
+      // reach it, not just the on-screen table.
+      selected_alternative: {name: alt.name, co2e_kg: alt.co2e_kg, cost_sek: alt.cost_sek, source: alt.source,
+        available_quantity: (alt.available_quantity === undefined ? null : alt.available_quantity),
+        price_basis: alt.price_basis || ''},
       baseline_co2e_kg: comp.baseline_co2e_kg, baseline_cost_sek: comp.baseline_cost_sek };
   }
   updateSummary();

@@ -245,7 +245,7 @@ def lookup_prices_batch(
         return {}
 
     text_parts = []
-    source_url = ""
+    source_urls: list[str] = []
     for block in (response.content or []):
         if not hasattr(block, "type"):
             continue
@@ -253,14 +253,29 @@ def lookup_prices_batch(
             text_parts.append(block.text)
             if hasattr(block, "citations") and block.citations:
                 for cit in block.citations:
-                    if hasattr(cit, "url") and cit.url and not source_url:
-                        source_url = cit.url
+                    url = getattr(cit, "url", "")
+                    if url and url not in source_urls:
+                        source_urls.append(url)
 
     full_text = "\n".join(text_parts)
     if not full_text:
         return {}
 
-    source_label = f"Webbsökning ({source_url})" if source_url else "Webbsökning"
+    # One batch call searches for every product at once, and the citations come
+    # back attached to the response as a whole, not to individual price lines.
+    # Naming a single URL per product was therefore false provenance: a live
+    # check on 2026-08-14 gave four different facade products the same
+    # hantverkskollen article as their "source". In a document meant for
+    # procurement that is worse than admitting the source is unresolved, so we
+    # say how many sources the search used and let the reader go look.
+    if len(source_urls) == 1:
+        source_label = f"Webbsökning ({source_urls[0]})"
+    elif source_urls:
+        source_label = (
+            f"Webbsökning ({len(source_urls)} källor, bl.a. {source_urls[0]})"
+        )
+    else:
+        source_label = "Webbsökning"
 
     # Parse structured lines: PRODUKT: name | PRIS: 250 SEK/m2
     results: dict[str, tuple[float, str, str]] = {}

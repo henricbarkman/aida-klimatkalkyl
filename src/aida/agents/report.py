@@ -57,7 +57,15 @@ REGLER:
 
 
 def generate_report_markdown(project: Project, selections: Selections) -> str:
-    """Generate a markdown report from project and selections."""
+    """Generate a markdown report from project and selections.
+
+    Reuse figures cover the full component quantity even when Palats holds
+    fewer units. Henric settled that on 2026-08-15: AIda plans early and stock
+    turns over long before anything is procured, so capping to today's stock
+    would be its own distortion. The report is what leaves the tool, though, so
+    the assumption is appended deterministically rather than left to whether
+    the model happens to mention it.
+    """
     aggregate = compute_aggregate(project, selections)
 
     # Build context for LLM
@@ -70,6 +78,8 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
             f"{comp['co2e_besparing_kg']:.0f} ({saving_pct:.0f}%) | "
             f"{comp['kostnad_sek']:,.0f} | {comp['källa']} |\n"
         )
+
+    stock_caveats = build_stock_caveats(aggregate.components)
 
     saving_pct_total = (
         aggregate.co2e_savings_kg / aggregate.baseline_total_co2e_kg * 100
@@ -103,12 +113,82 @@ Komponenttabell:
 | Komponent | Valt alternativ | CO2e (kg) | Baslinje (kg) | Besparing | Kostnad (SEK) | Källa |
 |-----------|----------------|-----------|---------------|-----------|---------------|-------|
 {component_table}
-
+{_caveat_prompt_block(stock_caveats)}
 Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är uppskattningar för beslutsstöd."""
         }],
     )
 
-    return extract_text(response)
+    markdown = extract_text(response)
+    if stock_caveats:
+        markdown = markdown.rstrip() + "\n\n" + render_stock_caveats(stock_caveats)
+    return markdown
+
+
+def build_stock_caveats(components: list[dict]) -> list[dict]:
+    """Selected reuse alternatives whose figures assume more units than Palats
+    currently lists.
+
+    Returns one entry per affected component: name, chosen alternative, units
+    in stock, units needed.
+    """
+    caveats = []
+    for comp in components:
+        available = comp.get("tillgangligt_antal")
+        needed = comp.get("behov_antal")
+        if available is None or needed is None:
+            continue
+        try:
+            available = int(available)
+            needed = float(needed)
+        except (TypeError, ValueError):
+            continue
+        if needed <= 0 or available >= needed:
+            continue
+        caveats.append({
+            "komponent": comp.get("name", ""),
+            "alternativ": comp.get("valt_alternativ", ""),
+            "tillgangligt": available,
+            "behov": needed,
+        })
+    return caveats
+
+
+def _caveat_prompt_block(caveats: list[dict]) -> str:
+    """Give the model the same facts, so its own limitations section is not
+    written in ignorance of what the appendix will say."""
+    if not caveats:
+        return ""
+    lines = "\n".join(
+        f"- {c['komponent']}: valt återbruk \"{c['alternativ']}\" har "
+        f"{c['tillgangligt']} artiklar i lager mot ett behov på {c['behov']:.0f}."
+        for c in caveats
+    )
+    return (
+        "\nTillgång på återbruk (viktigt, ta upp under osäkerheter):\n"
+        f"{lines}\n"
+        "Kostnad och klimatnytta ovan är beräknade på hela behovet, alltså som "
+        "om resten går att få tag på begagnat senare. Skriv detta rakt ut.\n"
+    )
+
+
+def render_stock_caveats(caveats: list[dict]) -> str:
+    """The appendix that always lands, regardless of what the model wrote."""
+    rows = "\n".join(
+        f"| {c['komponent']} | {c['alternativ']} | {c['tillgangligt']} | {c['behov']:.0f} |"
+        for c in caveats
+    )
+    return (
+        "## Antaganden om tillgång till återbruk\n\n"
+        "Kostnad och klimatnytta för återbruk är beräknade på hela behovet, även "
+        "där Palats hade färre artiklar när analysen kördes. Det är avsiktligt: "
+        "AIda används i ett tidigt planeringsskede och marknadsplatsens lager "
+        "omsätts innan något handlas upp. Siffrorna förutsätter alltså att "
+        "resten går att få tag på begagnat, vilket behöver stämmas av innan de "
+        "används som underlag för upphandling.\n\n"
+        "| Komponent | Valt återbruksalternativ | I lager vid analys | Behov |\n"
+        "|---|---|---|---|\n"
+        f"{rows}\n"
+    )
 
 
 def generate_report_pdf(project: Project, selections: Selections, output_path: str) -> str:
