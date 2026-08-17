@@ -59,6 +59,17 @@ COMPONENT_CONVERSIONS: dict[str, ConversionSpec] = {
         typical_thickness_m=0.200,  # 200mm komplett vägguppbyggnad
         description="Yttervägg komplett, ~200mm",
     ),
+    # Only the cladding layer, not the wall behind it. Swedish facade panel is
+    # typically 22mm (finsågad eller hyvlad panel, 22x120 to 22x170); fibre
+    # cement boards sit at 8-12mm, so 22 is the generous end for wood and the
+    # right order of magnitude for the category. Running a wood panel through
+    # yttervägg's 200mm instead overstates it roughly ninefold.
+    "fasadskikt": ConversionSpec(
+        target_unit="m2",
+        method="area",
+        typical_thickness_m=0.022,
+        description="Fasadskikt (panel eller skiva), 22mm typisk",
+    ),
     "betongvägg": ConversionSpec(
         target_unit="m2",
         method="area",
@@ -187,6 +198,24 @@ def convert_to_functional_unit(
         return co2e_per_kg, "kg"
 
     return co2e_per_kg, "kg"
+
+
+def convert_m3_to_m2(co2e_per_m3: float, component_key: str) -> tuple[float, str] | None:
+    """Convert a volume-declared figure to per square metre, using the layer
+    thickness the category is defined by.
+
+    Timber products are declared per m3 while a facade component is measured in
+    m2, and without this bridge those EPDs never join the m2 bucket. That left
+    fasadskikt with six m2 entries, two of them aluminium, so the "conventional"
+    reference for a wood facade landed on anodised aluminium at 36.7 kg/m2.
+
+    Returns None when the category has no area-based thickness to divide by, so
+    callers keep the native unit rather than inventing a number.
+    """
+    spec = COMPONENT_CONVERSIONS.get(component_key)
+    if not spec or spec.method != "area" or spec.typical_thickness_m <= 0:
+        return None
+    return round(co2e_per_m3 * spec.typical_thickness_m, 2), "m2"
 
 
 def get_density_from_extra(extra_json: str) -> float | None:

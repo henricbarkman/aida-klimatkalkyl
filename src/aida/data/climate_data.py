@@ -16,9 +16,24 @@ REASONING = {
 }
 
 
+# Checked before the substring table below. Plain substring matching cannot
+# express "the primary noun wins", so a name carrying two category words lands
+# wherever the table happens to look first. These two compounds are unambiguous
+# on their own: both name a paint product, and without them yttervägg's bare
+# "fasad" swallowed "fasadfärg" and priced a coat of paint as a wall. Keep the
+# list to words that can only ever mean one thing.
+_PRIORITY_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("farg", ("fasadfärg", "fasadmålning")),
+)
+
+
 def normalize_component_name(name: str) -> str:
     """Normalize a Swedish component name to match our data keys."""
     name_lower = name.lower().strip()
+
+    for key, tokens in _PRIORITY_TOKENS:
+        if any(t in name_lower for t in tokens):
+            return key
 
     mappings = {
         # Keramik/kakel checked BEFORE golv: "golvklinker" contains "golv", so
@@ -35,6 +50,20 @@ def normalize_component_name(name: str) -> str:
         "innervägg": ["innervägg", "innerväggar", "interior wall", "gipsvägg",
                       "mellanvägg", "gipsskiva", "byggskivor", "byggskiva",
                       "ytskikt", "väggöverdraget", "väggöverdrag"],
+        # Facade CLADDING, checked before yttervägg. Renovating the skin of a
+        # building is not the same job as building a wall, and conflating the
+        # two made both numbers wrong at once: Sara's 22mm wood panel was
+        # measured against a typvärde for a complete ~200mm wall build-up, so
+        # the baseline came out far too high and any alternative looked
+        # spectacular. Same trap PROJECT.md notes for roof membranes vs whole
+        # roofs. Bare "fasad" deliberately stays with yttervägg below, since
+        # unqualified it usually means the wall; the compounds that name the
+        # layer land here.
+        # Stems, not full words: "fasadskiva" would miss "fasadskivor".
+        "fasadskikt": ["fasadskikt", "fasadpanel", "fasadbeklädnad",
+                       "fasadskiv", "fasadplatt", "fasadrenovering",
+                       "fasadbyte", "träfasad", "träpanel", "panelbräd",
+                       "wood cladding", "timber cladding", "facade cladding"],
         "yttervägg": ["yttervägg", "ytterväggar", "fasad", "exterior wall",
                       "puts", "bruk", "tegel", "tegelfasad"],
         # Bärande stomme (steel/timber/concrete frame). Placed BEFORE betongvägg
@@ -99,10 +128,10 @@ def normalize_component_name(name: str) -> str:
 # values for a component's declared `category` field. Keep in sync with the
 # mappings above, intake's category enum, and the EPD catalog categories.
 VALID_CATEGORIES = {
-    "kakel", "golv", "innervägg", "yttervägg", "stomme", "betongvägg",
-    "fönster", "tak", "isolering", "storköksutrustning", "kylanläggning",
-    "belysning", "ventilation", "dörr", "hiss", "sanitet", "vitvaror",
-    "vvs", "farg", "el", "radiator",
+    "kakel", "golv", "innervägg", "yttervägg", "fasadskikt", "stomme",
+    "betongvägg", "fönster", "tak", "isolering", "storköksutrustning",
+    "kylanläggning", "belysning", "ventilation", "dörr", "hiss", "sanitet",
+    "vitvaror", "vvs", "farg", "el", "radiator",
 }
 
 

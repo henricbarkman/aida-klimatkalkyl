@@ -128,6 +128,23 @@ def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
         cat = e.get("category", "")
         unit = e.get("unit", "")
         gwp = e.get("gwp_a1a3")
+        # Volume-declared products count in the unit they convert to. Timber
+        # cladding is declared per m3 while the component is measured in m2, so
+        # without this the eighteen wood entries sat in an m3 bucket nobody
+        # queries and the m2 typvärde was decided by six entries, two of them
+        # aluminium.
+        #
+        # Scoped to m3 on purpose. kg-declared EPDs also carry a functional-unit
+        # figure, but that one leans on a category-wide density assumption and
+        # has never fed the medians; folding it in here moved yttervägg/m2 from
+        # 39.4 to 207.9 and its ceiling to 6548 kg/m2. The thickness bridge is a
+        # geometric fact about the product, the density bridge is an estimate
+        # about the category, and only the first belongs in a baseline.
+        if unit == "m3":
+            fu_gwp = e.get("gwp_per_functional_unit")
+            fu_unit = e.get("functional_unit")
+            if isinstance(fu_gwp, (int, float)) and fu_unit:
+                gwp, unit = fu_gwp, fu_unit
         if not cat or not unit or not isinstance(gwp, (int, float)) or gwp <= 0:
             continue
         if cat in _HETEROGENEOUS_CATEGORIES:

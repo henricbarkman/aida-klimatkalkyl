@@ -56,8 +56,9 @@ Regler:
 - Komponent-id ska vara c1, c2, c3 etc
 - Gissa rimlig quantity om den inte anges (baserat på area och byggnadstyp)
 - Unit ska vara m2, st, eller lm (löpmeter)
-- Category ska vara en av: golv, kakel, innervägg, yttervägg, betongvägg, tak, fönster, dörr, isolering, belysning, ventilation, hiss, kylanläggning, sanitet, vitvaror, storköksutrustning, vvs, farg, el, radiator
+- Category ska vara en av: golv, kakel, innervägg, yttervägg, fasadskikt, betongvägg, tak, fönster, dörr, isolering, belysning, ventilation, hiss, kylanläggning, sanitet, vitvaror, storköksutrustning, vvs, farg, el, radiator
   - kakel: kaklad/klinkad yta (våtrumsvägg, -golv, kakel/klinker). Välj kakel framför golv/innervägg när ytan är keramisk.
+  - fasadskikt vs yttervägg: välj `fasadskikt` när bara byggnadens yttre beklädnad byts eller renoveras (fasadpanel, träfasad, fasadskivor). Välj `yttervägg` när hela väggkonstruktionen byggs eller byts, alltså inklusive stomme och isolering. Vid tvekan i en ombyggnad: `fasadskikt`, eftersom en renovering oftast rör skiktet och inte hela väggen. Ren ommålning av befintlig panel är `farg`.
   - vvs: rör, stambyte, avlopp. farg: målning/ommålning. el: elkabel/elinstallation. radiator: radiator/värmeelement.
 - Om area inte anges, uppskatta baserat på byggnadstyp och komponenter
 - Svara på svenska
@@ -136,7 +137,7 @@ TIDIGARE DISKUSSION:
 # ignores that anyway — a silently wrong envelope area poisons both the
 # baseline and every alternative for that component.
 STOREY_HEIGHT_M = 3.0
-_ENVELOPE_CATEGORIES = {"yttervägg"}
+_ENVELOPE_CATEGORIES = {"yttervägg", "fasadskikt"}
 _ENVELOPE_NAME_TOKENS = ("fasad", "yttervägg")
 
 
