@@ -184,6 +184,12 @@ class Alternative:
     # or "" (unknown). Two very different kinds of number that the comparison
     # table used to render identically.
     price_basis: str = ""
+    # Which GWP indicator the climate figure rests on: "" (unknown or baseline),
+    # "fossil" (the norm, comparable to the Boverket baseline) or "ghg" (total
+    # excluding biogenic, used where an EPD's own components did not add up).
+    # A GHG figure sits on a different basis than the rest of the table, so it
+    # is labelled everywhere it appears.
+    gwp_basis: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)

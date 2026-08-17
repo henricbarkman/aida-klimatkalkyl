@@ -148,6 +148,34 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
         return {}
 
 
+def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
+    """Find which candidate EPD an LLM-written alternative name refers to.
+
+    The model paraphrases and truncates product names, so exact equality is
+    useless; containment either way, longest match wins. Used to carry facts
+    the model cannot be trusted to relay (which GWP indicator a figure rests
+    on) from the catalog onto the alternative.
+    """
+    if not name:
+        return None
+    needle = name.strip().lower().rstrip("*").strip()
+    if not needle:
+        return None
+    best = None
+    best_len = 0
+    for epd in epds:
+        epd_name = (epd.get("name") or "").strip().lower()
+        if not epd_name:
+            continue
+        if epd_name == needle:
+            return epd
+        if epd_name in needle or needle in epd_name:
+            overlap = min(len(epd_name), len(needle))
+            if overlap > best_len:
+                best, best_len = epd, overlap
+    return best
+
+
 def _format_epd_list(epds: list[dict]) -> str:
     """Format EPD list for inclusion in prompt."""
     lines = []
@@ -155,11 +183,15 @@ def _format_epd_list(epds: list[dict]) -> str:
         reg = epd.get("reg_no", "")
         reg_str = f" ({reg})" if reg else ""
 
-        # GWP-fossil A1-A3 only \u2014 matches Boverket's standard so alternatives
-        # are comparable to the baseline. GWP-total (which includes biogenic
-        # carbon credit and can be negative for bio-based products) is
-        # intentionally not shown to avoid mixing units in the same list.
-        gwp_str = f"GWP-fossil A1-A3: {epd['gwp_a1a3']} kg CO2e/{epd['unit']}"
+        # GWP-fossil A1-A3 normally, matching Boverket's standard so
+        # alternatives are comparable to the baseline. GWP-total (which includes
+        # biogenic carbon credit and can be negative for bio-based products) is
+        # intentionally never shown, to avoid mixing bases in the same list.
+        # The one exception is an EPD whose own components did not add up, where
+        # the build falls back to GWP-GHG; that is named here rather than
+        # blended in, so the model does not present it as like for like.
+        basis_label = "GWP-GHG" if epd.get("gwp_basis") == "ghg" else "GWP-fossil"
+        gwp_str = f"{basis_label} A1-A3: {epd['gwp_a1a3']} kg CO2e/{epd['unit']}"
         fu_gwp = epd.get("gwp_per_functional_unit")
         fu_unit = epd.get("functional_unit")
         if fu_gwp is not None and fu_unit:
@@ -1037,13 +1069,25 @@ Inga EPD:er tillgängliga för denna kategori. Returnera en tom array [].
                 else:
                     source = f"[Uppskattning] {source}"
 
+            # Which GWP indicator this rests on is a fact about the catalog, not
+            # something to hope the model repeats, so match it back by name.
+            alt_name = item.get("name", "Okänt alternativ")
+            matched = match_epd_by_name(alt_name, epds)
+            gwp_basis = (matched or {}).get("gwp_basis", "") if matched else ""
+            if gwp_basis == "ghg":
+                # Rides in `source` as well as its own field: source is what the
+                # report's component table prints, so the basis reaches the
+                # document without a separate plumbing path.
+                source = f"{source} (GWP-GHG)"
+
             results.append(Alternative(
-                name=item.get("name", "Okänt alternativ"),
+                name=alt_name,
                 co2e_kg=item.get("co2e_kg", baseline_for_prompt),
                 cost_sek=item.get("cost_sek", 0),
                 source=source,
                 reasoning=item.get("reasoning", ""),
                 alternative_type="climate_optimized",
+                gwp_basis=gwp_basis,
             ))
 
         return results

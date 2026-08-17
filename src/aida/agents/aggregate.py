@@ -57,6 +57,10 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
                 (c.quantity for c in project.components if c.id == sel.id), None
             ),
             "prisunderlag": alt.get("price_basis", ""),
+            # "ghg" when the figure rests on GWP-GHG instead of GWP-fossil, so
+            # the report can say so in words rather than leaving "(GWP-GHG)"
+            # sitting in the source column as jargon.
+            "gwp_underlag": alt.get("gwp_basis", ""),
         })
 
     return AggregateResult(

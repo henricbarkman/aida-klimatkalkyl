@@ -2378,6 +2378,19 @@ function toggleReasoning(id, e) {
   e.target.textContent = isHidden ? 'D\u00f6lj' : 'Visa mer';
 }
 
+// A figure taken from GWP-GHG rather than GWP-fossil sits on a different basis
+// than the baseline and the rest of the table. It is used only where an EPD's
+// own components did not add up (Henric, 2026-08-17: use the fallback, but mark
+// it). The marking is the condition for allowing it at all, so the badge goes
+// beside the source rather than into a tooltip nobody opens.
+function gwpBasisBadge(alt) {
+  if (!alt || alt.gwp_basis !== 'ghg') return '';
+  return '<span class="source-badge source-aggregate" title="Bygger på GWP-GHG '
+    + '(totalt exklusive biogent kol), inte GWP-fossil som resten av tabellen. '
+    + 'Produktens deklaration går inte ihop, så fossilvärdet gick inte att '
+    + 'använda.">GWP-GHG</span> ';
+}
+
 function formatSource(source) {
   if (!source) return '';
   if (source.startsWith('[EPD]')) return '<span class="source-badge source-verified">EPD</span>' + esc(source.replace('[EPD] ', ''));
@@ -2722,7 +2735,7 @@ function renderAlternativContent() {
         '<td><input type="radio" name="' + cid + '"' + (isSel ? ' checked' : '') + '></td>' +
         '<td>' + getTypeBadge(alt) + '</td>' +
         '<td style="font-weight:500">' + esc(alt.name) + stockNote(alt, pc) + '</td>' +
-        '<td style="font-size:11px">' + formatSource(alt.source) + '</td>' +
+        '<td style="font-size:11px">' + gwpBasisBadge(alt) + formatSource(alt.source) + '</td>' +
         '<td style="text-align:right">' + Math.round(alt.co2e_kg) + ' <span style="color:' + (saving >= 0 ? 'var(--green-saving)' : 'var(--kk-red-orange)') + ';font-size:11px">' + (saving >= 0 ? '\u2193' : '\u2191') + Math.abs(saving) + '%</span></td>' +
         '<td style="text-align:right">' + costCell + '</td>' +
         '<td style="text-align:right;font-size:12px">' + formatValuePerKg(comp, alt) + '</td>' +
@@ -2807,7 +2820,7 @@ function selectAlt(compId, altIdx, row) {
       // reach it, not just the on-screen table.
       selected_alternative: {name: alt.name, co2e_kg: alt.co2e_kg, cost_sek: alt.cost_sek, source: alt.source,
         available_quantity: (alt.available_quantity === undefined ? null : alt.available_quantity),
-        price_basis: alt.price_basis || ''},
+        price_basis: alt.price_basis || '', gwp_basis: alt.gwp_basis || ''},
       baseline_co2e_kg: comp.baseline_co2e_kg, baseline_cost_sek: comp.baseline_cost_sek };
   }
   updateSummary();

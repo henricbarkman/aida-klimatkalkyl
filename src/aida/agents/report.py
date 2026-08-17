@@ -80,6 +80,7 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
         )
 
     stock_caveats = build_stock_caveats(aggregate.components)
+    gwp_caveats = build_gwp_basis_caveats(aggregate.components)
 
     saving_pct_total = (
         aggregate.co2e_savings_kg / aggregate.baseline_total_co2e_kg * 100
@@ -121,6 +122,8 @@ Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är upps
     markdown = extract_text(response)
     if stock_caveats:
         markdown = markdown.rstrip() + "\n\n" + render_stock_caveats(stock_caveats)
+    if gwp_caveats:
+        markdown = markdown.rstrip() + "\n\n" + render_gwp_basis_caveats(gwp_caveats)
     return markdown
 
 
@@ -151,6 +154,36 @@ def build_stock_caveats(components: list[dict]) -> list[dict]:
             "behov": needed,
         })
     return caveats
+
+
+def build_gwp_basis_caveats(components: list[dict]) -> list[dict]:
+    """Selected components whose climate figure rests on GWP-GHG.
+
+    Used where an EPD's own components did not add up and GWP-fossil was
+    unusable. Close to the fossil basis in magnitude but not the same
+    indicator, so it gets named rather than folded in silently.
+    """
+    return [
+        {"komponent": c.get("name", ""), "alternativ": c.get("valt_alternativ", "")}
+        for c in components
+        if c.get("gwp_underlag") == "ghg"
+    ]
+
+
+def render_gwp_basis_caveats(caveats: list[dict]) -> str:
+    rows = "\n".join(f"| {c['komponent']} | {c['alternativ']} |" for c in caveats)
+    return (
+        "## Avvikande klimatunderlag\n\n"
+        "Klimatsiffrorna bygger på GWP-fossil för skedena A1-A3, enligt "
+        "Boverkets metod. För posterna nedan gick det inte: produktens egen "
+        "miljödeklaration är internt motsägelsefull, det redovisade "
+        "fossilvärdet stämmer inte med deklarationens egen totalsumma. För dem "
+        "används i stället GWP-GHG, alltså totala växthusgasutsläpp exklusive "
+        "biogent kol. Det ligger nära GWP-fossil i storleksordning men är inte "
+        "samma indikator, och skillnaden bör nämnas om siffran förs vidare.\n\n"
+        "| Komponent | Valt alternativ |\n|---|---|\n"
+        f"{rows}\n"
+    )
 
 
 def _caveat_prompt_block(caveats: list[dict]) -> str:

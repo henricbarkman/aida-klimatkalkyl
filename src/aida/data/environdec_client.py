@@ -37,6 +37,16 @@ MAX_PLAUSIBLE_KG_CO2E = 40.0
 # GWP indicator UUIDs (EN 15804+A2)
 GWP_FOSSIL_NAMES = {"gwp-fossil", "global warming potential - fossil fuels"}
 GWP_TOTAL_NAMES = {"gwp-total", "global warming potential - total"}
+GWP_LULUC_NAMES = {"gwp-luluc", "land use and land use change"}
+# Deliberately the parenthesised form: a bare "gwp-ghg" would also be a
+# substring of nothing else, but the datahub writes "Global Warming Potential
+# (GWP-GHG)" and matching the exact token keeps it away from the other four.
+GWP_GHG_NAMES = {"(gwp-ghg)"}
+
+# EN 15804+A2: total = fossil + biogenic + luluc. Real declarations round, so
+# accept the larger of 1 kg CO2e and 5% of the total before calling it broken.
+GWP_SUM_ABS_TOLERANCE = 1.0
+GWP_SUM_REL_TOLERANCE = 0.05
 
 
 @dataclass
@@ -50,6 +60,35 @@ class EPDSummary:
     reg_no: str
     classification: str
     valid_until: int
+
+
+def gwp_components_consistent(
+    fossil: float | None,
+    biogenic: float | None,
+    luluc: float | None,
+    total: float | None,
+) -> bool | None:
+    """Does this declaration add up the way EN 15804+A2 says it must?
+
+    Returns True/False, or None when the declaration does not carry enough
+    indicators to judge (most EPDs omit luluc, and absence is not evidence of
+    a defect).
+
+    Why this exists. Sveden Trä's spruce cladding declares GWP-fossil -744 with
+    GWP-total +74.9 and GWP-biogenic +3.97: the fossil row is carrying biogenic
+    uptake. Taken at face value it would have put a facade with heavily negative
+    emissions in front of a building manager writing a procurement document.
+    Millworks' larch cladding, by contrast, declares fossil 203.0, biogenic
+    -922.6, luluc 0.6, total -719.1, which sums exactly. Measured against the
+    live datahub 2026-08-17.
+    """
+    if fossil is None or total is None:
+        return None
+    if biogenic is None and luluc is None:
+        return None
+    components = fossil + (biogenic or 0.0) + (luluc or 0.0)
+    tolerance = max(GWP_SUM_ABS_TOLERANCE, abs(total) * GWP_SUM_REL_TOLERANCE)
+    return abs(components - total) <= tolerance
 
 
 @dataclass
@@ -70,6 +109,14 @@ class EPDDetail:
     # flow, so per-kg = gwp / reference_mass_kg. None for Area/Volume/piece-
     # declared EPDs, which keep their native functional unit instead.
     reference_mass_kg: float | None = None
+    # Needed to tell a trustworthy declaration from a broken one. EN 15804+A2
+    # has GWP-total = GWP-fossil + GWP-biogenic + GWP-luluc, so when those do
+    # not add up the publisher has filed something in the wrong row and the
+    # fossil value cannot be taken at face value. GWP-GHG is total excluding
+    # biogenic, the nearest indicator to Boverket's basis, kept so a fallback
+    # stays available.
+    gwp_luluc_a1a3: float | None = None
+    gwp_ghg_a1a3: float | None = None
 
 
 class EnvirondecClient:
@@ -412,6 +459,8 @@ class EnvirondecClient:
         gwp_fossil = None
         gwp_total = None
         gwp_biogenic = None
+        gwp_luluc = None
+        gwp_ghg = None
         modules: dict[str, float] = {}
 
         for result in data.get("LCIAResults", {}).get("LCIAResult", []):
@@ -422,6 +471,8 @@ class EnvirondecClient:
             is_fossil = any(n in indicator_name for n in GWP_FOSSIL_NAMES)
             is_total = any(n in indicator_name for n in GWP_TOTAL_NAMES)
             is_biogenic = "biogenic" in indicator_name
+            is_luluc = any(n in indicator_name for n in GWP_LULUC_NAMES)
+            is_ghg = any(n in indicator_name for n in GWP_GHG_NAMES)
 
             anies = result.get("other", {}).get("anies", [])
             for a in anies:
@@ -441,6 +492,10 @@ class EnvirondecClient:
                         gwp_total = value
                     elif is_biogenic:
                         gwp_biogenic = value
+                    elif is_luluc:
+                        gwp_luluc = value
+                    elif is_ghg:
+                        gwp_ghg = value
 
                 if is_fossil and module:
                     modules[module] = value
@@ -459,6 +514,8 @@ class EnvirondecClient:
                 .get("locationOfOperationSupplyOrProduction", {})
                 .get("location", ""),
             reference_mass_kg=reference_mass_kg,
+            gwp_luluc_a1a3=gwp_luluc,
+            gwp_ghg_a1a3=gwp_ghg,
         )
 
     def _extract_reference_flow(self, data: dict) -> tuple[str, float | None]:
