@@ -169,13 +169,27 @@ def _match_key(name: str) -> str:
     return " ".join(lowered.split())
 
 
+def _tokens(key: str) -> set[str]:
+    """Distinctive words in a normalised name, for when containment fails."""
+    return {
+        "".join(ch for ch in word if ch.isalnum())
+        for word in key.split()
+        if len(word) >= 3
+    } - {""}
+
+
 def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
     """Find which candidate EPD an LLM-written alternative name refers to.
 
     The model paraphrases and truncates product names, so exact equality is
-    useless; containment either way, longest match wins. Used to carry facts
-    the model cannot be trusted to relay (which GWP indicator a figure rests
-    on) from the catalog onto the alternative.
+    useless. Containment either way first, longest match wins; then a token
+    overlap for the cases containment cannot reach, such as
+    "Fibre cement cladding HardiePanel® / Hardie® Architectural Panel" for a
+    catalog entry called "S-P-10857 Fibre cement cladding: HardiePanel®,
+    Hardie® Architectural Panel" — same product, reordered and re-punctuated.
+
+    Used to carry facts the model cannot be trusted to relay (which GWP
+    indicator a figure rests on) from the catalog onto the alternative.
     """
     if not name:
         return None
@@ -184,6 +198,7 @@ def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
         return None
     best = None
     best_len = 0
+    tied: list[dict] = []
     for epd in epds:
         epd_name = _match_key(epd.get("name") or "")
         if not epd_name:
@@ -193,8 +208,41 @@ def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
         if epd_name in needle or needle in epd_name:
             overlap = min(len(epd_name), len(needle))
             if overlap > best_len:
-                best, best_len = epd, overlap
-    return best
+                best, best_len, tied = epd, overlap, [epd]
+            elif overlap == best_len:
+                tied.append(epd)
+    if best is not None:
+        # A tie is only a problem when the tied entries disagree about the
+        # thing we are carrying across. Two equally-matching fossil products
+        # give the same answer either way; one fossil and one GHG do not, and
+        # guessing there would put a label on a product that may not deserve it.
+        if len({e.get("gwp_basis", "") for e in tied}) > 1:
+            return None
+        return best
+
+    # Token overlap, for names the model reordered or re-punctuated past what
+    # containment can follow. Deliberately strict: at least three quarters of
+    # the catalog entry's distinctive words must appear, and the winner has to
+    # be clearly ahead of the runner-up. A wrong match here would put a
+    # GWP-GHG label on a product that does not deserve one, which is worse than
+    # leaving a fossil figure unlabelled.
+    needle_tokens = _tokens(needle)
+    if len(needle_tokens) < 2:
+        return None
+    scored: list[tuple[float, dict]] = []
+    for epd in epds:
+        epd_tokens = _tokens(_match_key(epd.get("name") or ""))
+        if len(epd_tokens) < 2:
+            continue
+        score = len(epd_tokens & needle_tokens) / len(epd_tokens)
+        if score >= 0.75:
+            scored.append((score, epd))
+    if not scored:
+        return None
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    if len(scored) > 1 and scored[0][0] - scored[1][0] < 0.15:
+        return None  # ambiguous, better to say nothing
+    return scored[0][1]
 
 
 def _format_epd_list(epds: list[dict]) -> str:
