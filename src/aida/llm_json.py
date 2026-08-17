@@ -123,10 +123,30 @@ def _candidates(text: str) -> list[str]:
     return out
 
 
-def _size(parsed: Any) -> int:
-    """How much payload a candidate carries. Used to prefer the real answer over
-    a two-key example the model tacked on at the end."""
-    return len(parsed) if isinstance(parsed, (dict, list)) else 0
+def _score(parsed: Any) -> tuple[int, int]:
+    """How much payload a candidate carries, richest first.
+
+    Counting elements alone was wrong: a baseline reply that listed the
+    component ids first ("[\"c3\", \"c4\", \"c5\"]") and then the real
+    single-component answer ("[{...}]") handed the caller three strings, and
+    the match step died on 'str' object has no attribute 'get'. Only visible on
+    a one-component project, which is why the three-component runs passed.
+
+    So: anything containing objects beats anything that does not, and size is
+    only the tiebreaker. Serialized length rather than element count, so one
+    fat object still outweighs a handful of thin ones.
+    """
+    if isinstance(parsed, dict):
+        has_objects = 1
+    elif isinstance(parsed, list):
+        has_objects = 1 if any(isinstance(x, dict) for x in parsed) else 0
+    else:
+        has_objects = 0
+    try:
+        length = len(json.dumps(parsed, ensure_ascii=False))
+    except (TypeError, ValueError):
+        length = 0
+    return has_objects, length
 
 
 def extract_json_value(
@@ -154,7 +174,7 @@ def extract_json_value(
             return parsed
 
     best: Any = None
-    best_size = -1
+    best_score = (-1, -1)
     wrong_type: str | None = None
     for candidate in _candidates(text):
         try:
@@ -176,9 +196,9 @@ def extract_json_value(
             if wrong_type is None:
                 wrong_type = type(parsed).__name__
             continue
-        size = _size(parsed)
-        if size > best_size:
-            best, best_size = parsed, size
+        score = _score(parsed)
+        if score > best_score:
+            best, best_score = parsed, score
 
     if best is not None:
         return best
