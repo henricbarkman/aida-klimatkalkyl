@@ -183,10 +183,19 @@ def extract_json_value(
             if first_error is None:
                 first_error = str(exc)
             continue
-        # "[{...}]" where an object was wanted is a common one-off slip and
+        # "[{...}]" where ONLY an object was wanted is a common one-off slip and
         # unambiguous, so unwrap it rather than failing the whole run.
+        #
+        # Only when a list is not acceptable. Unwrapping for a caller that
+        # accepts both broke the baseline match on any single-component project:
+        # the model correctly returned a one-element array, this handed back the
+        # bare dict, and `for item in data` then iterated the dict's KEYS, so
+        # item.get raised "'str' object has no attribute 'get'". A
+        # multi-component project never tripped it because the array had two or
+        # more elements.
         if (
             dict in accept
+            and list not in accept
             and isinstance(parsed, list)
             and len(parsed) == 1
             and isinstance(parsed[0], dict)
