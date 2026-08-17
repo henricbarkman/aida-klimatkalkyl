@@ -148,6 +148,27 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
         return {}
 
 
+def _match_key(name: str) -> str:
+    """Normalise a product name for comparison.
+
+    The model retypes names rather than copying them, and the differences are
+    invisible: it wrote "Outdoor panel spruce – black (Sveden Trä)" for a
+    catalog entry called "Outdoor panel spruce - black". An en dash instead of
+    a hyphen was enough to lose the match, and with it the GWP-GHG marking that
+    is the whole condition for using that fallback. Caught on a live run
+    2026-08-17, where three spruce panels surfaced unmarked.
+    """
+    lowered = name.strip().lower().rstrip("*").strip()
+    for dash in ("‐", "‑", "‒", "–", "—", "―", "−"):
+        lowered = lowered.replace(dash, "-")
+    # Trademark marks disappear just as invisibly: the model writes "BCLarch
+    # profiled cladding" for a catalog entry named "BCLarch® profiled cladding".
+    for mark in ("®", "™", "©"):
+        lowered = lowered.replace(mark, "")
+    lowered = lowered.replace(" ", " ")
+    return " ".join(lowered.split())
+
+
 def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
     """Find which candidate EPD an LLM-written alternative name refers to.
 
@@ -158,13 +179,13 @@ def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
     """
     if not name:
         return None
-    needle = name.strip().lower().rstrip("*").strip()
+    needle = _match_key(name)
     if not needle:
         return None
     best = None
     best_len = 0
     for epd in epds:
-        epd_name = (epd.get("name") or "").strip().lower()
+        epd_name = _match_key(epd.get("name") or "")
         if not epd_name:
             continue
         if epd_name == needle:
