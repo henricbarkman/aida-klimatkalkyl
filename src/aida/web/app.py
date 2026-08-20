@@ -1146,6 +1146,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
     </div>
   </div>
   <div class="topbar-right" id="userDropdown" style="position:relative;display:flex;align-items:center;gap:12px">
+    <a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a>
     <a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a>
     <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span>
     <button class="user-btn" onclick="toggleUserMenu()">
@@ -1159,7 +1160,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   </div>
   {% else %}
   <div class="topbar-center"></div>
-  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Ljud på</a><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
+  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
   {% endif %}
 </div>
 
@@ -1307,10 +1308,25 @@ let state = {
 };
 let activeTab = null;
 
-// === Step-done chime (Johanna feedback punkt 1: pling när AIda jobbat klart) ===
+// === Pling när AIda är klar (Johanna feedback punkt 1) ===
+//
 // A short two-note pling via Web Audio (no asset, works offline). On by default,
 // toggleable, persisted. Browsers require a user gesture before audio plays, so
 // we unlock the context on the first interaction and reuse it thereafter.
+//
+// The chime alone only reaches her while she is sitting in front of the tab
+// with the sound up. A baseline takes minutes, and minutes is exactly when she
+// goes and does something else, so "klart" also has to reach her outside the
+// tab: a system notification when the page is away (hidden, or visible on a
+// second screen she is not looking at), plus a title badge for the tab she can
+// see in her tab strip.
+//
+// Failures ping too. Walking away and coming back to a stopped spinner with no
+// explanation is the worst case, not the one to stay quiet about.
+//
+// What this does NOT cover: closing the tab. The analysis is still the
+// browser's own request, so it dies with the page. That needs the job model
+// (design §5b), where the work lives on the server.
 let _audioCtx = null;
 let soundEnabled = true;
 try { soundEnabled = (localStorage.getItem('aida_sound') !== 'off'); } catch (e) {}
@@ -1326,15 +1342,17 @@ function _unlockAudio() {
 document.addEventListener('pointerdown', _unlockAudio);
 document.addEventListener('keydown', _unlockAudio);
 
-function playStepDone() {
+function playStepDone(ok) {
   if (!soundEnabled) return;
   try {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const ctx = _audioCtx;
     if (ctx.state === 'suspended') ctx.resume();
     const now = ctx.currentTime;
-    // Soft ascending C6 -> E6.
-    [[1046.5, 0], [1318.5, 0.12]].forEach(([freq, t]) => {
+    // Soft ascending C6 -> E6 when it worked, descending when it did not: a
+    // success chime for a failed run tells her the opposite of what happened.
+    const notes = (ok === false) ? [[1318.5, 0], [1046.5, 0.12]] : [[1046.5, 0], [1318.5, 0.12]];
+    notes.forEach(([freq, t]) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -1352,11 +1370,108 @@ function toggleSound() {
   soundEnabled = !soundEnabled;
   try { localStorage.setItem('aida_sound', soundEnabled ? 'on' : 'off'); } catch (e) {}
   updateSoundToggle();
-  if (soundEnabled) playStepDone();  // confirm the new setting audibly
+  if (soundEnabled) { playStepDone(true); maybeAskForNotifications(); }  // confirm audibly, offer notices
 }
 function updateSoundToggle() {
   const el = document.getElementById('soundToggle');
-  if (el) el.textContent = soundEnabled ? '🔔 Ljud på' : '🔕 Ljud av';
+  // One switch for "säg till när du är klar": it gates both the chime and the
+  // system notification. Two separate toggles for one wish is a worse model.
+  if (el) el.textContent = soundEnabled ? '🔔 Pling på' : '🔕 Pling av';
+}
+
+// --- What to say, and whether to say it out loud -----------------------------
+// Pure, so the decisions are testable without a browser.
+
+const STEP_NOTICES = {
+  intake:             {ok: 'Projektet är inläst',      fail: 'Inläsningen misslyckades'},
+  baseline:           {ok: 'Baslinjen är klar',        fail: 'Baslinjeberäkningen misslyckades'},
+  alternatives:       {ok: 'Alternativen är klara',    fail: 'Alternativsökningen misslyckades'},
+  report:             {ok: 'Rapporten är klar',        fail: 'Rapportgenereringen misslyckades'},
+  baseline_rerun:     {ok: 'Baslinjen är omräknad',    fail: 'Omräkningen av baslinjen misslyckades'},
+  alternatives_rerun: {ok: 'Alternativen är uppdaterade', fail: 'Uppdateringen av alternativen misslyckades'},
+};
+
+function stepNotice(stepKey, ok, detail) {
+  const entry = STEP_NOTICES[stepKey];
+  const title = entry ? (ok === false ? entry.fail : entry.ok)
+                      : (ok === false ? 'Något gick fel' : 'AIda är klar');
+  // The body carries the project, because she may have several analyses going
+  // and a bare "Baslinjen är klar" does not say which one.
+  const parts = [];
+  if (detail) parts.push(detail);
+  const projectName = (state.project && (state.project.name || state.project.building_type)) || null;
+  if (projectName) parts.push(projectName);
+  return {title: title, body: parts.join(' · ')};
+}
+
+// Hidden covers another tab; unfocused covers a second screen or another app on
+// top. Both mean she is not watching, which is the whole point of the pling.
+function pageIsAway() {
+  const hidden = (typeof document.hidden === 'boolean') ? document.hidden : false;
+  const focused = (typeof document.hasFocus === 'function') ? document.hasFocus() : true;
+  return hidden || !focused;
+}
+
+function shouldRaiseSystemNotification(away, permission, enabled) {
+  return !!away && enabled === true && permission === 'granted';
+}
+
+// The tab strip is the one place a notification cannot reach but she can still
+// glance at. Prefix rather than replace, so the tab is still recognisable.
+function badgeTitle(baseTitle, kind) {
+  if (kind === 'done') return '✅ ' + baseTitle;
+  if (kind === 'error') return '⚠️ ' + baseTitle;
+  return baseTitle;
+}
+
+const BASE_TITLE = (typeof document !== 'undefined' && document.title) ? document.title : 'AIda';
+
+function _setBadge(kind) {
+  try { document.title = badgeTitle(BASE_TITLE, kind); } catch (e) {}
+}
+
+// Clear the badge the moment she comes back, not on the next action: a stale
+// checkmark on a tab she is already reading is noise.
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) _setBadge(null); });
+  window.addEventListener('focus', () => _setBadge(null));
+}
+
+function _notificationPermission() {
+  try { return (typeof Notification === 'undefined') ? 'unsupported' : Notification.permission; }
+  catch (e) { return 'unsupported'; }
+}
+
+// Ask from a user gesture (confirmStep / sendMessage call this before their
+// first await), once per browser. Asking on page load is the pattern everyone
+// has learned to dismiss, and a dismissed prompt is harder to recover from than
+// one never shown.
+function maybeAskForNotifications() {
+  if (_notificationPermission() !== 'default') return;
+  if (!soundEnabled) return;
+  try {
+    if (localStorage.getItem('aida_notify_asked') === '1') return;
+    localStorage.setItem('aida_notify_asked', '1');
+  } catch (e) { /* private mode: ask this once, do not persist */ }
+  addMsg('En analys tar ofta ett par minuter. Säg ja till notiser så säger jag till när den är klar, även om du håller på med något annat.', 'system');
+  try { Notification.requestPermission(); } catch (e) { /* older API shape */ }
+}
+
+// The one call every finished (or failed) step makes.
+function notifyStepDone(stepKey, ok, detail) {
+  const succeeded = ok !== false;
+  playStepDone(succeeded);
+  const away = pageIsAway();
+  if (!away) return;
+  _setBadge(succeeded ? 'done' : 'error');
+  if (!shouldRaiseSystemNotification(away, _notificationPermission(), soundEnabled)) return;
+  const notice = stepNotice(stepKey, succeeded, detail);
+  try {
+    // Same tag for every step: a run that finishes several steps should leave
+    // one current notice, not a stack she has to dismiss one by one.
+    const n = new Notification(notice.title, {body: notice.body, tag: 'aida-step'});
+    n.onclick = () => { try { window.focus(); } catch (e) {} n.close(); };
+  } catch (e) { /* notifications unavailable — chime and badge already fired */ }
 }
 
 // Dynamic placeholder (Feature 4)
@@ -1641,6 +1756,9 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  // Same gesture window as confirmStep: a chat message can kick off a rerun
+  // that takes just as long as a first run.
+  maybeAskForNotifications();
   // Keep the entry: whether this message becomes a turn the model remembers
   // depends on which branch below handles it (advisory and chat do, intake and
   // "kör vidare" do not — same split the in-memory chatHistory had).
@@ -1747,6 +1865,11 @@ async function sendMessage() {
 
 // === Confirm step ===
 function confirmStep() {
+  // Synchronously, before anything async: browsers only honour a permission
+  // request inside the user gesture that triggered it, and an await ends that
+  // window. This is the click that starts the minutes-long work, so it is also
+  // the moment where "säg till när du är klar" makes sense to her.
+  maybeAskForNotifications();
   document.getElementById('confirmBarBtn').disabled = true;
   document.getElementById('confirmBarBtn').style.opacity = '0.5';
   if (state.step === 'intake_done') runBaseline();
@@ -1801,7 +1924,7 @@ async function runIntake(desc) {
     // Same reason, same fix for selection intent: it is keyed on component id.
     state.selectionIntent = {};
     state.step = 'intake_done';
-    playStepDone();
+    notifyStepDone('intake', true);
     if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.name || d.building_type || 'Nytt projekt'; }
     scheduleAutoSave();
 
@@ -1840,6 +1963,7 @@ async function runBaseline() {
     if (d.error) {
       addMsg('Fel: ' + d.error, 'system');
       addConfirmMsg('Baslinjeberäkning misslyckades.', 'Försök igen \u2192', '');
+      notifyStepDone('baseline', false);
       setLoading(false); return;
     }
     removeConfirmButtons();
@@ -1852,7 +1976,7 @@ async function runBaseline() {
     state.selections = {};
     state.reportMarkdown = null;
     state.step = 'baseline_done';
-    playStepDone();
+    notifyStepDone('baseline', true);
     scheduleAutoSave();
 
     enableTab('baslinje');
@@ -1869,6 +1993,7 @@ async function runBaseline() {
   } catch(e) {
     addMsg('Fel: ' + e.message, 'system');
     addConfirmMsg('Baslinjeberäkning misslyckades.', 'Försök igen \u2192', '');
+    notifyStepDone('baseline', false);
     setLoading(false);
   }
 }
@@ -2106,13 +2231,14 @@ async function runAlternatives(userFeedback) {
       clearTimeout(subStepTimer);
       addMsg('Fel: ' + d.error, 'system');
       addConfirmMsg('S\u00f6kning av alternativ misslyckades.', 'F\u00f6rs\u00f6k igen \u2192', '');
+      notifyStepDone('alternatives', false);
       setLoading(false); return;
     }
     removeConfirmButtons();
     state.alternatives = d;
     state.reportMarkdown = null;
     state.step = 'alternatives_done';
-    playStepDone();
+    notifyStepDone('alternatives', true);
 
     // Rebind choices against the new bag (increment 3). Replaces the bespoke
     // name-match restore this function used to own alone — the chat-driven
@@ -2138,6 +2264,7 @@ async function runAlternatives(userFeedback) {
     clearTimeout(subStepTimer);
     addMsg('Fel: ' + e.message, 'system');
     addConfirmMsg('S\u00f6kning av alternativ misslyckades.', 'F\u00f6rs\u00f6k igen \u2192', '');
+    notifyStepDone('alternatives', false);
     setLoading(false);
   }
 }
@@ -2158,13 +2285,14 @@ async function generateReport() {
     if (d.error) {
       addMsg('Fel: ' + d.error, 'system');
       addConfirmMsg('Rapportgenerering misslyckades.', 'Försök igen →', '');
+      notifyStepDone('report', false);
       const rb = document.getElementById('reportBtn'); if (rb) rb.disabled = false;
       setLoading(false);
       return;
     }
     state.reportMarkdown = d.markdown;
     state.step = 'report_done';
-    playStepDone();
+    notifyStepDone('report', true);
     scheduleAutoSave();
     addMsg('Rapport klar!', 'bot');
     enableTab('rapport');
@@ -2173,6 +2301,7 @@ async function generateReport() {
   } catch(e) {
     addMsg('Fel: ' + e.message, 'system');
     addConfirmMsg('Rapportgenerering misslyckades.', 'Försök igen →', '');
+    notifyStepDone('report', false);
     const rb = document.getElementById('reportBtn'); if (rb) rb.disabled = false;
     setLoading(false);
   }
@@ -2334,6 +2463,7 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
     const d = await r.json();
     if (d.error) {
       addMsg('Fel vid baslinjebberäkning: ' + d.error, 'system');
+      notifyStepDone('baseline_rerun', false);
       // Respect orchestration: runChat holds the lock for the whole pending
       // sequence. Unlocking here would let a user message race the merges.
       if (!orchestrated) setLoading(false);
@@ -2356,9 +2486,10 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
     if (activeTab === 'baslinje') renderBaslinjeContent();
     else if (activeTab === 'alternativ') renderAlternativContent();
     addMsg('Baslinje uppdaterad' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
-    playStepDone();
+    notifyStepDone('baseline_rerun', true, isFull ? null : componentIds.join(', '));
   } catch (e) {
     addMsg('Fel vid baslinjebberäkning: ' + e.message, 'system');
+    notifyStepDone('baseline_rerun', false);
   } finally {
     if (!orchestrated) setLoading(false);
   }
@@ -2393,6 +2524,7 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     const d = await r.json();
     if (d.error) {
       addMsg('Fel vid alternativsökning: ' + d.error, 'system');
+      notifyStepDone('alternatives_rerun', false);
       // Respect orchestration (see runBaselineForComponents).
       if (!orchestrated) setLoading(false);
       return;
@@ -2411,9 +2543,10 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     scheduleAutoSave();
     if (activeTab === 'alternativ') renderAlternativContent();
     addMsg('Alternativ uppdaterade' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
-    playStepDone();
+    notifyStepDone('alternatives_rerun', true, isFull ? null : componentIds.join(', '));
   } catch (e) {
     addMsg('Fel vid alternativsökning: ' + e.message, 'system');
+    notifyStepDone('alternatives_rerun', false);
   } finally {
     if (!orchestrated) setLoading(false);
   }
