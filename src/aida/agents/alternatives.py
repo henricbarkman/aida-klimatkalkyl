@@ -504,20 +504,35 @@ def _add_palats_reuse(
     if target_subcat:
         subcat_matches = [m for m in matched if m.subcategory == target_subcat]
         if not subcat_matches and matched:
-            # Tell the user nothing matches, list what *is* available in the
-            # broader category so they can decide if a related part fits.
+            # Tell the user nothing of the type they asked for is listed, and
+            # what the category does hold, so they can judge whether to look
+            # manually. Since #347 the other subcategories are filtered out
+            # rather than shown, so the wording has to say that too.
             other_subcats = sorted({m.subcategory for m in matched if m.subcategory})
             other_label = ", ".join(other_subcats) if other_subcats else "annan typ"
+            # The component name is a noun of unknown gender, so any phrasing
+            # that needs an article is wrong half the time: "Inget toalettstol"
+            # was right only for the ett-words and wrong for every en-word
+            # (dörr, belysning, toalettstol itself). Leading with the user's own
+            # term verbatim removes the agreement problem entirely.
+            #
+            # Number agreement is the same kind of tell: "Palats har 1
+            # produkter" is what a reader notices first, and it was there
+            # because the count was interpolated into a fixed plural.
+            one = len(matched) == 1
+            count_label = "1 produkt" if one else f"{len(matched)} produkter"
+            mismatch = "men den matchar inte" if one else "men ingen av dem matchar"
+            hidden = "så den visas inte" if one else "så de visas inte"
             alternatives.append(Alternative(
-                name=f"Inget {component_name.lower()} på Palats just nu",
+                name=f"{component_name}: inget på Palats just nu",
                 co2e_kg=0,
                 cost_sek=0,
                 source="[Palats] palats.app",
                 reasoning=(
-                    f"Palats har {len(matched)} produkter i kategorin {category} just nu "
-                    f"({other_label}) — men inget specifikt {component_name.lower()}. "
-                    "Kolla tillbaka när nya annonser publicerats, eller bredda sökningen "
-                    "manuellt på palats.app."
+                    f"Palats har {count_label} i kategorin {category} just nu "
+                    f"({other_label}), {mismatch} {component_name.lower()}, "
+                    f"{hidden} som alternativ här. Kolla tillbaka när nya "
+                    "annonser publicerats, eller sök bredare manuellt på palats.app."
                 ),
                 alternative_type="info",
             ))
