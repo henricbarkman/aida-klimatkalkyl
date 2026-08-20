@@ -1291,6 +1291,10 @@ let state = {
   // = scoped to one component ("tänk bredare på golv"). Persisted per analysis and
   // REPLAYED into every alternatives rerun so refinements stop vanishing.
   directives: {global: [], byComponent: {}},
+  // Orchestration increment 3: which alternative the user chose per component,
+  // kept apart from the concrete binding in `selections`. Durable across reruns
+  // so a choice is only lost when the alternative genuinely stops being offered.
+  selectionIntent: {},
   get step() { return _step; },
   set step(v) { _step = v; updatePlaceholder(); },
 };
@@ -1717,6 +1721,8 @@ async function runIntake(desc) {
     // and survive (e.g. "bara svenska tillverkare").
     _ensureDirectives();
     state.directives.byComponent = {};
+    // Same reason, same fix for selection intent: it is keyed on component id.
+    state.selectionIntent = {};
     state.step = 'intake_done';
     playStepDone();
     if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.name || d.building_type || 'Nytt projekt'; }
@@ -1760,6 +1766,10 @@ async function runBaseline() {
       setLoading(false); return;
     }
     removeConfirmButtons();
+    // Same as the scoped path: the binding cannot outlive an emptied
+    // alternatives bag, but the intent carries to the next alternatives run
+    // (increment 3). Recomputing a baseline should not cost you your choices.
+    backfillIntent();
     state.baseline = d;
     state.alternatives = null;
     state.selections = {};
@@ -1854,11 +1864,151 @@ function pruneDirectives(removedCids) {
   (removedCids || []).forEach(cid => { delete state.directives.byComponent[cid]; });
 }
 
+// === Orchestration increment 3: selection intent + status-based merge ===
+// Same split the directives got: what the user chose is durable, what it points
+// at right now is derived. A rerun replaces the alternatives bag for a
+// component, and the old code dropped the selection whenever that happened —
+// even when the rerun was a superset and the chosen alternative was still in
+// the list. Intent lives in state.selectionIntent and survives the gaps
+// (baseline rerun, empty alternatives); the binding in state.selections is
+// recomputed after every merge by reconcileSelections().
+function _ensureIntent() {
+  if (!state.selectionIntent) state.selectionIntent = {};
+}
+
+// The model rewrites product names between runs — an en dash was enough to
+// break matching in PR #557. Normalise dashes, symbols, spacing and case.
+// Cosmetics only: see reconcileSelections for why this stops short of fuzzy.
+function normAltName(name) {
+  return String(name === undefined || name === null ? '' : name)
+    .replace(/[‐-―]/g, '-')
+    .replace(/[®™©]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Record a choice as intent. Called wherever a selection is written, so the two
+// never drift apart.
+function rememberIntent(cid, componentName, altName) {
+  _ensureIntent();
+  state.selectionIntent[cid] = {componentName: componentName, altName: altName};
+}
+
+// Adopt intent for any selection that has none — loaded analyses saved before
+// increment 3, and paths that write state.selections wholesale (the chat agent).
+function backfillIntent() {
+  _ensureIntent();
+  Object.keys(state.selections || {}).forEach(cid => {
+    if (state.selectionIntent[cid]) return;
+    const sel = state.selections[cid];
+    if (sel && sel.selected_alternative) {
+      rememberIntent(cid, sel.name, sel.selected_alternative.name);
+    }
+  });
+}
+
+// Intent dies with its component, nothing else.
+function dropIntent(removedCids) {
+  _ensureIntent();
+  (removedCids || []).forEach(cid => { delete state.selectionIntent[cid]; });
+}
+
+// Build a fresh selection object for an intent, or null when the alternative is
+// no longer on offer. Always reads the CURRENT numbers: a rerun can change kg
+// and price, and carrying the old object forward would leave a stale figure in
+// the summary and in the report — a quieter bug than the one being fixed.
+function bindIntent(comp, altName) {
+  if (!comp) return null;
+  if (altName === 'Baslinje') {
+    return {id: comp.component_id, name: comp.component_name,
+      selected_alternative: {name: 'Baslinje', co2e_kg: comp.baseline_co2e_kg,
+        cost_sek: comp.baseline_cost_sek, source: 'NollCO2'},
+      baseline_co2e_kg: comp.baseline_co2e_kg, baseline_cost_sek: comp.baseline_cost_sek};
+  }
+  const want = normAltName(altName);
+  const alt = (comp.alternatives || []).find(a => normAltName(a.name) === want);
+  if (!alt) return null;
+  return {id: comp.component_id, name: comp.component_name,
+    selected_alternative: {name: alt.name, co2e_kg: alt.co2e_kg, cost_sek: alt.cost_sek,
+      source: alt.source,
+      available_quantity: (alt.available_quantity === undefined ? null : alt.available_quantity),
+      price_basis: alt.price_basis || '', gwp_basis: alt.gwp_basis || ''},
+    baseline_co2e_kg: comp.baseline_co2e_kg, baseline_cost_sek: comp.baseline_cost_sek};
+}
+
+// The one owner of "does this selection survive a rerun". Runs AFTER the
+// alternatives merge, never before — the old order deleted the selection in the
+// baseline step and left nothing for the alternatives step to pick back up.
+// `cids` scopes it; empty/null means every component carrying intent.
+// Matching is normalised-exact and deliberately not fuzzy: binding a choice to
+// the WRONG product is worse than dropping it, because a dropped binding shows
+// up in the UI and costs a click, while a wrong one travels into the report
+// unseen. Same direction as #558 — rigged against false matches, not for cover.
+// Returns {kept, lost} for the caller to report; mutates no DOM, so it can move
+// into the server-side orchestrator later unchanged.
+function reconcileSelections(cids) {
+  _ensureIntent();
+  if (!state.selections) state.selections = {};
+  const comps = (state.alternatives && Array.isArray(state.alternatives.components))
+    ? state.alternatives.components : [];
+  const byId = new Map();
+  const byName = new Map();
+  comps.forEach(c => {
+    byId.set(c.component_id, c);
+    if (!byName.has(c.component_name)) byName.set(c.component_name, c);
+  });
+  const scope = (cids && cids.length) ? cids.slice() : Object.keys(state.selectionIntent);
+  const kept = [], lost = [];
+  scope.forEach(cid => {
+    const intent = state.selectionIntent[cid];
+    if (!intent) return;
+    // A full rerun can hand the same component back under a fresh id, which is
+    // why the original restore matched on name. Follow the name before
+    // concluding the component is gone.
+    const comp = byId.get(cid) || byName.get(intent.componentName);
+    if (!comp) {
+      // No alternatives for it yet. Drop the binding, keep the intent waiting.
+      delete state.selections[cid];
+      return;
+    }
+    let key = cid;
+    if (comp.component_id !== cid) {
+      key = comp.component_id;
+      delete state.selections[cid];
+      delete state.selectionIntent[cid];
+      state.selectionIntent[key] = intent;
+    }
+    const bound = bindIntent(comp, intent.altName);
+    if (bound) {
+      state.selections[key] = bound;
+      kept.push(comp.component_name);
+    } else {
+      // Intent stays: if a later, broader rerun surfaces the same product, the
+      // choice rebinds itself. That is what durable intent means.
+      delete state.selections[key];
+      lost.push({component: comp.component_name, alt: intent.altName});
+    }
+  });
+  return {kept: kept, lost: lost};
+}
+
+// Say something only when a choice could NOT be carried over. Silence means it
+// worked. Johanna's complaint was that the loss happened invisibly, so the loss
+// is the part that has to speak.
+function reportReconcile(res) {
+  if (!res || !res.lost || !res.lost.length) return;
+  res.lost.forEach(l => {
+    addMsg('Ditt val "' + l.alt + '" för ' + l.component
+      + ' finns inte kvar efter omkörningen. Välj ett nytt alternativ i resultatpanelen.', 'system');
+  });
+}
+
 // === Pipeline: Alternatives ===
 async function runAlternatives(userFeedback) {
-  // Snapshot selections by component name before clearing (Feature 3)
-  const prevSelByName = {};
-  Object.values(state.selections).forEach(sel => { prevSelByName[sel.name] = sel.selected_alternative; });
+  // Selections made before intent tracking existed become intent now, so the
+  // reconcile below has something to work from (increment 3).
+  backfillIntent();
 
   addMsg('S\u00f6ker alternativ...', 'system');
   setProgressStep('aterbruk');
@@ -1887,20 +2037,11 @@ async function runAlternatives(userFeedback) {
     state.step = 'alternatives_done';
     playStepDone();
 
-    // Restore previous selections by component name match (Feature 3)
-    state.selections = {};
-    if (Object.keys(prevSelByName).length > 0) {
-      d.components.forEach(comp => {
-        const prev = prevSelByName[comp.component_name];
-        if (!prev) return;
-        if (prev.name === 'Baslinje') {
-          state.selections[comp.component_id] = {id:comp.component_id, name:comp.component_name, selected_alternative:{name:'Baslinje',co2e_kg:comp.baseline_co2e_kg,cost_sek:comp.baseline_cost_sek,source:'NollCO2'}, baseline_co2e_kg:comp.baseline_co2e_kg, baseline_cost_sek:comp.baseline_cost_sek};
-        } else {
-          const match = comp.alternatives.find(a => a.name === prev.name);
-          if (match) state.selections[comp.component_id] = {id:comp.component_id, name:comp.component_name, selected_alternative:{name:match.name,co2e_kg:match.co2e_kg,cost_sek:match.cost_sek,source:match.source}, baseline_co2e_kg:comp.baseline_co2e_kg, baseline_cost_sek:comp.baseline_cost_sek};
-        }
-      });
-    }
+    // Rebind choices against the new bag (increment 3). Replaces the bespoke
+    // name-match restore this function used to own alone — the chat-driven
+    // reruns below now go through the same rules, which is where the old
+    // asymmetry lived: buttons kept your choice, chat threw it away.
+    reportReconcile(reconcileSelections(null));
     scheduleAutoSave();
     setProgressStep('sammanstallning');
 
@@ -2116,9 +2257,13 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
       if (!orchestrated) setLoading(false);
       return;
     }
+    backfillIntent();
     if (isFull) {
       state.baseline = d;
       state.alternatives = null;
+      // Bindings cannot survive an emptied alternatives bag, but the intent
+      // does: the alternatives rerun that follows rebinds whatever is still
+      // on offer (increment 3).
       state.selections = {};
       state.reportMarkdown = null;
     } else {
@@ -2170,19 +2315,17 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
       if (!orchestrated) setLoading(false);
       return;
     }
+    backfillIntent();
     if (isFull) {
       state.alternatives = d;
-      state.selections = {};
-      state.reportMarkdown = null;
     } else {
       mergeAlternativesDelta(d, new Set(componentIds));
-      // Invalidate selections for components whose alternatives list just changed.
-      const cidSet = new Set(componentIds);
-      if (state.selections) {
-        Object.keys(state.selections).forEach(cid => { if (cidSet.has(cid)) delete state.selections[cid]; });
-      }
-      state.reportMarkdown = null;
     }
+    // Rebind rather than invalidate (increment 3). A "tänk bredare"-rerun is a
+    // superset, so the choice is usually still right there; dropping it blindly
+    // is Johanna's punkt 5. Runs after the merge so it sees the final bag.
+    reportReconcile(reconcileSelections(isFull ? null : componentIds));
+    state.reportMarkdown = null;
     scheduleAutoSave();
     if (activeTab === 'alternativ') renderAlternativContent();
     addMsg('Alternativ uppdaterade' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
@@ -2234,6 +2377,10 @@ function mergeAlternativesDelta(delta, cidSet) {
 // When baseline is rerun for a subset of components, downstream (alternatives,
 // selections, report) for those same components is stale by definition.
 function invalidateDownstreamFor(cidSet) {
+  // Binding goes, intent stays (increment 3). The chat agent emits
+  // rerun_baseline before rerun_alternatives for the same scope, and this is
+  // the step that used to destroy the choice the next step could have restored.
+  backfillIntent();
   if (state.alternatives && Array.isArray(state.alternatives.components)) {
     state.alternatives.components = state.alternatives.components.filter(c => !cidSet.has(c.component_id));
     if (state.alternatives.components.length === 0) state.alternatives = null;
@@ -2289,8 +2436,10 @@ function applyAgentStateUpdates(updates) {
       if (state.selections) {
         Object.keys(state.selections).forEach(cid => { if (!newIds.has(cid)) delete state.selections[cid]; });
       }
-      // Drop directives belonging to removed components.
+      // Drop directives and selection intent belonging to removed components.
+      // Removal is the only thing that ends intent (increment 3).
       pruneDirectives([...prevIds].filter(id => !newIds.has(id)));
+      dropIntent([...prevIds].filter(id => !newIds.has(id)));
     }
   }
 
@@ -2304,6 +2453,9 @@ function applyAgentStateUpdates(updates) {
   }
   if (updates.selections) {
     state.selections = updates.selections;
+    // The agent writes the bag wholesale; adopt it as intent so a later rerun
+    // can carry it (increment 3).
+    backfillIntent();
     touched = true;
   }
 
@@ -2565,17 +2717,32 @@ function renderProjektContent() {
   _populateNeedsTextarea();
 }
 
+// Baseline costs come from the LLM and can be absent. Same rule as everywhere
+// else: an absent price is not zero kronor.
+function knownCostRollup(rows) {
+  const priced = rows.filter(c => c.cost_sek > 0);
+  return {
+    known: priced.reduce((s,c) => s + c.cost_sek, 0),
+    unpriced: rows.filter(c => !(c.cost_sek > 0)).map(c => c.component_name || c.name || ''),
+    pricedCount: priced.length,
+    total: rows.length,
+  };
+}
+
 function renderBaslinjeContent() {
   const d = state.baseline;
   const total = d.components.reduce((s,c) => s + c.co2e_kg, 0);
-  const totalCost = d.components.reduce((s,c) => s + c.cost_sek, 0);
+  const cost = knownCostRollup(d.components);
   let html = '<div class="section-title">Baslinje (NollCO2-metoden)</div>';
   html += '<div class="method-label">Klimatmetod: GWP-fossil, livscykelskedena A1-A3 (Boverkets klimatdatabas)</div>';
   html += '<div class="source-legend"><span><span class="source-badge source-verified">EPD</span> Verifierad k\u00e4lla</span><span><span class="source-badge source-aggregate">EPD-typvärde</span> Kategori-typvärde (övre halvan)</span><span><span class="source-badge source-estimate">Est.</span> Uppskattning</span></div>';
   html += '<div class="summary">';
   html += '<div class="card"><div class="card-title">Total CO\u2082e</div><div class="value">' + Math.round(total).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e</div></div>';
-  html += '<div class="card"><div class="card-title">Total kostnad</div><div class="value">' + Math.round(totalCost).toLocaleString('sv') + '</div><div class="sublabel">SEK</div></div>';
+  html += '<div class="card"><div class="card-title">' + (cost.unpriced.length ? 'Kostnad (delsumma)' : 'Total kostnad') + '</div><div class="value">' + Math.round(cost.known).toLocaleString('sv') + '</div><div class="sublabel">' + (cost.unpriced.length ? 'SEK för ' + cost.pricedCount + ' av ' + cost.total + ' komponenter' : 'SEK') + '</div></div>';
   html += '<div class="card"><div class="card-title">Komponenter</div><div class="value">' + d.components.length + '</div><div class="sublabel">st</div></div>';
+  if (cost.unpriced.length) {
+    html += '<div style="grid-column:1/-1;font-size:11px;color:var(--kk-red-orange);margin-top:-4px">Saknar pris: ' + esc(cost.unpriced.join(', ')) + '. Ingen prisuppgift hittades, posten är alltså inte gratis.</div>';
+  }
   html += '</div>';
   html += '<div class="comp-card"><div class="comp-card-header"><h3>Per komponent</h3></div>';
   html += '<table class="comp-table"><thead><tr><th>Komponent</th><th style="text-align:right">CO\u2082e (kg)</th><th>Klimatk\u00e4lla</th><th style="text-align:right">Kostnad (SEK)</th><th>Prisk\u00e4lla</th></tr></thead><tbody>';
@@ -2585,7 +2752,7 @@ function renderBaslinjeContent() {
     // proxies are no longer used — components Boverket lacks get an EPD-typvärde
     // instead, with boverket_product empty.
     const productLine = c.boverket_product ? '<div style="font-size:11px;color:var(--kk-gray-500);margin-top:3px;font-style:italic"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Boverket-produkt</span>' + esc(c.boverket_product) + '</div>' : '';
-    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + '</td><td style="text-align:right">' + Math.round(c.cost_sek).toLocaleString('sv') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
+    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + '</td><td style="text-align:right">' + (c.cost_sek > 0 ? Math.round(c.cost_sek).toLocaleString('sv') : '<span style="color:var(--kk-gray-500)">Pris saknas</span>') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
   });
   html += '</tbody></table></div>';
   document.getElementById('resultContent').innerHTML = html;
@@ -2642,13 +2809,17 @@ function stockNote(alt, pc) {
     + ' i lager. Siffrorna räknas på hela behovet.</div>';
 }
 
+// Three kinds of figure land in the same column and must not read alike.
 // "Annonspris" is what a specific second-hand item actually costs.
 // "Marknadspris" is a web-searched installed price for that KIND of material.
-// The column rendered both as a bare number, which made an estimate look like a
-// quote.
+// "AI-uppskattat pris" is the model's own guess, used when the search found no
+// source at all. Better than an empty cell for someone comparing two materials,
+// but the weakest of the three, so it is the one that gets a warning colour.
 function priceBasisNote(alt) {
   if (alt.price_basis === 'market_estimate')
     return '<div style="font-size:10px;color:var(--kk-gray-500)">marknadspris</div>';
+  if (alt.price_basis === 'llm_estimate')
+    return '<div style="font-size:10px;color:var(--kk-red-orange)" title="Ingen priskälla hittades vid webbsökning. Siffran är språkmodellens egen uppskattning av ett typiskt installerat pris och behöver kontrolleras innan den används som underlag.">AI-uppskattat pris</div>';
   return '';
 }
 
@@ -2823,27 +2994,69 @@ function selectAlt(compId, altIdx, row) {
         price_basis: alt.price_basis || '', gwp_basis: alt.gwp_basis || ''},
       baseline_co2e_kg: comp.baseline_co2e_kg, baseline_cost_sek: comp.baseline_cost_sek };
   }
+  // Durable intent, so a later rerun can rebind it (increment 3).
+  rememberIntent(compId, comp.component_name, state.selections[compId].selected_alternative.name);
   updateSummary();
   scheduleAutoSave();
 }
 
+// The only place selection totals get summed. Pure, so the test suite can
+// exercise it directly \u2014 updateSummary() below writes to the DOM and was
+// therefore never covered, which is how the unpriced-as-zero bug survived the
+// row-level fix on 2026-08-14.
+//
+// A selected alternative with cost_sek <= 0 has NO KNOWN PRICE. It is not free:
+// the table renders it "Pris saknas", palats_client documents its price field
+// as "0 if free/unknown", and an EPD-verified alternative that could not be
+// web-priced survives the B1 filter at 0. Adding it as zero kronor understated
+// the basket and produced a saving out of a data gap, so unpriced components are
+// named and the comparison runs over the priced subset only.
+function summaryTotals(sels) {
+  const totalCo2 = sels.reduce((s,c) => s + c.selected_alternative.co2e_kg, 0);
+  const blCo2 = sels.reduce((s,c) => s + c.baseline_co2e_kg, 0);
+  const priced = sels.filter(c => c.selected_alternative.cost_sek > 0);
+  const unpriced = sels.filter(c => !(c.selected_alternative.cost_sek > 0)).map(c => c.name);
+  const knownCost = priced.reduce((s,c) => s + c.selected_alternative.cost_sek, 0);
+  const comparableBl = priced.reduce((s,c) => s + c.baseline_cost_sek, 0);
+  // Same rule on the baseline side: a baseline component the model gave no
+  // cost for is not a free component.
+  const blPriced = sels.filter(c => c.baseline_cost_sek > 0);
+  const blCost = blPriced.reduce((s,c) => s + c.baseline_cost_sek, 0);
+  return {
+    totalCo2: totalCo2, blCo2: blCo2, blCost: blCost,
+    blUnpricedCount: sels.length - blPriced.length,
+    knownCost: knownCost, comparableBl: comparableBl,
+    unpriced: unpriced, costIsPartial: unpriced.length > 0,
+    pricedCount: priced.length, total: sels.length,
+  };
+}
+
 function updateSummary() {
   const sels = Object.values(state.selections);
-  const totalCo2 = sels.reduce((s,c) => s + c.selected_alternative.co2e_kg, 0);
-  const totalCost = sels.reduce((s,c) => s + c.selected_alternative.cost_sek, 0);
-  const blCo2 = sels.reduce((s,c) => s + c.baseline_co2e_kg, 0);
-  const blCost = sels.reduce((s,c) => s + c.baseline_cost_sek, 0);
-  const co2Diff = totalCo2 - blCo2;
-  const co2Pct = blCo2 > 0 ? Math.round(Math.abs(co2Diff) / blCo2 * 100) : 0;
+  const t = summaryTotals(sels);
+  const co2Diff = t.totalCo2 - t.blCo2;
+  const co2Pct = t.blCo2 > 0 ? Math.round(Math.abs(co2Diff) / t.blCo2 * 100) : 0;
   const co2Arrow = co2Diff <= 0 ? '\u2193' : '\u2191';
-  const costDiff = totalCost - blCost;
-  const costPct = blCost > 0 ? Math.round(Math.abs(costDiff) / blCost * 100) : 0;
+  const costDiff = t.knownCost - t.comparableBl;
+  const costPct = t.comparableBl > 0 ? Math.round(Math.abs(costDiff) / t.comparableBl * 100) : 0;
   const costArrow = costDiff <= 0 ? '\u2193' : '\u2191';
+  // With a hole in the basket the headline is a part, not a total, and the
+  // percentage compares the priced components against their own baseline.
+  const costTitle = t.costIsPartial ? 'Kostnad (delsumma)' : 'Kostnad';
+  const costSub = t.costIsPartial
+    ? 'SEK f\u00f6r ' + t.pricedCount + ' av ' + t.total + ' komponenter (' + costArrow + costPct + '% vs deras baslinje)'
+    : 'SEK (' + costArrow + costPct + '% vs baslinje)';
+  const costGap = t.costIsPartial
+    ? '<div style="grid-column:1/-1;font-size:11px;color:var(--kk-red-orange);margin-top:-4px">Saknar pris: '
+      + esc(t.unpriced.join(', '))
+      + '. Ingen prisuppgift hittades, posten \u00e4r allts\u00e5 inte gratis \u2014 n\u00e5gon totalkostnad g\u00e5r inte att ange.</div>'
+    : '';
   document.getElementById('summaryArea').innerHTML =
     '<div class="summary">' +
-    '<div class="card' + (co2Diff <= 0 ? ' saving' : '') + '"><div class="card-title">Klimatp\u00e5verkan</div><div class="value">' + Math.round(totalCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e (' + co2Arrow + co2Pct + '% vs baslinje)</div></div>' +
-    '<div class="card' + (costDiff <= 0 ? ' saving' : '') + '"><div class="card-title">Kostnad</div><div class="value">' + Math.round(totalCost).toLocaleString('sv') + '</div><div class="sublabel">SEK (' + costArrow + costPct + '% vs baslinje)</div></div>' +
-    '<div class="card"><div class="card-title">Baslinje</div><div class="value">' + Math.round(blCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e | ' + Math.round(blCost).toLocaleString('sv') + ' SEK</div></div>' +
+    '<div class="card' + (co2Diff <= 0 ? ' saving' : '') + '"><div class="card-title">Klimatp\u00e5verkan</div><div class="value">' + Math.round(t.totalCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e (' + co2Arrow + co2Pct + '% vs baslinje)</div></div>' +
+    '<div class="card' + (!t.costIsPartial && costDiff <= 0 ? ' saving' : '') + '"><div class="card-title">' + costTitle + '</div><div class="value">' + Math.round(t.knownCost).toLocaleString('sv') + '</div><div class="sublabel">' + costSub + '</div></div>' +
+    '<div class="card"><div class="card-title">Baslinje</div><div class="value">' + Math.round(t.blCo2).toLocaleString('sv') + '</div><div class="sublabel">kg CO\u2082e | ' + Math.round(t.blCost).toLocaleString('sv') + ' SEK' + (t.blUnpricedCount ? ' (' + t.blUnpricedCount + ' utan pris)' : '') + '</div></div>' +
+    costGap +
     '</div>';
   const allSelected = state.alternatives.components.every(c => state.selections[c.component_id]);
   document.getElementById('reportBtn').disabled = !allSelected;
@@ -2910,7 +3123,8 @@ async function autoSave() {
   // inside project_data (the server's Project.from_dict ignores unknown keys).
   // Spread so we never mutate the working state.project object.
   const projectDataToSave = state.project
-    ? Object.assign({}, state.project, {directives: state.directives})
+    ? Object.assign({}, state.project, {directives: state.directives,
+                                        selection_intent: state.selectionIntent})
     : null;
   const analysisData = {
     name: state.project ? (state.project.name || state.project.building_type || 'Nytt projekt') : 'Nytt projekt',
@@ -3150,6 +3364,13 @@ async function loadAnalysis(id) {
       ? state.project.directives : {global: [], byComponent: {}};
     if (state.project && 'directives' in state.project) delete state.project.directives;
     _ensureDirectives();
+    // Same piggyback for selection intent. An analysis saved before increment 3
+    // has no key, loads as empty, and backfills from its selections — i.e.
+    // today's behaviour, with the choices preserved.
+    state.selectionIntent = (state.project && state.project.selection_intent)
+      ? state.project.selection_intent : {};
+    if (state.project && 'selection_intent' in state.project) delete state.project.selection_intent;
+    backfillIntent();
     document.getElementById('projectName').textContent = data.name || 'Nytt projekt';
     restoreUI();
     await loadAnalysesList();
@@ -3239,6 +3460,7 @@ function createNewProject() {
   state.selections = {}; state.pendingDesc = null; state.reportMarkdown = null;
   state.chatHistory = []; state.step = 'idle';
   state.directives = {global: [], byComponent: {}};
+  state.selectionIntent = {};
   document.getElementById('projectName').textContent = 'Nytt projekt';
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;

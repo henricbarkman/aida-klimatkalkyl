@@ -15,6 +15,15 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
     baseline_co2e = 0.0
     baseline_cost = 0.0
     component_details = []
+    # A selected alternative with no price contributes nothing to total_cost.
+    # Until 2026-08-20 that was indistinguishable from contributing zero kronor,
+    # so a basket where one of two components was unpriced reported a large
+    # saving against a full baseline. Track which ones, so every presentation
+    # site can say what the total leaves out, and keep a second pair of totals
+    # over the priced subset so a percentage compares like with like.
+    unpriced: list[str] = []
+    comparable_cost = 0.0
+    comparable_baseline_cost = 0.0
 
     # Validate: all project components must have a selection
     project_ids = {c.id for c in project.components}
@@ -32,12 +41,18 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
             continue
         alt = sel.selected_alternative
         alt_co2e = alt.get("co2e_kg", 0)
-        alt_cost = alt.get("cost_sek", 0)
+        alt_cost = alt.get("cost_sek", 0) or 0
+        has_price = alt_cost > 0
 
         total_co2e += alt_co2e
         total_cost += alt_cost
         baseline_co2e += sel.baseline_co2e_kg
         baseline_cost += sel.baseline_cost_sek
+        if has_price:
+            comparable_cost += alt_cost
+            comparable_baseline_cost += sel.baseline_cost_sek
+        else:
+            unpriced.append(sel.name)
 
         component_details.append({
             "id": sel.id,
@@ -48,6 +63,9 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
             "baslinje_co2e_kg": sel.baseline_co2e_kg,
             "baslinje_kostnad_sek": sel.baseline_cost_sek,
             "co2e_besparing_kg": round(sel.baseline_co2e_kg - alt_co2e, 1),
+            # Explicit, so the report table can print "Pris saknas" instead of
+            # formatting a zero that reads as free.
+            "pris_saknas": not has_price,
             "källa": alt.get("source", ""),
             # Carried through so the report can state where a reuse figure
             # assumes more stock than Palats holds. None for non-reuse picks
@@ -71,6 +89,9 @@ def compute_aggregate(project: Project, selections: Selections) -> AggregateResu
         co2e_savings_kg=round(baseline_co2e - total_co2e, 1),
         cost_difference_sek=round(total_cost - baseline_cost),
         components=component_details,
+        unpriced_components=unpriced,
+        comparable_cost_sek=round(comparable_cost),
+        comparable_baseline_cost_sek=round(comparable_baseline_cost),
     )
 
 

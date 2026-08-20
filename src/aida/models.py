@@ -276,6 +276,20 @@ class AggregateResult:
     co2e_savings_kg: float
     cost_difference_sek: float
     components: list[dict] = field(default_factory=list)
+    # cost_sek == 0 means "no price found", not "free" — palats_client documents
+    # its own price field as "0 if free/unknown" and an EPD-verified alternative
+    # that could not be web-priced survives the B1 filter at 0. Summing those as
+    # zero kronor turned a partial basket into a fabricated saving, so the totals
+    # now carry how much of the basket they actually cover.
+    unpriced_components: list[str] = field(default_factory=list)
+    # Totals restricted to the components priced on BOTH sides, so a percentage
+    # compares like with like instead of a partial sum against a full baseline.
+    comparable_cost_sek: float = 0
+    comparable_baseline_cost_sek: float = 0
+
+    @property
+    def cost_is_partial(self) -> bool:
+        return bool(self.unpriced_components)
 
     def to_dict(self) -> dict:
         return {
@@ -286,6 +300,9 @@ class AggregateResult:
                 "baslinje_total_kostnad_sek": self.baseline_total_cost_sek,
                 "co2e_besparing_kg": self.co2e_savings_kg,
                 "kostnadsskillnad_sek": self.cost_difference_sek,
+                "komponenter_utan_pris": self.unpriced_components,
+                "jamforbar_kostnad_sek": self.comparable_cost_sek,
+                "jamforbar_baslinje_kostnad_sek": self.comparable_baseline_cost_sek,
             },
             "komponenter": self.components,
         }

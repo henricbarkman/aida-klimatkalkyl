@@ -37,6 +37,7 @@ from aida.models import (
     NeedsAnalysis,
     Project,
 )
+from aida.name_match import match_key, tokens
 
 EPD_ALTERNATIVES_PATH = Path(__file__).parent.parent / "data" / "epd_alternatives.json"
 
@@ -148,34 +149,12 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
         return {}
 
 
-def _match_key(name: str) -> str:
-    """Normalise a product name for comparison.
-
-    The model retypes names rather than copying them, and the differences are
-    invisible: it wrote "Outdoor panel spruce – black (Sveden Trä)" for a
-    catalog entry called "Outdoor panel spruce - black". An en dash instead of
-    a hyphen was enough to lose the match, and with it the GWP-GHG marking that
-    is the whole condition for using that fallback. Caught on a live run
-    2026-08-17, where three spruce panels surfaced unmarked.
-    """
-    lowered = name.strip().lower().rstrip("*").strip()
-    for dash in ("‐", "‑", "‒", "–", "—", "―", "−"):
-        lowered = lowered.replace(dash, "-")
-    # Trademark marks disappear just as invisibly: the model writes "BCLarch
-    # profiled cladding" for a catalog entry named "BCLarch® profiled cladding".
-    for mark in ("®", "™", "©"):
-        lowered = lowered.replace(mark, "")
-    lowered = lowered.replace(" ", " ")
-    return " ".join(lowered.split())
-
-
-def _tokens(key: str) -> set[str]:
-    """Distinctive words in a normalised name, for when containment fails."""
-    return {
-        "".join(ch for ch in word if ch.isalnum())
-        for word in key.split()
-        if len(word) >= 3
-    } - {""}
+# Both of these moved to aida.name_match. The price matcher used a bare
+# .lower() instead and therefore discarded prices the web search had genuinely
+# found (2026-08-20: three of five). One implementation, one set of rules, so
+# the two cannot drift apart again.
+_match_key = match_key
+_tokens = tokens
 
 
 def match_epd_by_name(name: str, epds: list[dict]) -> dict | None:
@@ -928,24 +907,37 @@ def _enrich_alternative_prices(
     project: Project,
     routing: dict[str, str] | None = None,
 ) -> None:
-    """Batch web search for alternatives that have cost_sek == 0.
+    """Price the alternatives that came back at cost_sek == 0.
 
-    Web search returns prices per unit (SEK/m², SEK/st). We multiply by
-    the project's component quantity here to produce a total in SEK —
-    storing the per-unit value as total would understate cost by the
-    quantity factor (e.g. 725 SEK vs 45 × 725 for 45 m² of flooring).
+    Two passes, both single batch calls. Pass 1 is a web search for a real
+    market price. Pass 2 asks the model to estimate the ones the search could
+    not resolve, because an empty cost column is useless to someone choosing
+    between two materials while a labelled estimate is not (Henric,
+    2026-08-20). Which pass produced a number is carried on price_basis so the
+    table and the report can say so.
 
-    After each enrichment we run validate_total_price as a safety net:
-    it catches both out-of-range prices and the per-unit-as-total bug
-    class, in case a future change to the enrichment path regresses.
+    Prices come back per unit (SEK/m², SEK/st) and are multiplied by the
+    project's component quantity here — storing the per-unit value as the total
+    would understate cost by the quantity factor (725 SEK vs 45 × 725 for 45 m²
+    of flooring). validate_total_price then runs as a safety net for both that
+    regression and out-of-range prices.
 
-    Single batch call — alternatives still at 0 after this get filtered
-    downstream (DoD B1). Individual sequential lookups were removed to
-    avoid 5+ minute timeouts.
+    Never per-product lookups: sequential calls are what caused the 5+ minute
+    timeouts this path was restructured to avoid. Pass 2 is skipped when the
+    request no longer has time for it.
     """
-    from aida.data.price_validation import validate_total_price
-    from aida.data.pricing_provider import lookup_prices_batch
+    import time
 
+    from aida.api_client import remaining_budget
+    from aida.data.price_validation import validate_total_price
+    from aida.data.pricing_provider import (
+        BASIS_LLM_ESTIMATE,
+        BASIS_WEB_SEARCH,
+        estimate_prices_batch,
+        lookup_prices_batch,
+    )
+
+    started_at = time.monotonic()
     quantity_by_cid = {c.id: c.quantity for c in project.components}
     routing = routing or {}
     category_by_cid = {
@@ -960,8 +952,8 @@ def _enrich_alternative_prices(
     for ci, comp in enumerate(components):
         for ai, alt in enumerate(comp.alternatives):
             # "reuse" excluded: a Palats reuse listing is a specific second-hand
-            # item; web-searching a generic market price for it is meaningless,
-            # and a zero price is legitimate (free on the municipal marketplace).
+            # item, so a generic market price for the material would not be its
+            # price. Those keep whatever the listing said.
             if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info", "reuse"):
                 products_needing_prices.append((alt.name, ""))
                 alt_index.append((ci, ai))
@@ -969,54 +961,78 @@ def _enrich_alternative_prices(
     if not products_needing_prices:
         return
 
-    # Pass 1: Batch web search
-    batch_prices = lookup_prices_batch(products_needing_prices)
+    def apply(prices: dict, wanted: list[tuple[str, str]],
+              index: list[tuple[int, int]], basis: str) -> list[int]:
+        """Write prices onto their alternatives. Returns positions left unpriced."""
+        unresolved: list[int] = []
+        is_estimate = basis == BASIS_LLM_ESTIMATE
+        for pos, ((ci, ai), (name, _unit)) in enumerate(zip(index, wanted)):
+            price_result = prices.get(name.lower())
+            if not price_result:
+                unresolved.append(pos)
+                continue
+            price_per_unit, unit, source = price_result
+            comp = components[ci]
+            alt = comp.alternatives[ai]
+            quantity = quantity_by_cid.get(comp.component_id, 0) or 0
+            alt.cost_sek = round(price_per_unit * quantity) if quantity > 0 else round(price_per_unit)
+            # A typical installed price for this KIND of material, or the
+            # model's own guess at one. Neither is this product's asking price,
+            # and the table renders all three in the same column, so which one
+            # it is has to travel with the number.
+            alt.price_basis = basis
+            alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
+            alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
+            if source and source.lower() not in alt.reasoning.lower():
+                alt.reasoning = alt.reasoning.rstrip(". ") + f". Prisunderlag: {source}."
 
-    if batch_prices:
-        for (ci, ai), (name, _unit) in zip(alt_index, products_needing_prices):
-            price_result = batch_prices.get(name.lower())
-            if price_result:
-                price_per_unit, unit, _source = price_result
-                comp = components[ci]
-                alt = comp.alternatives[ai]
-                quantity = quantity_by_cid.get(comp.component_id, 0) or 0
-                if quantity > 0:
-                    alt.cost_sek = round(price_per_unit * quantity)
-                else:
-                    alt.cost_sek = round(price_per_unit)
-                # A typical installed price for this KIND of material, not this
-                # product's asking price. The table renders it in the same
-                # column as a real Palats listing price, so it has to be
-                # labelled as what it is.
-                alt.price_basis = "market_estimate"
-                alt.reasoning = alt.reasoning.replace(". Pris ej tillgängligt.", "")
-                alt.reasoning = alt.reasoning.replace("Pris ej tillgängligt.", "")
-
-                # Safety net: validate the enriched total. Detects both
-                # per-unit-as-total regressions and out-of-range prices.
-                category = category_by_cid.get(comp.component_id, "")
-                if quantity > 0 and category:
-                    validated_cost, note = validate_total_price(
-                        alt.cost_sek, quantity, category,
-                        is_estimate=False,
-                    )
-                    if validated_cost != alt.cost_sek:
-                        alt.cost_sek = validated_cost
-                    if note and note.lower() not in alt.reasoning.lower():
-                        alt.reasoning = alt.reasoning.rstrip(". ") + f". {note}."
-
-                logger.info(
-                    "Enriched price for '%s': %d SEK/%s x %g = %d SEK total",
-                    alt.name, round(price_per_unit), unit, quantity, alt.cost_sek,
+            category = category_by_cid.get(comp.component_id, "")
+            if quantity > 0 and category:
+                validated_cost, note = validate_total_price(
+                    alt.cost_sek, quantity, category, is_estimate=is_estimate,
                 )
+                if validated_cost != alt.cost_sek:
+                    alt.cost_sek = validated_cost
+                if note and note.lower() not in alt.reasoning.lower():
+                    alt.reasoning = alt.reasoning.rstrip(". ") + f". {note}."
 
-    # Pass 2: Log any still missing — individual lookups removed to avoid timeout
-    still_missing = sum(
-        1 for comp in components for alt in comp.alternatives
-        if alt.cost_sek <= 0 and alt.alternative_type not in ("baseline", "info")
+            logger.info(
+                "Priced '%s' via %s: %d SEK/%s x %g = %d SEK total",
+                alt.name, basis, round(price_per_unit), unit, quantity, alt.cost_sek,
+            )
+        return unresolved
+
+    # Pass 1: web search for a real market price.
+    unresolved = apply(
+        lookup_prices_batch(products_needing_prices),
+        products_needing_prices, alt_index, BASIS_WEB_SEARCH,
     )
-    if still_missing:
-        logger.info("%d alternatives still missing price after batch lookup", still_missing)
+
+    # Pass 2: the model's own estimate for whatever the search left. This is the
+    # fallback that already existed for a single product (lookup_price falls
+    # back to _estimate_price_without_search) but was unreachable in a batch, so
+    # any analysis with two or more unpriced alternatives never got it. That is
+    # why "Pris saknas" appeared as often as it did.
+    if unresolved:
+        budget = remaining_budget(started_at)
+        if budget < 20:
+            logger.warning(
+                "%d alternatives unpriced and only %.0fs budget left; skipping estimate pass",
+                len(unresolved), budget,
+            )
+        else:
+            still_wanted = [products_needing_prices[p] for p in unresolved]
+            still_index = [alt_index[p] for p in unresolved]
+            unresolved = [
+                still_index[p] for p in apply(
+                    estimate_prices_batch(still_wanted, timeout=budget),
+                    still_wanted, still_index, BASIS_LLM_ESTIMATE,
+                )
+            ]
+
+    if unresolved:
+        # Genuinely unpriceable. Not zero kronor — see compute_aggregate.
+        logger.info("%d alternatives unpriced after web search and estimate", len(unresolved))
 
 
 def _find_alternatives_with_epds(

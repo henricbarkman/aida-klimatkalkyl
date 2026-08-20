@@ -41,7 +41,7 @@ Komponenttabellen (använd den som ges i prompten). Kort kommentar per komponent
 Sammanställning av total besparing. Jämförelse mot baslinjen i absoluta tal och procent.
 
 ## Kostnadsbedömning
-Totalkostnad jämfört med baslinjen. Notera att priser avser uppskattat installerat pris (material + arbete) exkl. moms. Kommentera om det finns Palats-alternativ med styckpris som inte är direkt jämförbara.
+Totalkostnad jämfört med baslinjen, men bara om prompten anger en totalkostnad. Saknar någon komponent pris redovisas i stället delsumman för de prissatta komponenterna, och vilka som saknar pris. Notera att priser avser uppskattat installerat pris (material + arbete) exkl. moms. Kommentera om det finns Palats-alternativ med styckpris som inte är direkt jämförbara.
 
 ## Osäkerheter och begränsningar
 Datakällor som använts (Boverket, Environdec, webbsökning). Vad som är verifierat vs uppskattat. Att detta är beslutsstöd, inte certifierade beräkningar.
@@ -72,15 +72,20 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
     component_table = ""
     for comp in aggregate.components:
         saving_pct = (comp["co2e_besparing_kg"] / comp["baslinje_co2e_kg"] * 100) if comp["baslinje_co2e_kg"] > 0 else 0
+        # A missing price is not zero kronor. Printing "0" in this column let
+        # the model write about a cost saving that came out of a data gap.
+        cost_cell = "Pris saknas" if comp.get("pris_saknas") else f"{comp['kostnad_sek']:,.0f}"
         component_table += (
             f"| {comp['name']} | {comp['valt_alternativ']} | "
             f"{comp['co2e_kg']:.0f} | {comp['baslinje_co2e_kg']:.0f} | "
             f"{comp['co2e_besparing_kg']:.0f} ({saving_pct:.0f}%) | "
-            f"{comp['kostnad_sek']:,.0f} | {comp['källa']} |\n"
+            f"{cost_cell} | {comp['källa']} |\n"
         )
 
     stock_caveats = build_stock_caveats(aggregate.components)
     gwp_caveats = build_gwp_basis_caveats(aggregate.components)
+    price_gap = build_missing_price_caveat(aggregate)
+    estimated_prices = build_estimated_price_caveats(aggregate.components)
 
     saving_pct_total = (
         aggregate.co2e_savings_kg / aggregate.baseline_total_co2e_kg * 100
@@ -106,15 +111,12 @@ Sammanställning:
 - Total klimatpåverkan (valt): {aggregate.total_co2e_kg:.0f} kg CO2e
 - Baslinje (konventionellt): {aggregate.baseline_total_co2e_kg:.0f} kg CO2e
 - Klimatbesparing: {aggregate.co2e_savings_kg:.0f} kg CO2e ({saving_pct_total:.0f}%)
-- Total kostnad (valt): {aggregate.total_cost_sek:,.0f} SEK
-- Baslinje kostnad: {aggregate.baseline_total_cost_sek:,.0f} SEK
-- Kostnadsskillnad: {aggregate.cost_difference_sek:+,.0f} SEK
-
+{_cost_prompt_lines(aggregate)}
 Komponenttabell:
 | Komponent | Valt alternativ | CO2e (kg) | Baslinje (kg) | Besparing | Kostnad (SEK) | Källa |
 |-----------|----------------|-----------|---------------|-----------|---------------|-------|
 {component_table}
-{_caveat_prompt_block(stock_caveats)}
+{_caveat_prompt_block(stock_caveats)}{_price_gap_prompt_block(price_gap)}{_estimated_price_prompt_block(estimated_prices)}
 Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är uppskattningar för beslutsstöd."""
         }],
     )
@@ -124,6 +126,10 @@ Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är upps
         markdown = markdown.rstrip() + "\n\n" + render_stock_caveats(stock_caveats)
     if gwp_caveats:
         markdown = markdown.rstrip() + "\n\n" + render_gwp_basis_caveats(gwp_caveats)
+    if price_gap:
+        markdown = markdown.rstrip() + "\n\n" + render_missing_price_caveat(price_gap)
+    if estimated_prices:
+        markdown = markdown.rstrip() + "\n\n" + render_estimated_price_caveats(estimated_prices)
     return markdown
 
 
@@ -154,6 +160,139 @@ def build_stock_caveats(components: list[dict]) -> list[dict]:
             "behov": needed,
         })
     return caveats
+
+
+def build_missing_price_caveat(aggregate) -> dict | None:
+    """Facts about the part of the basket that has no price.
+
+    Returns None when every selected alternative is priced. Otherwise the names
+    of the unpriced components plus the two totals that ARE comparable, computed
+    over the priced subset only.
+    """
+    if not aggregate.unpriced_components:
+        return None
+    priced_count = len(aggregate.components) - len(aggregate.unpriced_components)
+    return {
+        "utan_pris": list(aggregate.unpriced_components),
+        "antal_utan_pris": len(aggregate.unpriced_components),
+        "antal_prissatta": priced_count,
+        "antal_totalt": len(aggregate.components),
+        "jamforbar_kostnad": aggregate.comparable_cost_sek,
+        "jamforbar_baslinje": aggregate.comparable_baseline_cost_sek,
+    }
+
+
+def _cost_prompt_lines(aggregate) -> str:
+    """The cost block of the prompt.
+
+    When part of the basket is unpriced, a bare "Total kostnad" against a full
+    baseline is not a comparison, it is a subtraction with a hole in it. In that
+    case the model gets the priced subset instead, and is told not to present a
+    total or a percentage.
+    """
+    gap = build_missing_price_caveat(aggregate)
+    if not gap:
+        return (
+            f"- Total kostnad (valt): {aggregate.total_cost_sek:,.0f} SEK\n"
+            f"- Baslinje kostnad: {aggregate.baseline_total_cost_sek:,.0f} SEK\n"
+            f"- Kostnadsskillnad: {aggregate.cost_difference_sek:+,.0f} SEK\n"
+        )
+    diff = gap["jamforbar_kostnad"] - gap["jamforbar_baslinje"]
+    return (
+        f"- Kostnad går INTE att totalsummera: {gap['antal_utan_pris']} av "
+        f"{gap['antal_totalt']} komponenter saknar pris "
+        f"({', '.join(gap['utan_pris'])}).\n"
+        f"- För de {gap['antal_prissatta']} komponenter som har pris: "
+        f"{gap['jamforbar_kostnad']:,.0f} SEK mot baslinjens "
+        f"{gap['jamforbar_baslinje']:,.0f} SEK, alltså {diff:+,.0f} SEK.\n"
+        f"- Ange ALDRIG en totalkostnad eller en procentuell kostnadsförändring "
+        f"för hela projektet. Redovisa bara delsumman ovan och säg vilka "
+        f"komponenter som saknar pris.\n"
+    )
+
+
+def _price_gap_prompt_block(gap: dict | None) -> str:
+    if not gap:
+        return ""
+    return (
+        "\nKomponenter utan pris (viktigt, ta upp under kostnadsbedömning och "
+        "osäkerheter):\n"
+        + "\n".join(f"- {name}" for name in gap["utan_pris"])
+        + "\nEtt saknat pris betyder att ingen prisuppgift hittades, inte att "
+        "posten är gratis. Skriv detta rakt ut.\n"
+    )
+
+
+def render_missing_price_caveat(gap: dict) -> str:
+    """The appendix that always lands, regardless of what the model wrote."""
+    rows = "\n".join(f"| {name} |" for name in gap["utan_pris"])
+    diff = gap["jamforbar_kostnad"] - gap["jamforbar_baslinje"]
+    return (
+        "## Komponenter utan prisuppgift\n\n"
+        f"{gap['antal_utan_pris']} av {gap['antal_totalt']} valda alternativ "
+        "saknar prisuppgift. Det betyder att ingen prisuppgift gick att hitta, "
+        "inte att posten är kostnadsfri. Någon totalkostnad för projektet går "
+        "därför inte att ange, och den kostnadsjämförelse som redovisas gäller "
+        f"bara de {gap['antal_prissatta']} komponenter som har pris: "
+        f"{gap['jamforbar_kostnad']:,.0f} SEK mot baslinjens "
+        f"{gap['jamforbar_baslinje']:,.0f} SEK, alltså {diff:+,.0f} SEK.\n\n"
+        "| Komponent utan pris |\n|---|\n"
+        f"{rows}\n"
+    )
+
+
+def build_estimated_price_caveats(components: list[dict]) -> list[dict]:
+    """Selected components whose cost is the model's own estimate.
+
+    Web search found no source, so the number is a plausible Swedish installed
+    price rather than a quoted one. It belongs in the report because a reader
+    cannot otherwise tell it apart from a searched market price, and the two
+    deserve different amounts of trust.
+    """
+    return [
+        {"komponent": c.get("name", ""),
+         "alternativ": c.get("valt_alternativ", ""),
+         "kostnad": c.get("kostnad_sek", 0)}
+        for c in components
+        if c.get("prisunderlag") == "llm_estimate"
+    ]
+
+
+def _estimated_price_prompt_block(caveats: list[dict]) -> str:
+    if not caveats:
+        return ""
+    lines = "\n".join(
+        f"- {c['komponent']}: \"{c['alternativ']}\", {c['kostnad']:,.0f} SEK"
+        for c in caveats
+    )
+    return (
+        "\nPriser utan källa (viktigt, ta upp under kostnadsbedömning och "
+        "osäkerheter):\n"
+        f"{lines}\n"
+        "För dessa hittade webbsökningen ingen priskälla, så beloppet är "
+        "språkmodellens egen uppskattning av ett typiskt installerat pris. "
+        "Skriv detta rakt ut och blanda inte ihop dem med sökta marknadspriser.\n"
+    )
+
+
+def render_estimated_price_caveats(caveats: list[dict]) -> str:
+    """The appendix that always lands, regardless of what the model wrote."""
+    rows = "\n".join(
+        f"| {c['komponent']} | {c['alternativ']} | {c['kostnad']:,.0f} |"
+        for c in caveats
+    )
+    return (
+        "## Priser utan källa\n\n"
+        "Kostnaderna nedan är språkmodellens egen uppskattning av ett typiskt "
+        "installerat pris på den svenska byggmarknaden. Webbsökningen hittade "
+        "ingen priskälla för dem. De redovisas hellre än utelämnas, eftersom en "
+        "tom kostnadskolumn gör alternativen omöjliga att väga mot varandra, "
+        "men de är svagare underlag än de sökta marknadspriserna och behöver "
+        "kontrolleras mot offert innan de används i upphandling.\n\n"
+        "| Komponent | Valt alternativ | Uppskattad kostnad (SEK) |\n"
+        "|---|---|---|\n"
+        f"{rows}\n"
+    )
 
 
 def build_gwp_basis_caveats(components: list[dict]) -> list[dict]:
