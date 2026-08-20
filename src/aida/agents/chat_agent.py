@@ -1,8 +1,13 @@
 """Chat agent with tool-use: surgical state mutations via conversation.
 
-Phase 1 scope: three tools that edit project components and selections.
-Heavier operations (rerun baseline/alternatives) stay on the button flow —
-the agent suggests them in text when appropriate.
+Tools that edit project components and selections, plus scoped rerun requests
+the frontend executes.
+
+add_component was missing until 2026-08-20, and the absence did not surface as
+an error. Asked to add a component mid-analysis, the model improvised a
+workaround that does not exist ("do it in the project view"), so the user's only
+real option was to start the whole analysis over. Worth remembering when adding
+a capability here: a tool the agent lacks becomes advice the agent invents.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ Du ser projektets nuvarande state (komponenter, baslinje, alternativ, val) och h
 
 VERKTYG:
 - update_component: korrigera material, mängd, enhet eller kategori för en komponent ("det är linoleum, inte vinyl", "500 m² blev 700").
+- add_component: lägg till en komponent som saknas ("vi ska byta innerdörrarna också"). Går att göra när som helst, även efter att baslinjen är beräknad och alternativ valda.
 - select_alternative: välj ett alternativ för en komponent ("välj Tarkett iQ för golvet").
 - remove_component: ta bort en komponent ("vi byter inte fönstren ändå").
 - rerun_baseline: begär att baslinjen räknas om för specifika komponenter (component_ids=['c1']) eller hela analysen (component_ids=[]). Frontend kör själva omberäkningen.
@@ -32,6 +38,13 @@ NÄR DU SKA ANVÄNDA VERKTYG:
 
 OBLIGATORISKT RERUN-MÖNSTER VID MATERIAL- ELLER KATEGORIBYTE:
 När du anropar update_component och ändringen rör name, category eller unit (alltså inte ENBART quantity), ska du i SAMMA tur också anropa rerun_baseline och rerun_alternatives med component_ids=[id på komponenten]. Användaren ska aldrig behöva klicka en knapp eller säga "räkna om" för att få ut nya värdet. Skala-tricket (linjär skalning vid quantity-only) gäller bara mängd, inte material.
+
+OBLIGATORISKT MÖNSTER NÄR EN KOMPONENT LÄGGS TILL:
+En ny komponent har varken baslinje eller alternativ förrän de körts. Anropa därför i SAMMA tur add_component, sedan rerun_baseline och rerun_alternatives med component_ids=[nya id:t]. Aldrig tom lista: en full omkörning skulle räkna om allt annat i onödan och kräva en extra bekräftelse av användaren. Övriga komponenters val överlever en sådan scopad omkörning, så det finns ingen anledning att börja om.
+
+Saknas mängd i det användaren sagt: fråga efter den först, anropa inte add_component med ett påhittat antal. Vet du enheten men inte antalet, fråga efter antalet.
+
+Säg aldrig till användaren att hen ska lägga till komponenten någon annanstans, i projektvyn eller genom att börja om. Du kan göra det härifrån.
 
 KONFIRMATION VID FULL OMKÖRNING:
 Om användaren ber om "kör om hela analysen", "börja om" eller liknande som leder till rerun_baseline eller rerun_alternatives med tom component_ids: bekräfta först i text vad det innebär (alla nuvarande val och beräkningar görs om) och vänta på explicit ja innan du anropar verktyget.
@@ -101,6 +114,52 @@ TOOLS = [
                 },
             },
             "required": ["component_id"],
+        },
+    },
+    {
+        "name": "add_component",
+        "description": (
+            "Lägg till en ny komponent i projektet ('vi ska byta innerdörrarna också'). "
+            "Fungerar när som helst, även efter att baslinjen är beräknad och alternativ "
+            "valda: den nya komponenten får en egen baslinje och egna alternativ, och "
+            "befintliga val påverkas inte. Be användaren om mängd om hen inte angett "
+            "någon, hitta aldrig på ett antal."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Komponentens namn som användaren beskriver den, t.ex. 'Innerdörrar' eller 'Linoleumgolv'.",
+                },
+                "quantity": {"type": "number"},
+                "unit": {"type": "string", "enum": ["m2", "st", "lm"]},
+                "category": {
+                    "type": "string",
+                    "enum": [
+                        "golv", "innervägg", "yttervägg", "betongvägg", "tak",
+                        "fönster", "dörr", "isolering", "belysning", "ventilation",
+                        "hiss", "kylanläggning", "sanitet", "vitvaror", "storköksutrustning",
+                    ],
+                },
+                "quantity_source": {
+                    "type": "string",
+                    "enum": ["user_specified", "estimated"],
+                    "description": (
+                        "'user_specified' bara när användaren själv angav antalet. "
+                        "Uppskattade du det, sätt 'estimated' så visas det som en "
+                        "uppskattning i tabellen."
+                    ),
+                },
+                "usage_context": {
+                    "type": "string",
+                    "description": (
+                        "Valfritt. Brukare, miljö och funktionella krav om det framgår "
+                        "av samtalet. Styr vilka alternativ som är lämpliga."
+                    ),
+                },
+            },
+            "required": ["name", "quantity", "unit"],
         },
     },
     {
@@ -355,6 +414,69 @@ def _apply_update_component(inp, project, baseline, alternatives, selections, pe
     ), True, touched
 
 
+def _next_component_id(project) -> str:
+    """First free cN, so a new component never collides with an existing id.
+
+    Not len(components)+1: after a removal that reuses a live id, and the whole
+    state model keys baseline, alternatives and selections on it. A collision
+    would silently attach the new component's figures to the old one.
+    """
+    taken = {c.get("id") for c in project.get("components", [])}
+    n = 1
+    while f"c{n}" in taken:
+        n += 1
+    return f"c{n}"
+
+
+def _apply_add_component(inp, project, baseline, alternatives, selections, pending_actions):
+    name = (inp.get("name") or "").strip()
+    if not name:
+        return "Komponenten behöver ett namn.", False, set()
+
+    quantity = inp.get("quantity")
+    try:
+        quantity = float(quantity)
+    except (TypeError, ValueError):
+        return f"Mängd saknas eller går inte att tolka för {name}.", False, set()
+    if quantity <= 0:
+        return f"Mängden för {name} måste vara större än noll.", False, set()
+
+    unit = inp.get("unit") or ""
+    if unit not in ("m2", "st", "lm"):
+        return f"Enheten för {name} måste vara m2, st eller lm.", False, set()
+
+    # A duplicate name is more likely a second attempt at the same thing than a
+    # genuine second component, and two rows with the same name are impossible
+    # to tell apart in the comparison table.
+    existing = [c for c in project.get("components", [])
+                if (c.get("name") or "").strip().lower() == name.lower()]
+    if existing:
+        return (
+            f"Det finns redan en komponent som heter {name} ({existing[0].get('id')}). "
+            "Vill du ändra mängden på den i stället, eller ska den nya heta något annat?"
+        ), False, set()
+
+    cid = _next_component_id(project)
+    source = inp.get("quantity_source")
+    project.setdefault("components", []).append({
+        "id": cid,
+        "name": name,
+        "quantity": quantity,
+        "unit": unit,
+        "category": inp.get("category") or "",
+        # Component.__post_init__ normalises anything unexpected to "estimated",
+        # so a wrong guess here degrades to the honest label rather than a lie.
+        "quantity_source": source if source in ("user_specified", "estimated") else "estimated",
+        "usage_context": inp.get("usage_context") or "",
+    })
+
+    return (
+        f"La till {cid}: {name}, {quantity:g} {unit}. "
+        "Den saknar baslinje och alternativ tills de körts för just den komponenten. "
+        "Övriga komponenter och deras val rörs inte."
+    ), True, {"project"}
+
+
 def _apply_remove_component(inp, project, baseline, alternatives, selections, pending_actions):
     cid = inp.get("component_id")
     target = _find_component(project, cid)
@@ -530,6 +652,7 @@ def _apply_rerun_alternatives(inp, project, baseline, alternatives, selections, 
 
 _HANDLERS = {
     "update_component": _apply_update_component,
+    "add_component": _apply_add_component,
     "select_alternative": _apply_select_alternative,
     "remove_component": _apply_remove_component,
     "rerun_baseline": _apply_rerun_baseline,
