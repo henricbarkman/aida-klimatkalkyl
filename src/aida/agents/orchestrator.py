@@ -138,7 +138,17 @@ def classify_intent(
         if has_project
         else "Inget projekt finns ännu i sessionen."
     )
-    messages = list(clean[-6:]) + [{"role": "user", "content": message}]
+    # Same boundary handling as run_chat_agent. _sanitize_history guarantees
+    # internal alternation but not the edges, and Anthropic rejects a leading
+    # assistant turn or two user turns in a row. This was survivable while the
+    # history died on reload; from increment 4 it persists, so a single failed
+    # chat turn would otherwise leave a permanently unroutable history.
+    recent = list(clean[-6:])
+    if recent and recent[0]["role"] == "assistant":
+        recent = recent[1:]
+    if recent and recent[-1]["role"] == "user":
+        recent = recent[:-1]
+    messages = recent + [{"role": "user", "content": message}]
 
     try:
         response = client.messages.create(

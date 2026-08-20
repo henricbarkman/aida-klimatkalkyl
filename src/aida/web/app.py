@@ -695,6 +695,9 @@ def create_analysis():
         'alternatives_data': data.get('alternatives_data'),
         'selections_data': data.get('selections_data'),
         'report_markdown': data.get('report_markdown'),
+        # Orchestration increment 4: the chat is part of the analysis, not of
+        # the browser that happened to run it.
+        'conversation_data': data.get('conversation_data'),
     }
     result = supabase_request('POST', 'analyses', data=row, token=token)
     if isinstance(result, list):
@@ -739,7 +742,8 @@ def update_analysis(analysis_id):
     data = request.json or {}
     update = {}
     for key in ('name', 'status', 'project_data', 'baseline_data',
-                'alternatives_data', 'selections_data', 'report_markdown'):
+                'alternatives_data', 'selections_data', 'report_markdown',
+                'conversation_data'):
         if key in data:
             update[key] = data[key]
     params = {
@@ -1285,7 +1289,10 @@ let _step = 'idle';
 let state = {
   project: null, baseline: null, alternatives: null,
   selections: {}, pendingDesc: null, reportMarkdown: null,
-  chatHistory: [],
+  // Orchestration increment 4: the full chat, displayed and remembered. Durable
+  // per analysis (analyses.conversation_data). Entries tagged with a `role` are
+  // the model's context; see llmHistory().
+  conversation: [],
   // Orchestration increment 2: standing user directives that shape alternatives.
   // global = applies to every component ("bara svenska tillverkare"); byComponent
   // = scoped to one component ("tänk bredare på golv"). Persisted per analysis and
@@ -1397,28 +1404,95 @@ function renderMd(text) {
   return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
 }
 
-let chatLog = []; // {text, cls, confirm?{btnLabel,hint}} — persisted via localStorage
+// === Orchestration increment 4: one durable conversation per analysis ===
+//
+// Until now the screen and the model remembered different things. What was
+// displayed rode in localStorage; what the model had seen lived only in memory
+// and died on every reload. So a user could reload, read the whole discussion
+// on screen, refer back to it ("gör som jag sa om golvet") and be answered by a
+// model that had seen none of it. The transcript lied about what the system
+// remembered.
+//
+// One array now carries both: every entry renders, and the entries tagged with
+// a `role` are the model's context (see llmHistory). It persists server-side in
+// analyses.conversation_data, so it also survives switching device.
+//
+// Entry: {text, cls, confirm?{btnLabel,hint}, role?:'user'|'assistant'}
+
+// Bound the persisted row. Trims whole entries from the front (oldest first);
+// a report markdown blob in the log can be tens of thousands of characters.
+const CONVERSATION_MAX_CHARS = 120000;
+
+function _trimConversation(entries) {
+  let total = 0, cut = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    total += (entries[i].text || '').length + 40;  // + rough per-entry overhead
+    if (total > CONVERSATION_MAX_CHARS) { cut = i + 1; break; }
+  }
+  // A single message over the cap (a pasted report, say) must not take the whole
+  // conversation with it: keep the newest entry whole even when it busts the
+  // budget alone. An oversized row beats an empty transcript.
+  if (cut >= entries.length) cut = entries.length - 1;
+  return cut > 0 ? entries.slice(cut) : entries;
+}
 
 function _chatStorageKey() { return 'aida_chat_' + (currentAnalysisId || 'new'); }
 
-function _saveChatLog() {
-  try { localStorage.setItem(_chatStorageKey(), JSON.stringify(chatLog)); } catch(e) {}
+function _saveConversation() {
+  state.conversation = _trimConversation(state.conversation);
+  try { localStorage.setItem(_chatStorageKey(), JSON.stringify(state.conversation)); } catch(e) {}
+  // Ride to the server only once a row exists. Creating one for a bare greeting
+  // would litter the project list with empty analyses; the turns that happened
+  // before the row existed are included wholesale when it is first created.
+  if (currentAnalysisId) scheduleAutoSave();
 }
 
-function addMsg(text, cls) {
-  chatLog.push({text, cls});
-  _saveChatLog();
+// The model's view: the entries tagged with a role, in order. Untagged entries
+// (system notices, step summaries, and everything saved before increment 4)
+// render but stay out of the prompt — exactly what the old in-memory
+// chatHistory held.
+function llmHistory() {
+  return state.conversation
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({role: m.role, content: m.text}));
+}
+
+// What to show for the analysis being opened: the server's copy when it has
+// one, otherwise this browser's local copy. Local is the fallback for analyses
+// saved before increment 4 and for the build without Supabase, never a merge —
+// two copies of the same conversation cannot be interleaved without inventing
+// an order, and the server's is the one that followed the user here.
+// DOM-free, so it can move into the orchestrator with the rest of §3.
+function conversationToRestore(fromServer, fromLocal) {
+  if (Array.isArray(fromServer) && fromServer.length) return fromServer;
+  if (Array.isArray(fromLocal) && fromLocal.length) return fromLocal;
+  return [];
+}
+
+// A fresh intake reassigns component ids, so earlier turns describe a project
+// shape that no longer exists. Drop the model's context without erasing what
+// the user can read: the transcript stays, the prompt starts clean.
+function forgetLlmContext() {
+  state.conversation.forEach(m => { delete m.role; });
+  _saveConversation();
+}
+
+function addMsg(text, cls, role) {
+  const entry = role ? {text, cls, role} : {text, cls};
+  state.conversation.push(entry);
+  _saveConversation();
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
   if (cls === 'bot' || cls === 'system') { d.innerHTML = renderMd(text); }
   else { d.textContent = text; }
   document.getElementById('messages').appendChild(d);
   d.scrollIntoView({behavior:'smooth'});
+  return entry;
 }
 
 function addConfirmMsg(text, btnLabel, hint) {
-  chatLog.push({text, cls: 'bot', confirm: {btnLabel, hint}});
-  _saveChatLog();
+  state.conversation.push({text, cls: 'bot', confirm: {btnLabel, hint}});
+  _saveConversation();
   const d = document.createElement('div');
   d.className = 'msg bot';
   d.innerHTML = renderMd(text) +
@@ -1550,8 +1624,9 @@ function buildCorrectionContext(text) {
   let ctx = '';
   if (state.project.name) ctx += 'Projektnamn: ' + state.project.name + '. ';
   ctx += state.project.building_type + ', ' + state.project.area_bta + ' m2. Komponenter: ' + compSummary + '.';
-  if (state.chatHistory && state.chatHistory.length > 0) {
-    const tail = state.chatHistory.slice(-8).map(m => {
+  const hist = llmHistory();
+  if (hist.length > 0) {
+    const tail = hist.slice(-8).map(m => {
       const role = (m.role === 'user') ? 'Användare' : 'AIda';
       return role + ': ' + _scrubCtxDelimiters(m.content || '');
     }).join('\n');
@@ -1566,7 +1641,10 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  addMsg(text, 'user');
+  // Keep the entry: whether this message becomes a turn the model remembers
+  // depends on which branch below handles it (advisory and chat do, intake and
+  // "kör vidare" do not — same split the in-memory chatHistory had).
+  const userEntry = addMsg(text, 'user');
   setLoading(true);
 
   // Detect "advance to next step" intent at confirmation gates
@@ -1586,9 +1664,8 @@ async function sendMessage() {
     try {
       const routed = await routeMessage(text);
       if (routed && routed.intent === 'advisory_question') {
-        state.chatHistory.push({role:'user', content: text});
-        state.chatHistory.push({role:'assistant', content: routed.reply});
-        addMsg(routed.reply, 'bot');
+        userEntry.role = 'user';
+        addMsg(routed.reply, 'bot', 'assistant');  // saves both entries
         setLoading(false);
         return;
       }
@@ -1626,7 +1703,7 @@ async function sendMessage() {
           await runBaseline();
         }
       } else {
-        await runChat(text);
+        await runChat(text, userEntry);
       }
       break;
     case 'alternatives_done':
@@ -1645,7 +1722,7 @@ async function sendMessage() {
         addMsg('G\u00f6r om alternativs\u00f6kningen med dina kommentarer...', 'system');
         await runAlternatives(text);
       } else {
-        await runChat(text);
+        await runChat(text, userEntry);
       }
       break;
     case 'report_done':
@@ -1660,7 +1737,7 @@ async function sendMessage() {
           }
         }
       } else {
-        await runChat(text);
+        await runChat(text, userEntry);
       }
       break;
     default:
@@ -1715,7 +1792,7 @@ async function runIntake(desc) {
     state.alternatives = null;
     state.selections = {};
     state.reportMarkdown = null;
-    state.chatHistory = [];
+    forgetLlmContext();
     // Intake assigns fresh component IDs, so component-scoped directives keyed on
     // the old IDs are now orphans — drop them. Global directives are not ID-bound
     // and survive (e.g. "bara svenska tillverkare").
@@ -2106,7 +2183,7 @@ async function generateReport() {
 async function routeMessage(text) {
   const body = {
     message: text,
-    history: state.chatHistory.slice(-10),
+    history: llmHistory().slice(-10),
     project: state.project || null,
     baseline: state.baseline || null,
     alternatives: state.alternatives || null,
@@ -2120,13 +2197,19 @@ async function routeMessage(text) {
 }
 
 // === Conversational chat (agent with tool-use) ===
-async function runChat(text) {
+async function runChat(text, userEntry) {
   setLoading(true);
-  state.chatHistory.push({role:'user', content: text});
+  // Tag before building the body, so the current message rides in `history` the
+  // way it always has. run_chat_agent drops that trailing user turn before it
+  // appends `message`, so the model still sees it once.
+  // Every caller displays the message first and hands us its entry. Warn rather
+  // than push a second one: a duplicate would render twice after a reload.
+  if (userEntry) userEntry.role = 'user';
+  else console.warn('runChat utan conversation-entry: turen sparas inte i modellens kontext');
   try {
     const body = {
       message: text,
-      history: state.chatHistory.slice(-10),
+      history: llmHistory().slice(-10),
       project: state.project || null,
       baseline: state.baseline || null,
       alternatives: state.alternatives || null,
@@ -2139,8 +2222,7 @@ async function runChat(text) {
 
     applyAgentStateUpdates(d.state_updates);
 
-    state.chatHistory.push({role:'assistant', content: d.reply});
-    addMsg(d.reply, 'bot');
+    addMsg(d.reply, 'bot', 'assistant');
 
     // Chat agent may have requested baseline/alternatives reruns. Execute them
     // sequentially so each action sees state from the previous one's merge.
@@ -3134,6 +3216,10 @@ async function autoSave() {
     alternatives_data: state.alternatives,
     selections_data: Object.keys(state.selections).length > 0 ? state.selections : null,
     report_markdown: state.reportMarkdown,
+    // Increment 4: the conversation gets its own column, not a project_data
+    // piggyback like directives — project_data is null until intake succeeds,
+    // and the advisory questions we most want to keep happen before that.
+    conversation_data: (state.conversation && state.conversation.length) ? state.conversation : null,
   };
   try {
     if (currentAnalysisId) {
@@ -3150,6 +3236,11 @@ async function autoSave() {
       const result = await r.json();
       if (result && result.id) {
         currentAnalysisId = result.id;
+        // The chat written before the row existed sits in the 'new' bucket.
+        // Move it to this analysis's key so a reload before the next autosave
+        // still finds it locally.
+        try { localStorage.removeItem('aida_chat_new'); } catch(e) {}
+        _saveConversation();
         await loadAnalysesList();
       }
     }
@@ -3347,10 +3438,12 @@ async function loadAnalysis(id) {
     const data = await r.json();
     if (!data || data.error) return;
     currentAnalysisId = id;
-    // Reset per-conversation LLM context so the previously loaded project's chat
-    // turns don't leak into this project's /api/chat and /api/route calls. The
-    // displayed chat log is restored separately from localStorage in restoreUI.
-    state.chatHistory = [];
+    // Increment 4: the analysis carries its own conversation, so switching
+    // project swaps the whole transcript AND the model's context together. The
+    // previous project's turns cannot leak in, because they are not in this
+    // array. restoreUI renders it (and falls back to localStorage for analyses
+    // saved before this shipped).
+    state.conversation = Array.isArray(data.conversation_data) ? data.conversation_data : [];
     state.pendingDesc = null;
     state.project = data.project_data;
     state.baseline = data.baseline_data;
@@ -3395,13 +3488,13 @@ function restoreUI() {
 
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
-  chatLog = [];
 
-  // Try restoring chat from localStorage (survives page reloads)
-  let savedChat;
-  try { savedChat = JSON.parse(localStorage.getItem(_chatStorageKey())); } catch(e) {}
+  let localChat = null;
+  try { localChat = JSON.parse(localStorage.getItem(_chatStorageKey())); } catch(e) {}
+  const savedChat = conversationToRestore(state.conversation, localChat);
+  state.conversation = [];
 
-  if (savedChat && savedChat.length > 0) {
+  if (savedChat.length > 0) {
     savedChat.forEach(m => {
       const d = document.createElement('div');
       d.className = 'msg ' + m.cls;
@@ -3419,7 +3512,7 @@ function restoreUI() {
       }
       msgs.appendChild(d);
     });
-    chatLog = savedChat;
+    state.conversation = savedChat;
     const last = msgs.lastElementChild;
     if (last) last.scrollIntoView({behavior:'smooth'});
   } else {
@@ -3455,10 +3548,10 @@ function createNewProject() {
   // previous project's saved chat log (which must survive switching back).
   currentAnalysisId = null;
   try { localStorage.removeItem(_chatStorageKey()); } catch(e) {}
-  chatLog = [];
+  state.conversation = [];
   state.project = null; state.baseline = null; state.alternatives = null;
   state.selections = {}; state.pendingDesc = null; state.reportMarkdown = null;
-  state.chatHistory = []; state.step = 'idle';
+  state.step = 'idle';
   state.directives = {global: [], byComponent: {}};
   state.selectionIntent = {};
   document.getElementById('projectName').textContent = 'Nytt projekt';
