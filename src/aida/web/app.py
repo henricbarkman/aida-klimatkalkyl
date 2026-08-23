@@ -7,6 +7,8 @@ import logging
 import os
 import secrets
 import sys
+import threading
+import time
 from functools import wraps
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -98,8 +100,14 @@ def _get_jwks_client():
     return _jwks_client
 
 
-def get_user_from_token():
-    """Extract user_id from Supabase JWT in Authorization header."""
+def get_user_claims():
+    """Verify the Supabase JWT and return its claims, or None.
+
+    Returns a dict with at least 'sub' and, when the token carries it,
+    'email'. The email is what the allowlist gate needs — the user id of a
+    self-registered account tells you nothing about whether that account
+    should exist.
+    """
     if not pyjwt or not SUPABASE_URL:
         return None
     auth_header = request.headers.get('Authorization', '')
@@ -116,7 +124,8 @@ def get_user_from_token():
                 token, signing_key.key,
                 algorithms=['ES256'], audience='authenticated'
             )
-            return payload.get('sub')
+            if payload.get('sub'):
+                return payload
         except Exception as e:
             app.logger.debug("ES256 JWKS validation failed: %s", e)
 
@@ -127,14 +136,15 @@ def get_user_from_token():
                 token, SUPABASE_JWT_SECRET,
                 algorithms=['HS256'], audience='authenticated'
             )
-            return payload.get('sub')
+            if payload.get('sub'):
+                return payload
         except Exception as e:
             app.logger.debug("HS256 validation failed: %s", e)
 
     # Last resort: verify token via Supabase auth API (handles any algorithm)
     try:
-        resp = __import__('urllib.request', fromlist=['urlopen']).urlopen(
-            __import__('urllib.request', fromlist=['Request']).Request(
+        resp = urlopen(
+            Request(
                 f"{SUPABASE_URL}/auth/v1/user",
                 headers={
                     'apikey': SUPABASE_ANON_KEY,
@@ -147,11 +157,43 @@ def get_user_from_token():
         uid = user_data.get('id')
         if uid:
             app.logger.info("Token validated via Supabase /auth/v1/user fallback")
-            return uid
+            return {'sub': uid, 'email': user_data.get('email')}
     except Exception as e:
         app.logger.debug("Supabase /auth/v1/user fallback failed: %s", e)
 
     return None
+
+
+def get_user_from_token():
+    """Extract user_id from Supabase JWT in Authorization header."""
+    claims = get_user_claims()
+    return claims.get('sub') if claims else None
+
+
+def _parse_allowlist(raw):
+    return {e.strip().lower() for e in raw.split(',') if e.strip()}
+
+
+ALLOWED_EMAILS = _parse_allowlist(os.environ.get('AIDA_ALLOWED_EMAILS', ''))
+
+
+def email_is_allowed(claims):
+    """Whether these token claims may use the app.
+
+    Supabase self-signup is a project-level setting outside this codebase,
+    so the app cannot assume the account set is curated. This gate makes
+    that moot: an account nobody invited gets a valid token and still
+    reaches nothing. Hiding the "Skapa konto" link does NOT do this — the
+    anon key is public in the page, so /auth/v1/signup stays reachable
+    regardless of what the UI offers.
+
+    Unset AIDA_ALLOWED_EMAILS keeps the previous behaviour (any
+    authenticated user), so deploying this change alone locks nobody out.
+    """
+    if not ALLOWED_EMAILS:
+        return True
+    email = (claims.get('email') or '').strip().lower()
+    return bool(email) and email in ALLOWED_EMAILS
 
 
 def supabase_request(method, path, data=None, token=None, params=None):
@@ -185,10 +227,15 @@ def require_auth(f):
     def decorated(*args, **kwargs):
         # Supabase JWT auth
         if SUPABASE_URL:
-            user_id = get_user_from_token()
-            if not user_id:
+            claims = get_user_claims()
+            if not claims:
                 return jsonify({'error': 'Ej inloggad'}), 401
-            request.user_id = user_id
+            if not email_is_allowed(claims):
+                app.logger.warning(
+                    "Blocked non-allowlisted user: %s", claims.get('email')
+                )
+                return jsonify({'error': 'Kontot saknar behörighet'}), 403
+            request.user_id = claims['sub']
             return f(*args, **kwargs)
         # Legacy password auth
         if not AIDA_PASSWORD:
@@ -206,16 +253,93 @@ def require_auth(f):
     return decorated
 
 
+RATE_LIMIT_PER_MIN = int(os.environ.get('AIDA_RATE_LIMIT_PER_MIN', '15'))
+RATE_LIMIT_PER_DAY = int(os.environ.get('AIDA_RATE_LIMIT_PER_DAY', '150'))
+
+# {caller_key: [monotonic timestamps]}, trimmed on each check.
+_rate_hits: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+
+
+def _rate_limit_key():
+    """Who to count against. User id when known, else client IP."""
+    uid = getattr(request, 'user_id', None)
+    if uid:
+        return f"u:{uid}"
+    fwd = request.headers.get('X-Forwarded-For', '')
+    ip = fwd.split(',')[0].strip() or request.remote_addr or 'unknown'
+    return f"ip:{ip}"
+
+
+def _check_rate_limit(key):
+    """Sliding-window check. Returns retry-after seconds, or None if allowed.
+
+    Deliberately in-process. On Vercel each warm instance keeps its own
+    counters, so this is a *cost guard*, not a security boundary: a caller
+    spread across N instances gets up to N times the quota. It still caps
+    the runaway case this exists for — one client looping a chat endpoint —
+    and it costs no external dependency. A hard per-user quota needs
+    durable storage (a Supabase table keyed on user id); worth doing if the
+    app ever opens beyond a known set of users.
+    """
+    now = time.monotonic()
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(key, []) if now - t < 86400]
+        recent = [t for t in hits if now - t < 60]
+        if len(recent) >= RATE_LIMIT_PER_MIN:
+            _rate_hits[key] = hits
+            return max(1, int(60 - (now - recent[0])))
+        if len(hits) >= RATE_LIMIT_PER_DAY:
+            _rate_hits[key] = hits
+            return max(1, int(86400 - (now - hits[0])))
+        hits.append(now)
+        _rate_hits[key] = hits
+
+        # Opportunistic cleanup so idle callers do not accumulate forever.
+        if len(_rate_hits) > 1000:
+            for k in [k for k, v in _rate_hits.items()
+                      if not v or now - v[-1] > 86400]:
+                del _rate_hits[k]
+    return None
+
+
+def rate_limited(f):
+    """Cap calls to endpoints that spend money on LLM tokens.
+
+    Applied *inside* require_auth so the counter keys on the authenticated
+    user where possible. Endpoints that only read or write rows are not
+    wrapped — they are cheap, and throttling them would break the UI's
+    normal save/load traffic.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        retry_after = _check_rate_limit(_rate_limit_key())
+        if retry_after is not None:
+            resp = jsonify({
+                'error': 'För många anrop. Vänta en stund och försök igen.'
+            })
+            resp.status_code = 429
+            resp.headers['Retry-After'] = str(retry_after)
+            return resp
+        return f(*args, **kwargs)
+    return decorated
+
+
 def require_supabase_auth(f):
     """Like require_auth but only allows Supabase JWT (for CRUD endpoints)."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not SUPABASE_URL:
             return jsonify({'error': 'Supabase ej konfigurerat'}), 501
-        user_id = get_user_from_token()
-        if not user_id:
+        claims = get_user_claims()
+        if not claims:
             return jsonify({'error': 'Ej inloggad'}), 401
-        request.user_id = user_id
+        if not email_is_allowed(claims):
+            app.logger.warning(
+                "Blocked non-allowlisted user: %s", claims.get('email')
+            )
+            return jsonify({'error': 'Kontot saknar behörighet'}), 403
+        request.user_id = claims['sub']
         return f(*args, **kwargs)
     return decorated
 
@@ -303,6 +427,7 @@ def serve_docs(filename):
 
 @app.route('/api/intake', methods=['POST'])
 @require_auth
+@rate_limited
 def api_intake():
     data = request.json or {}
     description = data.get('description', '')
@@ -320,6 +445,7 @@ def api_intake():
 
 @app.route('/api/baseline', methods=['POST'])
 @require_auth
+@rate_limited
 def api_baseline():
     data = request.json or {}
     project_data = data.get('project')
@@ -349,6 +475,7 @@ def api_baseline():
 
 @app.route('/api/alternatives', methods=['POST'])
 @require_auth
+@rate_limited
 def api_alternatives():
     data = request.json or {}
     project_data = data.get('project')
@@ -603,6 +730,7 @@ def api_report_docx():
 
 @app.route('/api/route', methods=['POST'])
 @require_auth
+@rate_limited
 def api_route():
     """Intent router (orchestration increment 1).
 
@@ -639,6 +767,7 @@ def api_route():
 
 @app.route('/api/chat', methods=['POST'])
 @require_auth
+@rate_limited
 def api_chat():
     """Conversational endpoint with tool-use.
 
