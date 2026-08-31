@@ -56,7 +56,17 @@ FETCH_TIMEOUT_S = 5.0
 would be felt as AIda being slow. On timeout we fail open and move on."""
 
 _lock = threading.Lock()
-_cache: dict = {"fetched_at": 0.0, "daily": None, "ok": False}
+
+_cache: dict = {"fetched_at": None, "daily": None, "ok": False}
+"""fetched_at is None until the first real fetch, and must stay that way rather
+than starting at 0.0. time.monotonic()'s zero point is arbitrary: on this
+machine it is uptime, around 1.2 million, so `now - 0.0 < CACHE_TTL_S` is
+comfortably false and a 0.0 sentinel looks correct in every local test. On a
+cold Vercel lambda the clock starts near zero, the same expression is true, and
+the cache reports itself fresh before anything has ever been fetched. The guard
+then returns "cannot read" forever and silently allows every request. Caught in
+production by /api/cost-guard on 2026-08-31, minutes after the first deploy;
+never reproducible locally, because locally the process is old."""
 
 
 def _api_key() -> str:
@@ -88,7 +98,8 @@ def _read_usage(force: bool = False) -> tuple[float | None, bool]:
 
     now = time.monotonic()
     with _lock:
-        fresh = now - _cache["fetched_at"] < CACHE_TTL_S
+        last = _cache["fetched_at"]
+        fresh = last is not None and now - last < CACHE_TTL_S
         if fresh and not force:
             return _cache["daily"], _cache["ok"]
 
@@ -137,4 +148,4 @@ def status() -> dict:
 
 def reset_cache_for_tests() -> None:
     with _lock:
-        _cache.update({"fetched_at": 0.0, "daily": None, "ok": False})
+        _cache.update({"fetched_at": None, "daily": None, "ok": False})
