@@ -29,6 +29,7 @@ from aida.agents.report import generate_report_markdown
 from aida.errors import UserFacingError
 from aida.llm_json import ModelOutputError
 from aida.models import Baseline, Project, Selections
+from aida.web import cost_guard
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +305,18 @@ def _check_rate_limit(key):
 
 
 def rate_limited(f):
-    """Cap calls to endpoints that spend money on LLM tokens.
+    """Guard the endpoints that spend money on LLM tokens.
+
+    Two independent limits, deliberately kept under one decorator so that a new
+    money-spending endpoint cannot pick up one and miss the other:
+
+    - Per caller, counted in requests, in process (_check_rate_limit).
+    - Globally, counted in dollars, read from OpenRouter (cost_guard). This is
+      the one that survives the app being open to anyone, since it does not care
+      how many accounts the spending is spread across.
+
+    The global check runs first: when the day's budget is gone there is no point
+    charging the caller's personal quota for a request that will be refused.
 
     Applied *inside* require_auth so the counter keys on the authenticated
     user where possible. Endpoints that only read or write rows are not
@@ -313,6 +325,18 @@ def rate_limited(f):
     """
     @wraps(f)
     def decorated(*args, **kwargs):
+        if cost_guard.over_daily_cap():
+            app.logger.warning(
+                "Daily cost cap reached (%.0f USD), refusing %s",
+                cost_guard.DAILY_CAP_USD, request.path,
+            )
+            resp = jsonify({
+                'error': 'AIda har nått dagens kostnadstak och pausar till '
+                         'midnatt. Hör av dig till Henric om det behöver höjas.'
+            })
+            resp.status_code = 503
+            resp.headers['Retry-After'] = '3600'
+            return resp
         retry_after = _check_rate_limit(_rate_limit_key())
         if retry_after is not None:
             resp = jsonify({
@@ -380,6 +404,20 @@ body { font-family: 'Roboto', sans-serif; height: 100vh; display: flex; align-it
 <div class="footer"></div>
 </body>
 </html>"""
+
+
+@app.route('/api/cost-guard', methods=['GET'])
+def api_cost_guard():
+    """Whether the daily spend brake is wired up, and against which key.
+
+    Unauthenticated on purpose, and returns booleans only, never amounts. The
+    question it answers is an operational one that could not otherwise be
+    answered from outside the deployment: the app falls back to a direct
+    Anthropic key when OPENROUTER_API_KEY is absent, and in that state the brake
+    has nothing to read and silently allows everything. A guard whose presence
+    cannot be verified is not a guard.
+    """
+    return jsonify(cost_guard.status())
 
 
 @app.route('/login', methods=['GET', 'POST'])

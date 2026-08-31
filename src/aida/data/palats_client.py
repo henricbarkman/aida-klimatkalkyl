@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 
@@ -215,9 +216,14 @@ SUBCATEGORY_KEYWORDS: dict[str, list[tuple[str, list[str]]]] = {
     "vitvaror": [
         ("tvättmaskin", ["tvättmaskin"]),
         ("torktumlare", ["torktumlare", "torkskåp"]),
+        # Compounds before the bare words they contain, same rule as sanitet.
+        # "Mikrovågsugn" ends in "ugn" and "Spiskåpa" starts with "spis", so
+        # both landed in the spis bucket while their own subcategories sat
+        # empty — and the vitvaror/köksfläkt typvärde (84 kg/st) was therefore
+        # unreachable for every cooker hood in the inventory.
+        ("mikro", ["mikrovågsugn", "mikrovåg", "mikro"]),
+        ("köksfläkt", ["köksfläkt", "spisfläkt", "spiskåp", "fläktkåp"]),
         ("spis", ["spis", "häll", "ugn"]),
-        ("köksfläkt", ["köksfläkt", "fläktkåpa"]),
-        ("mikro", ["mikrovåg", "mikro"]),
     ],
 }
 
@@ -238,12 +244,135 @@ def _normalize_to_aida_subcategory(category: str, text: str) -> str:
     return ""
 
 
+# Swedish inflection endings a compound noun can carry. Used to match a term
+# as the HEAD of a compound ("halvmånebord" ends in "bord") without the
+# false positives a bare substring test gives.
+_INFLECTIONS = ("", "a", "s", "n", "t", "an", "en", "et", "ar", "er", "or",
+                "arna", "erna", "orna", "na")
+
+
+def _compound_tail(word: str, term: str) -> bool:
+    """True when `word` is `term`, or a Swedish compound ending in `term`.
+
+    This is the shape Swedish compounding actually needs. Neither simple form
+    works on its own: `"stol" in word` also matches "toalettstol", while a
+    word-boundary regex misses "kontorsstol". Matching on the compound TAIL
+    catches kontorsstol/elevstol/mötesstol and leaves toalettstol to the
+    exception set, which is checked first and with the same matcher — so an
+    exception written as a stem covers its inflections too ("spiskåp" has to
+    cover both "spiskåpa" and "spiskåpor").
+    """
+    return any(word.endswith(term + suffix) for suffix in _INFLECTIONS)
+
+
+def _compound_units(title: str) -> list[str]:
+    """Words in a title, plus a de-hyphenated form of each hyphenated word.
+
+    Swedish writes plenty of compounds with a hyphen, especially after an
+    initialism: "WC-stol", "LED-lampa". Splitting on the hyphen alone leaves a
+    bare "stol", which the furniture guard would catch. Emitting the joined
+    form as well lets the exception set see the whole compound.
+    """
+    tokens = [t for t in re.split(r"[^\w-]+", title.lower()) if t.strip("-")]
+    units: list[str] = []
+    for token in tokens:
+        parts = [p for p in token.split("-") if p]
+        units.extend(parts)
+        if len(parts) > 1:
+            units.append("".join(parts))
+    return units
+
+
+# Compounds that END in a guarded term but ARE building products or
+# appliances. Checked before the guard, so "toalettstol" survives the "stol"
+# rule and "kylskåp" survives the "skåp" rule. Written as stems: the matcher
+# adds inflections.
+_NON_BUILDING_EXCEPTIONS = (
+    "toalettstol", "wcstol", "duschstol", "duschpall", "badpall",
+    "kylskåp", "frysskåp", "kylfrysskåp", "torkskåp", "elskåp",
+    "apparatskåp", "kopplingsskåp", "säkringsskåp", "fördelningsskåp",
+    "duschskärm", "solskärm",
+    # Cooker hoods are vitvaror. "spiskåpa"/"spiskåpor" both end in the
+    # guarded "skåp", which is a pure spelling coincidence.
+    "spiskåp", "fläktkåp", "imkåp",
+)
+
+# Furniture, loose inventory and workwear. Palats carries all three (48
+# mötesstolar, 42 arbetskläder-underdelar), and until AIda has an inredning
+# category they cannot substitute a building component. Matched as compound
+# tails against the TITLE only.
+#
+# The guard makes furniture invisible, not visible. That is the right order:
+# today a "Halvmånebord med rejält laminat" is offered as a floor, which is
+# worse than not being offered at all. Offering it as furniture is a separate
+# and larger job (roadmap C1).
+_NON_BUILDING_TAILS = (
+    # möbler. Written as stems where the plural drops a vowel: "hyllor" is not
+    # "hylla" plus an ending, so a "hylla" tail silently misses every plural
+    # listing ("Hyllor - barn", "Bokhyllor"). Same for soffa/soffor.
+    "bord", "stol", "fåtölj", "soff", "schäslong", "pall", "hurts",
+    "hyll", "skåp", "skärm", "byrå", "garderob", "madrass",
+    "whiteboard", "tidningshållare", "klädfack", "bänkskiva",
+    # arbetskläder
+    "kläder", "skjorta", "kavaj", "byxor", "jacka", "skor", "tröja",
+    "väst", "overall",
+    # storköksmaskiner som inte är byggdelar
+    "degblandare", "deggryta",
+)
+
+# Parts and accessories. They are building-adjacent but cannot replace the
+# component they belong to, so offering a door frame as a reuse alternative
+# to a door is the same error class as offering a table as a floor.
+_ACCESSORY_PHRASES = (
+    " till ", "tillbehör", "reservdel", "underrede", "stödskiva",
+)
+
+
+def _is_non_building(title: str) -> bool:
+    """True when the title names furniture, workwear or a loose part."""
+    units = _compound_units(title)
+    if any(_compound_tail(u, exc) for u in units for exc in _NON_BUILDING_EXCEPTIONS):
+        return False
+    if any(_compound_tail(u, tail) for u in units for tail in _NON_BUILDING_TAILS):
+        return True
+    padded = f" {title.lower()} "
+    return any(p in padded for p in _ACCESSORY_PHRASES)
+
+
+# Listings that keyword-match a category but are the wrong product type for
+# it. Same idea and same vocabulary as REJECT_PATTERNS in
+# scripts/build_epd_alternatives.py: the keyword net is deliberately wide, and
+# this is where the known catches get thrown back. Substring match on title.
+CATEGORY_EXCLUSIONS: dict[str, tuple[str, ...]] = {
+    # A glazed partition is not insulation, however much its title says
+    # "ljudisolering". Closest real category is innervägg, but a glass wall is
+    # not a gypsum wall either, so it gets no category rather than a wrong one.
+    "isolering": ("glasparti",),
+    # An awning shades a window, it does not replace one. A window sill has
+    # its own subcategory and is not a window either.
+    "fönster": ("markis", "persienn", "gardin"),
+    # Frames, rails and hardware cannot substitute a door leaf.
+    "dörr": ("karm", "skena", "handtag", "beslag", "trycke", "dörrstopp",
+             "gångjärn", "tröskel"),
+    # A drawer or a cabinet above the fridge is not a cooling appliance.
+    "kylanläggning": ("låda", "överskåp", "underskåp"),
+}
+
+
 def _normalize_to_aida_category(title: str, description: str = "") -> str:
     """Map a Palats listing to an AIda component category using keywords.
 
+    Classification reads the TITLE only. `description` is accepted for
+    backwards compatibility and deliberately ignored: the field it carries is
+    Palats' `articleConditionComment`, a note about wear and damage, not a
+    product description. Measured against the full live inventory (701
+    listings, 2026-08-31) it changed the outcome for exactly one listing, and
+    that one was wrong — an "Omklädningsskåp" whose comment read "Rostigt
+    golv" was classified as flooring and offered as a floor reuse option.
+
     Returns the AIda category key (e.g. 'golv', 'fönster') or '' if no match.
     """
-    text = f"{title} {description}".lower()
+    text = title.lower()
 
     # Structural frame elements (beams, columns, slabs) are load-bearing stomme,
     # not renovation finish materials. "Lättklinkerbalk" contains "klinker" and
@@ -257,6 +386,9 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
     if any(t in text for t in _structural):
         return ""
 
+    if _is_non_building(title):
+        return ""
+
     # Order matters — more specific matches first
     # Multi-word patterns checked before single-word to avoid false positives
     category_keywords: list[tuple[str, list[str]]] = [
@@ -268,9 +400,22 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
             "dörr", "dörrblad", "dörrkarm", "innerdörr", "ytterdörr",
             "branddörr", "skjutdörr", "entrédörr",
         ]),
+        # Ceramic before golv, mirroring normalize_component_name in
+        # climate_data: "golvklinker" contains "golv". Without its own key here
+        # a Palats kakel listing was classified `golv` and could therefore
+        # never match a `kakel` component, since matching compares category
+        # keys across the two taxonomies.
+        ("kakel", [
+            "kakel", "klinker", "keramikplatt", "väggkakel", "golvklinker",
+        ]),
         ("golv", [
-            "golv", "parkett", "klinker", "kakel", "vinylgolv", "vinylmatta",
-            "laminat", "trägolv", "golvplatta", "matta", "linoleum",
+            # "laminat" and bare "matta" were both dropped 2026-08-31. They are
+            # the two keywords the live inventory proved too loose: "laminat"
+            # matched a table and two countertops, "matta" matched two moisture
+            # barriers. The compounds below keep every real floor listing.
+            "golv", "parkett", "vinylgolv", "vinylmatta", "laminatgolv",
+            "trägolv", "golvplatta", "golvmatta", "plastmatta",
+            "heltäckningsmatta", "textilmatta", "entrématta", "linoleum",
         ]),
         ("tak", [
             "takpann", "takplåt", "takskiva", "yttertak", "undertak",
@@ -290,21 +435,35 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
             "reglar", "innervägg",
         ]),
         ("yttervägg", ["fasadskiva", "fasadplatta", "puts", "fasad"]),
+        # Cooker hoods moved to vitvaror below, so this list must no longer
+        # claim them. Bare "fläkt" took all ten of the live inventory's kitchen
+        # hoods, which left the vitvaror/köksfläkt typvärde unreachable and
+        # offered a cooker hood as a ventilation duct. Bare "don" went the same
+        # way: it is three letters that sit inside plenty of unrelated words,
+        # and every real use in this domain is a compound.
         ("ventilation", [
-            "ventilation", "fläkt", "kanal", "ventilationskanal",
-            "don", "tilluftsdon", "frånluftsdon",
+            "ventilation", "ventilationskanal", "ventilationsfläkt",
+            "frånluftsfläkt", "tilluftsfläkt", "takfläkt", "kanalfläkt",
+            "imkanal", "tilluftsdon", "frånluftsdon", "ventilationsdon",
+            "uteluftsdon", "spjäll",
         ]),
         ("vvs", ["panelradiator", "radiator", "avloppsrör"]),
         ("hiss", ["hiss", "elevator"]),
         ("storköksutrustning", ["diskmaskin", "storkök"]),
         ("sanitet", ["toalett", "wc", "handfat", "tvättställ", "dusch",
                      "badkar", "urinal", "blandare", "kran"]),
+        # Before ventilation-adjacent words could claim them: a köksfläkt is a
+        # white good in AIda's taxonomy and has its own typvärde.
         ("vitvaror", ["tvättmaskin", "torktumlare", "torkskåp", "spis",
-                      "häll", "ugn", "mikrovåg", "köksfläkt"]),
+                      "häll", "ugn", "mikrovåg", "köksfläkt", "spisfläkt",
+                      "spiskåp", "fläktkåp"]),
         ("kylanläggning", ["kyl", "frys", "kylskåp", "kylanläggning"]),
     ]
 
     for category, keywords in category_keywords:
+        excluded = CATEGORY_EXCLUSIONS.get(category, ())
+        if any(x in text for x in excluded):
+            continue
         for kw in keywords:
             if kw in text:
                 return category
@@ -395,8 +554,11 @@ def _extract_listing(raw: dict) -> PalatsListing:
     owner = raw.get("owner", {})
     owner_name = owner.get("name", "") if isinstance(owner, dict) else ""
 
-    category = _normalize_to_aida_category(title, description)
-    subcategory = _normalize_to_aida_subcategory(category, f"{title} {description}")
+    # Both classifications read the title only. `description` here is Palats'
+    # articleConditionComment (wear and damage), which names materials
+    # incidentally: "Rostigt golv" on a locker, "repor i laminatet" on a desk.
+    category = _normalize_to_aida_category(title)
+    subcategory = _normalize_to_aida_subcategory(category, title)
 
     # Resolve location
     location_id = raw.get("locationId")
@@ -476,6 +638,9 @@ def search_listings_for_component(
 # Reuse CO2e assumptions (kg CO2e per unit) — transport and minor refurbishment only
 REUSE_CO2E_PER_UNIT: dict[str, float] = {
     "golv": 0.5,      # m2
+    "kakel": 0.5,     # m2 — same handling as golv; got its own listing-side
+                      # category 2026-08-31 and would otherwise fall to the
+                      # 2.0 default purely by omission.
     "innervägg": 1.5,  # m2
     "yttervägg": 2.0,  # m2
     "fönster": 10.0,   # st — heavier, more transport impact
