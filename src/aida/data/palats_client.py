@@ -447,7 +447,18 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
             "imkanal", "tilluftsdon", "frånluftsdon", "ventilationsdon",
             "uteluftsdon", "spjäll",
         ]),
-        ("vvs", ["panelradiator", "radiator", "avloppsrör"]),
+        # Radiators before vvs and in their OWN key. The component side
+        # (normalize_component_name) has had a `radiator` category all along,
+        # and search_listings_for_component compares the two keys for equality,
+        # so while radiators were filed as vvs here all eight live listings were
+        # unreachable for a radiator component: AIda searched, found nothing,
+        # and reported "inget på Palats just nu". Same class as the klinker
+        # mismatch fixed 2026-08-31, found by scripts/audit_catalog.py on its
+        # first run — and precisely the half a verifier in the request path
+        # cannot see, because the defect shows up as an empty list.
+        ("radiator", ["panelradiator", "sektionsradiator", "elradiator",
+                      "radiator", "handdukstork"]),
+        ("vvs", ["avloppsrör", "vattenrör", "stamrör", "golvbrunn"]),
         ("hiss", ["hiss", "elevator"]),
         ("storköksutrustning", ["diskmaskin", "storkök"]),
         ("sanitet", ["toalett", "wc", "handfat", "tvättställ", "dusch",
@@ -638,6 +649,10 @@ def search_listings_for_component(
 # Reuse CO2e assumptions (kg CO2e per unit) — transport and minor refurbishment only
 REUSE_CO2E_PER_UNIT: dict[str, float] = {
     "golv": 0.5,      # m2
+    "radiator": 5.0,  # st — heavy steel, got its own listing-side category
+                      # 2026-09-01 and would otherwise fall to the 2.0 default
+                      # purely by omission. Between dörr (3.0) and kylanläggning
+                      # (25.0): more transport mass than a door, no refrigerant.
     "kakel": 0.5,     # m2 — same handling as golv; got its own listing-side
                       # category 2026-08-31 and would otherwise fall to the
                       # 2.0 default purely by omission.
