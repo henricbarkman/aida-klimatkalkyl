@@ -44,9 +44,8 @@ EPD_ALTERNATIVES_PATH = Path(__file__).parent.parent / "data" / "epd_alternative
 # The catalog stores every validated EPD per category (so baseline tier 2 can
 # compute an honest upper-half median over the full GWP distribution). For the
 # alternatives prompt we only want the best candidates to suggest, so we slice
-# the N lowest-GWP per category at load time. This keeps the per-component
-# prompt bounded and reproduces the pre-decoupling behaviour, where the catalog
-# was itself capped to the lowest-GWP N.
+# the N lowest-GWP per category — per component, after narrowing to its unit.
+# This keeps the per-component prompt bounded.
 _MAX_ALTERNATIVES_PER_CATEGORY = 80
 
 # Heterogeneous categories whose candidates are capped and filtered PER
@@ -115,11 +114,10 @@ Svara med giltig JSON-array:
 def _load_epd_alternatives() -> dict[str, list[dict]]:
     """Load pre-categorized EPD alternatives, grouped by AIda category.
 
-    The best-N (lowest GWP) are kept for the alternatives prompt; the full
-    distribution stays in the catalog for baseline tier 2. For heterogeneous
-    categories (sanitet/belysning/vitvaror) the best-N are kept PER SUBCATEGORY
-    — otherwise low-GWP taps fill the category-wide cap and starve a WC-stol
-    component of toilets (it then gets offered a tap or a toilet seat).
+    Returns every positive-GWP row per category. Capping to the best-N happens
+    in _select_epd_candidates instead, because it has to run AFTER the
+    candidates are narrowed to the component's declared unit — a cap applied
+    here spends its budget on rows the component can never be compared to.
     """
     if not EPD_ALTERNATIVES_PATH.exists():
         return {}
@@ -131,22 +129,94 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
             cat = epd.get("category", "")
             if cat and epd.get("gwp_a1a3", 0) > 0:
                 result.setdefault(cat, []).append(epd)
-        for cat, epds in result.items():
-            if cat in _SUBCATEGORIZED_CATEGORIES:
-                by_sub: dict[str, list[dict]] = {}
-                for e in epds:
-                    by_sub.setdefault(e.get("subcategory", ""), []).append(e)
-                flat: list[dict] = []
-                for sub_epds in by_sub.values():
-                    sub_epds.sort(key=lambda e: abs(e.get("gwp_a1a3", 0)))
-                    flat.extend(sub_epds[:_MAX_ALTERNATIVES_PER_CATEGORY])
-                result[cat] = flat
-            else:
-                epds.sort(key=lambda e: abs(e.get("gwp_a1a3", 0)))
-                result[cat] = epds[:_MAX_ALTERNATIVES_PER_CATEGORY]
         return result
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+# Units that describe an area-measured building element.
+_AREA_UNITS = {"m2", "m²", "kvm"}
+
+
+def _epd_comparable(epd: dict) -> tuple[float, str]:
+    """The (gwp, unit) pair an EPD can actually be compared against a component.
+
+    Uses the derived functional unit ONLY for m3-declared rows. That conversion
+    is the geometric thickness bridge, a fact about the product. The kg -> m2
+    bridge is a density assumption about the whole category, and
+    epd_baseline_medians refuses it for exactly that reason (see its m3
+    comment); accepting it here would put the alternatives side on a basis the
+    baseline rejects.
+
+    Returning both together matters: for a converted row the comparable figure
+    is the functional-unit one, and ranking on the raw declared value instead
+    puts the most expensive rows at the front of the queue. A kg figure is
+    numerically small for any product, so "TIMBABUILD EWS epoxy wood repair"
+    sorted as 5.52 while actually costing 115.92 kg CO2e/m2 — seven times the
+    floor baseline it was being offered as an improvement on.
+    """
+    unit = str(epd.get("unit", "")).lower()
+    gwp = epd.get("gwp_a1a3", 0)
+    if unit == "m3":
+        fu_gwp = epd.get("gwp_per_functional_unit")
+        fu_unit = epd.get("functional_unit")
+        if fu_unit and isinstance(fu_gwp, (int, float)):
+            return float(fu_gwp), str(fu_unit).lower()
+    return float(gwp if isinstance(gwp, (int, float)) else 0), unit
+
+
+def _select_epd_candidates(
+    epds: list[dict], project_unit: str, category: str,
+) -> list[dict]:
+    """Narrow a category's EPDs to those this component can be compared against,
+    then keep the best-N by GWP.
+
+    Unit has to be settled before GWP is, for two reasons.
+
+    It decides whether a saving is real. A kg-declared EPD offered to an
+    area-measured component produces a phantom: 0.57 kg CO2e/kg parquet reads as
+    a 97% cut against a 17.4 kg CO2e/m2 baseline. The prompt used to paper over
+    this by asking the model for "en rimlig omräkning" — a density guess that
+    epd_baseline_medians (see its m3 comment) explicitly refuses to make for the
+    baseline. The alternatives side should not be making it either.
+
+    It also decides what the cap can see. Ranking by GWP across mixed units puts
+    the kg rows first, because a per-kg figure is numerically smaller than a
+    per-m2 one for the same product. The golv bucket spent 40 of its 80 slots on
+    kg-declared epoxy pipe entries and cut 56 real m2 floors to do it.
+
+    Only area-measured components are narrowed. st/kg components (fixtures,
+    appliances) legitimately draw on both units, and narrowing that side starved
+    the sanitet bucket once already.
+    """
+    if project_unit.strip().lower() not in _AREA_UNITS:
+        matching = epds
+    else:
+        matching = [e for e in epds if _epd_comparable(e)[1] in _AREA_UNITS]
+        if not matching:
+            # Better a unit-mismatched suggestion than none at all, but say so.
+            logger.warning(
+                "No area-declared EPDs in category %s; falling back to the "
+                "full bucket (%d rows, mixed units)", category, len(epds),
+            )
+            matching = epds
+
+    def rank(e: dict) -> float:
+        return _epd_comparable(e)[0]
+
+    if category in _SUBCATEGORIZED_CATEGORIES:
+        # Heterogeneous categories are capped PER SUBCATEGORY — otherwise
+        # low-GWP taps fill the category-wide cap and starve a WC-stol
+        # component of toilets (it then gets offered a tap or a toilet seat).
+        by_sub: dict[str, list[dict]] = {}
+        for e in matching:
+            by_sub.setdefault(e.get("subcategory", ""), []).append(e)
+        flat: list[dict] = []
+        for sub_epds in by_sub.values():
+            sub_epds.sort(key=rank)
+            flat.extend(sub_epds[:_MAX_ALTERNATIVES_PER_CATEGORY])
+        return flat
+    return sorted(matching, key=rank)[:_MAX_ALTERNATIVES_PER_CATEGORY]
 
 
 # Both of these moved to aida.name_match. The price matcher used a bare
@@ -763,7 +833,9 @@ def find_alternatives(
 
         comp_key = routing.get(bl_comp.component_id) or resolve_category(
             proj_comp.name, proj_comp.category)
-        epds_for_category = epd_data.get(comp_key, [])
+        epds_for_category = _select_epd_candidates(
+            epd_data.get(comp_key, []), proj_comp.unit, comp_key,
+        )
         # Baseline reference must follow the routed material (retroactive
         # directive): a kakel-routed wall is validated against the kakel
         # baseline, not the stored innervägg one — else RC5 drops every kakel
@@ -1123,7 +1195,7 @@ TILLGÄNGLIGA EPD:er FÖR DENNA KATEGORI ({len(epds)} st):
 {_format_epd_list(epds)}
 
 Välj de 2-4 bästa alternativen från listan ovan. Beräkna total CO2e baserat på EPD-värdet × {proj_comp.quantity} {proj_comp.unit}.
-Om EPD-enheten inte matchar projektenheten (t.ex. EPD i kg men projektet i m2), gör en rimlig omräkning.
+Om EPD-enheten inte matchar projektenheten: hoppa över den EPD:n. Räkna aldrig om mellan enheter med en antagen densitet eller tjocklek — en sådan omräkning ser ut som en besparing men är en gissning.
 Prioritera svenska/nordiska produkter.
 """
     else:
