@@ -1466,7 +1466,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 
     <div class="welcome-body">
       <div class="welcome-label">Vad AIda gör</div>
-      <p>Du beskriver projektet med egna ord i chatten. AIda tar fram en klimatbaslinje, letar återbruk, jämför klimatoptimerade nyinköp och rankar alternativen på både utsläpp och kronor. Resultatet blir ett underlag du kan ta med till upphandlingen.</p>
+      <p>Du beskriver projektet med egna ord i chatten. AIda tar fram en klimatbaslinje, letar återbruk, jämför klimatoptimerade nyinköp och rankar alternativen på både utsläpp och kronor. Resultatet blir ett underlag du kan ta med dig i genomförandet av projektet.</p>
 
       <div class="welcome-label">Så får du bäst resultat</div>
       <ul class="welcome-tips">
@@ -1475,8 +1475,8 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
           <span>Kör en analys per byggnadsdel eller etapp. En hel fastighet i en enda beskrivning ger grövre siffror än tre avgränsade analyser.</span>
         </li>
         <li>
-          <strong>Beskriv nuläget, inte bara målet</strong>
-          <span>Befintligt material, skick och ålder avgör vad som kan återbrukas. Ta med ytor och mängder, ungefärligt räcker.</span>
+          <strong>Berätta så mycket du kan</strong>
+          <span>Ju mer AIda vet om nuläget, befintliga material, skick och mängder, desto mer precist blir resultatet. Men du behöver inte vara noggrann. Ungefärliga uppgifter räcker långt, och AIda visar vilka antaganden den gjort.</span>
         </li>
         <li>
           <strong>Rätta AIda i chatten</strong>
