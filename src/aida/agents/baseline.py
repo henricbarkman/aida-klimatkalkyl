@@ -76,14 +76,33 @@ KLIMATMETOD (gäller hela analysen):
 - Inkludera ALDRIG biogenic carbon credit i baslinjen. Värden måste vara konsistenta med Boverket Typical A1-A3.
 
 Du får:
-1. En lista med projektets komponenter (med id, namn, antal, enhet)
+1. En lista med projektets komponenter (id, namn, antal, enhet, kategori, samt "Funktion
+   och krav" när det finns — vad komponenten ska klara av, vilka som använder den och i
+   vilken miljö)
 2. Boverkets kompletta produktlista med CO2e-värden (GWP-fossil, Typical A1-A3)
 
 UPPGIFT — följ dessa steg för VARJE komponent:
 
 STEG 1 — BESTÄM STANDARDMATERIAL:
-Fundera på vad det konventionella/typiska materialet är för denna komponent i denna byggnadstyp.
-Exempel: golv i skola → homogen vinylmatta (PVC). Innervägg → gipsskiva på stålreglar.
+Fundera på vad det konventionella/typiska materialet är för denna komponent, givet
+byggnadstypen OCH komponentens funktion och krav (fältet "Funktion och krav").
+Exempel: golv i skolentré med saltslask → homogen vinylmatta (PVC). Innervägg → gipsskiva
+på stålreglar.
+
+Skriv ut valet i fältet `assumed_material` som en kort produktbenämning, inte en mening:
+"Homogen vinylmatta (PVC)", "Linoleum 2,5 mm", "Gipsskiva 13 mm på stålreglar",
+"Keramisk klinker". Det är den som visas för användaren som svar på frågan "vilket
+material har ni räknat på?", så den ska gå att känna igen och ifrågasätta.
+
+VIKTIGT — baslinjen är INTE användarens val:
+Baslinjen ska svara på "vad hade man normalt byggt här?", inte "vad tänker användaren
+köpa?" och inte "vad sitter där idag?". Väljer du material efter vad projektet planerar
+blir jämförelsen cirkulär och besparingen noll per definition. Nämner beskrivningen ett
+önskat material, bortse från det och välj det byggnadstypiska. (Samma princip som NollCO2,
+där baslinjen räknas fram ur byggnadsparametrar innan projektet har projekterat något.)
+
+Välj det konventionella valet utan särskild klimathänsyn — inte det bästa tillgängliga,
+och inte det sämsta tänkbara.
 
 STEG 2 — MATCHA MOT BOVERKET ENDAST VID SAMMA MATERIAL:
 Boverkets databas är organiserad efter materialtyp, inte byggnadsfunktion. Välj en Boverket-
@@ -108,7 +127,9 @@ description-fältet.
 STEG 4 — UPPSKATTNING NÄR BOVERKET SAKNAR MATERIALET:
 Om komponentens standardmaterial inte finns som egen produkt i Boverket, sätt
 boverket_product till null och source="Uppskattning". Systemet ersätter då uppskattningen
-med ett EPD-typvärde (kategori-aggregat) där sådant finns. Uppskattningen ska alltid avse
+med ett EPD-typvärde där sådant finns, och använder ditt `assumed_material` för att välja
+rätt undertyp (t.ex. vinyl snarare än golv generellt) — så ju mer precis produktbenämning
+du skriver, desto träffsäkrare blir baslinjen. Uppskattningen ska alltid avse
 GWP-fossil A1-A3 (cradle-to-gate, exkl. biogenic carbon credit) så värdet är jämförbart med
 övriga komponenter.
 
@@ -120,6 +141,7 @@ Svara med ENBART giltig JSON (ingen markdown, inga kommentarer):
   {
     "component_id": "string (exakt id från komponentlistan)",
     "component_name": "string",
+    "assumed_material": "string (kort produktbenämning på det antagna standardmaterialet, se STEG 1)",
     "boverket_product": "string (exakt produktnamn från Boverket-listan, eller null)",
     "co2e_per_unit": number,
     "unit": "string (enhet från Boverket-produkten, konverterad till komponentens enhet vid behov)",
@@ -206,7 +228,10 @@ def _apply_epd_median_fallback(results: list[BaselineResult], project: Project) 
     reference point. Upper-half median better approximates the conventional
     default a user would pick if they weren't actively climate-optimizing.
     """
-    from aida.data.epd_baseline_medians import get_baseline_typvärde
+    from aida.data.epd_baseline_medians import (
+        get_baseline_typvärde,
+        subtype_from_material,
+    )
     from aida.data.palats_client import component_subcategory
     from aida.data.unit_conversion import typical_item_mass
 
@@ -222,9 +247,22 @@ def _apply_epd_median_fallback(results: list[BaselineResult], project: Project) 
         category = resolve_category(comp.name, comp.category)
         if not category:
             continue
-        # Heterogeneous categories (sanitet, belysning, vitvaror) need the
-        # component's subcategory to pick the right per-subcategory typvärde.
+        # Two ways to reach a subcategory, and they answer different questions.
+        #
+        # component_subcategory reads the component NAME, which is how the
+        # heterogeneous categories (sanitet, belysning, vitvaror) tell a toilet
+        # from a tap. That works there because the name IS the product type.
+        #
+        # For a subtype-preferred category the name is useless: "Golv i
+        # tambur/toalett" says nothing about vinyl or linoleum. What identifies
+        # the material is the standard material the agent just named from the
+        # building type and the component's function, which is the NollCO2
+        # question ("byggt på ett idag byggnadstypiskt sätt"). So prefer that,
+        # and keep the name-derived one as the fallback.
         subcategory = component_subcategory(comp.name, category)
+        material_subtype = subtype_from_material(category, r.assumed_material)
+        if material_subtype:
+            subcategory = material_subtype
         typvärde_data = get_baseline_typvärde(category, comp.unit, subcategory)
 
         # kg->st bridge: count-denominated components (a toilet, a radiator) are
@@ -242,6 +280,13 @@ def _apply_epd_median_fallback(results: list[BaselineResult], project: Project) 
                     "full_median": round(kg_data["full_median"] * mass, 2),
                     "min": round(kg_data["min"] * mass, 2),
                     "max": round(kg_data["max"] * mass, 2),
+                    # Carried through from the kg lookup. The label downstream
+                    # reads the RETURNED subcategory rather than the requested
+                    # one (a thin subtype can fall back to the category), so a
+                    # bridge dict without these would silently relabel a
+                    # sanitet/handfat baseline as plain "sanitet".
+                    "subcategory": kg_data.get("subcategory", ""),
+                    "level": kg_data.get("level", ""),
                 }
                 mass_note = (
                     f" Omräknat kg→st via antagen typisk vikt {mass} kg/st "
@@ -255,20 +300,60 @@ def _apply_epd_median_fallback(results: list[BaselineResult], project: Project) 
         n = typvärde_data["sample_size"]
         full_med = typvärde_data["full_median"]
         new_co2e = round(baseline_per_unit * comp.quantity, 1)
-        cat_label = f"{category}/{subcategory}" if subcategory else category
+        # The level the lookup actually landed on, which is not always the one
+        # asked for: a subtype too thin to publish falls back to the category
+        # aggregate. Labelling that as the subtype would be the exact claim this
+        # whole change exists to stop making.
+        used_sub = typvärde_data.get("subcategory", "")
+        level = typvärde_data.get("level", "subtype" if used_sub else "category")
+        cat_label = f"{category}/{used_sub}" if used_sub else category
+
+        if level == "category" and material_subtype:
+            scope_note = (
+                f" Katalogen har för få EPD:er för {material_subtype} för att "
+                f"ge ett eget typvärde, så siffran är hela {category}-kategorin "
+                f"och spänner över flera materialtyper."
+            )
+        elif level == "subtype":
+            scope_note = f" Avser {used_sub}, inte {category} generellt."
+        else:
+            scope_note = ""
+
+        material_note = (
+            f" Antaget standardmaterial: {r.assumed_material}."
+            if r.assumed_material else ""
+        )
 
         r.co2e_kg = new_co2e
         r.source = "Environdec EPD-typvärde"
         r.boverket_product = ""  # signal: not a Boverket match
+        r.co2e_per_unit = baseline_per_unit
+        r.unit = comp.unit
+        r.quantity = comp.quantity
+        r.basis = {
+            "kind": "epd_typvärde",
+            "label": f"EPD-typvärde, {cat_label}",
+            "level": level,
+            "subcategory": used_sub,
+            "requested_subtype": material_subtype,
+            "sample_size": n,
+            "full_median": full_med,
+            "min": typvärde_data.get("min"),
+            "max": typvärde_data.get("max"),
+        }
+        # assumed_material is deliberately NOT cleared. Before 2026-09-01 this
+        # assignment replaced the whole description, and the standard material
+        # the agent had just reasoned its way to disappeared with it — which is
+        # why "vilket golv har den räknat på?" had no answer.
         r.description = (
             f"Baslinje från EPD-typvärde: median av övre halvan av "
             f"{n} Environdec EPD:er i kategorin {cat_label} "
-            f"({baseline_per_unit} kg CO2e/{comp.unit}) × {comp.quantity} {comp.unit}.{mass_note} "
+            f"({baseline_per_unit} kg CO2e/{comp.unit}) × {comp.quantity} {comp.unit}."
+            f"{material_note}{scope_note}{mass_note} "
             f"Övre halvan används för att approximera 'standardval utan "
             f"klimathänsyn' — full median ({full_med}) hade underskattat "
             f"konventionellt val pga selection bias i EPD-databasen. "
-            f"Boverket saknar denna materialtyp; typvärdet är ett "
-            f"kategori-aggregat (inte produktspecifikt)."
+            f"Boverket saknar denna materialtyp."
         )
 
 
@@ -290,10 +375,29 @@ def _match_components_to_boverket(project: Project, boverket_products) -> list[B
     """Single LLM call: match all components to Boverket products."""
     client = get_client()
 
-    comp_list = "\n".join(
-        f"- {c.id}: {c.name}, {c.quantity} {c.unit}"
-        for c in project.components
-    )
+    # usage_context is what makes the standard material choosable. Intake
+    # already writes the functional requirements per component ("entré med
+    # blötsnö och saltslask, kräver halksäker och våtmoppbar yta"), and until
+    # 2026-09-01 this call threw all of it away and passed only name, quantity
+    # and unit. STEG 1 asked the model which material is typical "för denna
+    # komponent i denna byggnadstyp" while withholding everything about what the
+    # component actually has to do.
+    #
+    # Truncated because the baseline is a single call covering every component
+    # and already sits near max_tokens on large projects. Intake puts the
+    # functional requirements first, so a head slice keeps the deciding part.
+    def _fmt(c) -> str:
+        line = f"- {c.id}: {c.name}, {c.quantity} {c.unit}"
+        if c.category:
+            line += f" [kategori: {c.category}]"
+        ctx = (c.usage_context or "").strip()
+        if ctx:
+            if len(ctx) > 400:
+                ctx = ctx[:400].rsplit(" ", 1)[0] + "…"
+            line += f"\n  Funktion och krav: {ctx}"
+        return line
+
+    comp_list = "\n".join(_fmt(c) for c in project.components)
     boverket_list = _format_boverket_list(boverket_products)
 
     logger.info("Baseline LLM matching: %d components against %d Boverket products",
@@ -385,6 +489,19 @@ Matcha varje komponent ovan mot bästa Boverket-produkt. Använd EXAKT de compon
             source=source,
             cost_source=cost_source,
             boverket_product=boverket_match or "",
+            assumed_material=(item.get("assumed_material") or "").strip(),
+            co2e_per_unit=round(float(co2e_per_unit or 0), 3),
+            unit=unit,
+            quantity=quantity,
+            # Only Boverket hits get their basis here. An "Uppskattning" is
+            # about to be replaced by an EPD typvärde in
+            # _apply_epd_median_fallback, which sets its own basis; writing one
+            # now would leave a stale label behind whenever that substitution
+            # does not fire.
+            basis={
+                "kind": "boverket",
+                "label": f"Boverkets klimatdatabas: {boverket_match}",
+            } if boverket_match else {},
         ))
 
     return results

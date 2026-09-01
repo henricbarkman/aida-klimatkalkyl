@@ -917,7 +917,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E84E0D' stroke-width='1.5' stroke-linecap='round'><circle cx='12' cy='12' r='5'/><path d='M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 {% if has_supabase %}<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>{% endif %}
@@ -1211,6 +1211,71 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; color: var(--kk-gray-400); font-size: 20px; }
 .modal-close:hover { color: var(--kk-charcoal); }
 
+/* === Välkomstdialog ===
+   Signaturen är likhetstecknet: ombyggnation väger ungefär lika tungt som
+   nybyggnation. Approximationen sitter i glyfen, inte i påhittade staplar. */
+#welcomeModal { background: rgba(68,68,68,0.45); padding: 20px; }
+.welcome-box { background: white; border-radius: 12px; width: 100%; max-width: 620px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; box-shadow: 0 18px 48px rgba(68,68,68,0.22); }
+.welcome-close { position: absolute; top: 14px; right: 14px; background: none; border: none; cursor: pointer; color: var(--kk-gray-400); font-size: 18px; line-height: 1; padding: 6px; border-radius: 50%; }
+.welcome-close:hover { color: var(--kk-charcoal); background: rgba(0,0,0,0.04); }
+
+.welcome-intro { padding: 34px 40px 26px; }
+.welcome-eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--kk-gray-400); margin-bottom: 14px; padding-right: 34px; }
+.welcome-box h2 { font-size: 27px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.15; color: var(--kk-charcoal); margin: 0 0 12px; }
+.welcome-lead { font-size: 16.5px; font-weight: 300; line-height: 1.55; color: var(--kk-charcoal); margin: 0; }
+
+/* Hero: full-bleed cream band med jämförelsen */
+.welcome-figure { margin: 0; padding: 26px 40px 24px; background: var(--kk-cream); border-top: 1px solid var(--kk-gold-light); border-bottom: 1px solid var(--kk-gold-light); }
+.wf-scale { display: flex; align-items: center; justify-content: center; gap: 26px; text-align: center; }
+.wf-term { font-size: 13.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; line-height: 1.4; color: var(--kk-charcoal); flex: 1; }
+.wf-approx { font-size: 62px; font-weight: 300; line-height: 0.9; color: var(--kk-red-orange); flex-shrink: 0; }
+.wf-caption { display: block; margin-top: 14px; font-size: 13px; line-height: 1.6; color: #7a6a4a; text-align: center; max-width: 54ch; margin-left: auto; margin-right: auto; }
+
+.welcome-body { padding: 24px 40px 8px; }
+.welcome-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-400); margin-bottom: 10px; }
+.welcome-body p { font-size: 13.5px; line-height: 1.65; color: var(--kk-charcoal); margin: 0 0 24px; }
+
+.welcome-tips { list-style: none; margin: 0 0 4px; padding: 0; }
+.welcome-tips li { padding: 13px 0; border-top: 1px solid var(--kk-gray-100); }
+.welcome-tips li:first-child { border-top: none; padding-top: 4px; }
+.welcome-tips strong { display: block; font-size: 14px; font-weight: 700; color: var(--kk-charcoal); margin-bottom: 3px; }
+.welcome-tips span { display: block; font-size: 13px; line-height: 1.6; color: var(--kk-gray-500); }
+
+.welcome-note { padding: 4px 40px 0; font-size: 12px; line-height: 1.6; color: var(--kk-gray-500); }
+.welcome-note a { color: var(--kk-dark-red); }
+/* Sticky: kryssrutan och knappen ska nås utan att rulla, även på låga fönster. */
+.welcome-foot { position: sticky; bottom: 0; background: white; border-top: 1px solid var(--kk-gray-100); display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding: 16px 40px 18px; margin-top: 16px; }
+.welcome-checkbox { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--kk-gray-500); cursor: pointer; }
+.welcome-checkbox input { width: 16px; height: 16px; accent-color: var(--kk-charcoal); cursor: pointer; margin: 0; }
+.welcome-checkbox:hover { color: var(--kk-charcoal); }
+.welcome-start { padding: 11px 26px; background: var(--kk-charcoal); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; transition: background 0.2s; }
+.welcome-start:hover { background: var(--kk-dark-red); }
+.welcome-box :focus-visible { outline: 2px solid var(--kk-red-orange); outline-offset: 2px; }
+
+/* Inladdning: rutan reser sig, likhetstecknet landar sist */
+@keyframes welcomeRise { from { opacity: 0; transform: translateY(16px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes welcomeApprox { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+.welcome-box { animation: welcomeRise 0.34s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.wf-approx { animation: welcomeApprox 0.4s cubic-bezier(0.2, 1.3, 0.4, 1) 0.26s both; }
+
+@media (max-width: 560px) {
+  #welcomeModal { padding: 0; align-items: stretch; }
+  .welcome-box { max-width: none; border-radius: 0; max-height: 100vh; }
+  .welcome-intro { padding: 30px 22px 22px; }
+  .welcome-box h2 { font-size: 23px; }
+  .welcome-lead { font-size: 15.5px; }
+  .welcome-figure { padding: 22px 22px 20px; }
+  .wf-scale { flex-direction: column; gap: 6px; }
+  .wf-approx { font-size: 44px; }
+  .welcome-body { padding: 24px 22px 8px; }
+  .welcome-note { padding: 4px 22px 0; }
+  .welcome-foot { padding: 14px 22px 18px; gap: 12px; }
+  .welcome-start { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-box, .wf-approx { animation: none; }
+}
+
 /* === Step-back navigation (Feature 10) === */
 .step-circle.done { cursor: pointer; }
 .step-circle.done:hover { background: var(--kk-dark-red); border-color: var(--kk-dark-red); transform: scale(1.1); transition: all 0.2s; }
@@ -1379,6 +1444,59 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   <span style="font-size:11px;color:var(--kk-gray-400)">AIda kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
 </div>
 
+<!-- Välkomstdialog: visas första besöket, går att kalla tillbaka från Om AIda -->
+<div id="welcomeModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeWelcome()" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+  <div class="welcome-box">
+    <button class="welcome-close" onclick="closeWelcome()" aria-label="Stäng">&#x2715;</button>
+
+    <div class="welcome-intro">
+      <div class="welcome-eyebrow">Karlstads kommun &middot; Klimatneutrala Karlstad 2030</div>
+      <h2 id="welcomeTitle">Välkommen till AIda</h2>
+      <p class="welcome-lead">Ett beslutsstöd som räknar fram klimatpåverkan och kostnad för ett ombyggnadsprojekt medan valen fortfarande går att ändra.</p>
+    </div>
+
+    <figure class="welcome-figure">
+      <div class="wf-scale">
+        <div class="wf-term">Nybyggnation</div>
+        <div class="wf-approx" aria-hidden="true">&#8776;</div>
+        <div class="wf-term">Ombyggnation</div>
+      </div>
+      <figcaption class="wf-caption">Ombyggnationer och renoveringar står för ungefär lika stor del av byggsektorns klimatpåverkan som nybyggnationer. Ändå är det nybyggnationerna som räknas på.</figcaption>
+    </figure>
+
+    <div class="welcome-body">
+      <div class="welcome-label">Vad AIda gör</div>
+      <p>Du beskriver projektet med egna ord i chatten. AIda tar fram en klimatbaslinje, letar återbruk, jämför klimatoptimerade nyinköp och rankar alternativen på både utsläpp och kronor. Resultatet blir ett underlag du kan ta med till upphandlingen.</p>
+
+      <div class="welcome-label">Så får du bäst resultat</div>
+      <ul class="welcome-tips">
+        <li>
+          <strong>Dela upp stora projekt</strong>
+          <span>Kör en analys per byggnadsdel eller etapp. En hel fastighet i en enda beskrivning ger grövre siffror än tre avgränsade analyser.</span>
+        </li>
+        <li>
+          <strong>Beskriv nuläget, inte bara målet</strong>
+          <span>Befintligt material, skick och ålder avgör vad som kan återbrukas. Ta med ytor och mängder, ungefärligt räcker.</span>
+        </li>
+        <li>
+          <strong>Rätta AIda i chatten</strong>
+          <span>Stämmer inte ett antagande, skriv det. Du kan justera mitt i flödet och be om en ny beräkning.</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="welcome-note">AIda är en prototyp. Resultaten är ett underlag för beslut, inte ett klimatbokslut. Metod, datakällor och begränsningar finns under <a href="#" onclick="closeWelcome();openAbout();return false">Om verktyget</a>.</div>
+
+    <div class="welcome-foot">
+      <label class="welcome-checkbox" for="welcomeDontShow">
+        <input type="checkbox" id="welcomeDontShow">
+        <span>Visa inte det här igen</span>
+      </label>
+      <button class="welcome-start" id="welcomeStartBtn" onclick="closeWelcome()">Kom igång</button>
+    </div>
+  </div>
+</div>
+
 <!-- About modal (Feature 5) -->
 <div id="aboutModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAbout()">
   <div class="modal-box">
@@ -1412,6 +1530,9 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
     <section>
       <h3>Kontakt</h3>
       <p>Henric Barkman, <a href="mailto:henric.barkman@karlstad.se" style="color:var(--kk-blue)">henric.barkman@karlstad.se</a></p>
+    </section>
+    <section style="margin-bottom:0">
+      <p><a href="#" onclick="closeAbout();openWelcome(true);return false" style="color:var(--kk-dark-red)">Visa introduktionen igen</a></p>
     </section>
   </div>
 </div>
@@ -2871,7 +2992,56 @@ function renderRecomputeAlternativesAction() {
 // About modal (Feature 5)
 function openAbout() { document.getElementById('aboutModal').style.display = 'flex'; }
 function closeAbout() { document.getElementById('aboutModal').style.display = 'none'; }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAbout(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeAbout(); closeWelcome(); } });
+
+// === Välkomstdialog ===
+// Kryssrutan är en preferens, inte en engångshandling: den speglar sparat läge
+// när dialogen öppnas och skrivs när den stängs, oavsett hur den stängs.
+const WELCOME_KEY = 'aida_welcome_seen';
+let _welcomeReturnFocus = null;
+
+function welcomeSuppressed() {
+  try { return localStorage.getItem(WELCOME_KEY) === '1'; } catch (e) { return false; }
+}
+
+function openWelcome(force) {
+  const m = document.getElementById('welcomeModal');
+  if (!m || m.style.display === 'flex') return;
+  if (!force && welcomeSuppressed()) return;
+  const chk = document.getElementById('welcomeDontShow');
+  if (chk) chk.checked = welcomeSuppressed();
+  _welcomeReturnFocus = document.activeElement;
+  m.style.display = 'flex';
+  // preventScroll: annars rullar fokuseringen rutan förbi sin egen rubrik när
+  // innehållet är högre än fönstret.
+  const btn = document.getElementById('welcomeStartBtn');
+  if (btn) btn.focus({preventScroll: true});
+}
+
+function closeWelcome() {
+  const m = document.getElementById('welcomeModal');
+  if (!m || m.style.display !== 'flex') return;
+  const chk = document.getElementById('welcomeDontShow');
+  try {
+    if (chk && chk.checked) localStorage.setItem(WELCOME_KEY, '1');
+    else localStorage.removeItem(WELCOME_KEY);
+  } catch (e) {}
+  m.style.display = 'none';
+  if (_welcomeReturnFocus && _welcomeReturnFocus.focus) _welcomeReturnFocus.focus();
+  _welcomeReturnFocus = null;
+}
+
+// Håll tabbningen inne i dialogen så länge den är öppen.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const m = document.getElementById('welcomeModal');
+  if (!m || m.style.display !== 'flex') return;
+  const focusable = m.querySelectorAll('button, input, a[href]');
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 // Reasoning toggle (Feature 2)
 function toggleReasoning(id, e) {
@@ -3082,6 +3252,47 @@ function knownCostRollup(rows) {
   };
 }
 
+// Small-caps label above a value, the idiom the Boverket-produkt line already
+// used. Factored out so the three transparency lines cannot drift apart.
+function subLine(label, valueHtml) {
+  return '<div style="font-size:11px;color:var(--kk-gray-500);margin-top:3px;font-style:italic">'
+    + '<span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">'
+    + label + '</span>' + valueHtml + '</div>';
+}
+
+function fmtNum(n) {
+  if (n === null || n === undefined || isNaN(n)) return '';
+  // Two decimals matter at the low end: paint is 0.55 kg/m², and rounding that
+  // to "1" would make the most-questioned number on the page look invented.
+  const dec = Math.abs(n) < 10 ? 2 : (Math.abs(n) < 100 ? 1 : 0);
+  return Number(n).toLocaleString('sv', { maximumFractionDigits: dec });
+}
+
+// What the number rests on, in the user's terms. The spread is the honest part:
+// a typvärde is one point in a distribution, and showing the range is what lets
+// someone judge whether it is a tight estimate or a wide guess.
+function basisLine(c) {
+  const b = c.basis;
+  if (!b || b.kind !== 'epd_typvärde') return '';
+  const n = b.sample_size;
+  let txt = n + ' EPD:er';
+  if (b.min !== null && b.min !== undefined && b.max !== null && b.max !== undefined) {
+    txt += ', spann ' + fmtNum(b.min) + ' till ' + fmtNum(b.max);
+  }
+  if (b.full_median !== null && b.full_median !== undefined) {
+    txt += ', median ' + fmtNum(b.full_median);
+  }
+  // A subtype request that fell back to the category is the case worth calling
+  // out: the user asked about vinyl and got all floors. Saying so is the whole
+  // point of carrying `level` through instead of inferring it.
+  let scope = '';
+  if (b.level === 'category' && b.requested_subtype) {
+    scope = '<div style="color:var(--kk-red-orange);margin-top:1px">För få EPD:er för '
+      + esc(b.requested_subtype) + ', visar hela kategorin (flera materialtyper)</div>';
+  }
+  return subLine(esc(b.label || 'EPD-typvärde'), txt + scope);
+}
+
 function renderBaslinjeContent() {
   const d = state.baseline;
   const total = d.components.reduce((s,c) => s + c.co2e_kg, 0);
@@ -3104,8 +3315,19 @@ function renderBaslinjeContent() {
     // genuinely in Boverket (same material, e.g. gips→gips). Cross-material
     // proxies are no longer used — components Boverket lacks get an EPD-typvärde
     // instead, with boverket_product empty.
-    const productLine = c.boverket_product ? '<div style="font-size:11px;color:var(--kk-gray-500);margin-top:3px;font-style:italic"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Boverket-produkt</span>' + esc(c.boverket_product) + '</div>' : '';
-    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + '</td><td style="text-align:right">' + (c.cost_sek > 0 ? Math.round(c.cost_sek).toLocaleString('sv') : '<span style="color:var(--kk-gray-500)">Pris saknas</span>') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
+    const productLine = c.boverket_product ? subLine('Boverket-produkt', esc(c.boverket_product)) : '';
+    // "Vilket golv har den räknat på?" A golv category aggregate spans a factor
+    // of three, so the total alone does not identify a material. This is the
+    // standard material the baseline agent named from building type and the
+    // component's function — the assumption the whole number rests on, and the
+    // one a förvaltare is most likely to disagree with.
+    const materialLine = c.assumed_material ? subLine('Antaget standardmaterial', esc(c.assumed_material)) : '';
+    // Per-unit figure with the multiplication spelled out, so the total is
+    // checkable by hand rather than something to take on faith.
+    const perUnit = (c.co2e_per_unit > 0 && c.unit)
+      ? '<div style="font-size:10.5px;color:var(--kk-gray-500);margin-top:2px">' + fmtNum(c.co2e_per_unit) + ' kg CO₂e/' + esc(c.unit) + ' × ' + fmtNum(c.quantity) + ' ' + esc(c.unit) + '</div>'
+      : '';
+    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + materialLine + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + perUnit + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + basisLine(c) + '</td><td style="text-align:right">' + (c.cost_sek > 0 ? Math.round(c.cost_sek).toLocaleString('sv') : '<span style="color:var(--kk-gray-500)">Pris saknas</span>') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
   });
   html += '</tbody></table></div>';
   document.getElementById('resultContent').innerHTML = html;
@@ -3526,6 +3748,9 @@ async function autoSave() {
 if (HAS_SUPABASE && SUPABASE_URL && SUPABASE_ANON_KEY) {
   supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   initAuth();
+} else {
+  // Utan auth finns ingen inloggning att vänta in, så introduktionen visas direkt.
+  openWelcome();
 }
 
 // Reflect persisted sound preference in the toggle label on load.
@@ -3551,6 +3776,8 @@ function showAuth() {
 function showApp() {
   document.getElementById('authOverlay').style.display = 'none';
   document.getElementById('appContainer').style.display = '';
+  // Först efter inloggning, annars staplas introduktionen på inloggningsrutan.
+  openWelcome();
 }
 
 async function onLogin(session) {

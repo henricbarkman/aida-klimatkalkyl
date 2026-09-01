@@ -125,6 +125,29 @@ class BaselineResult:
     # (e.g. "Takduk, PVC" for a vinylgolv). Empty when source is
     # "Uppskattning" (no Boverket proxy available).
     boverket_product: str = ""
+    # The conventional standard material the baseline was costed on, named by
+    # the baseline agent from building type plus the component's function
+    # ("Homogen vinylmatta (PVC)"). This is the answer to "which floor did you
+    # cost?" — a golv category aggregate spans a factor of three, so the number
+    # on its own does not identify a material.
+    assumed_material: str = ""
+    # Per-unit figure and its unit. The LLM has always returned both and the
+    # dataclass had nowhere to put them, so they were dropped on construction
+    # and persisted to Supabase as null. Without them the view can only show a
+    # total, and a total cannot be checked against anything.
+    co2e_per_unit: float = 0.0
+    unit: str = ""
+    # Duplicated from the Component on purpose. The baseline view has to show
+    # "17,4 kg/m² × 45 m²" for the total to be checkable by hand, and deriving
+    # the 45 as co2e_kg / co2e_per_unit reintroduces the rounding that
+    # co2e_kg's one decimal already threw away.
+    quantity: float = 0.0
+    # Where the number came from, for display. Keys when present: kind
+    # ("boverket" | "epd_typvärde"), label, level ("subtype" | "category"),
+    # subcategory, sample_size, full_median, min, max. A dict rather than seven
+    # flat fields because it is display payload that travels together and is
+    # shaped differently per kind.
+    basis: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -154,6 +177,13 @@ class Baseline:
                 source=c.get("source", ""),
                 cost_source=c.get("cost_source", ""),
                 boverket_product=c.get("boverket_product", ""),
+                # Defaulted, not required: analyses saved before 2026-09-01 have
+                # none of these and must still load.
+                assumed_material=c.get("assumed_material", ""),
+                co2e_per_unit=c.get("co2e_per_unit") or 0.0,
+                unit=c.get("unit", ""),
+                basis=c.get("basis") or {},
+                quantity=c.get("quantity") or 0.0,
             ))
         return cls(components=components)
 

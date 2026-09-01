@@ -5363,7 +5363,7 @@
     "reg_no": "EPD-IES-0012666:001 (S-P-12666)",
     "uuid": "23881660-0038-442c-37eb-08dc2e3a4f3f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5375,7 +5375,7 @@
     "reg_no": "EPD-IES-0012516:004 (S-P-12516)",
     "uuid": "b133b34e-87f9-465e-0c3a-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5387,7 +5387,7 @@
     "reg_no": "EPD-IES-0012665:001 (S-P-12665)",
     "uuid": "d3c44527-a11b-482f-37ea-08dc2e3a4f3f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5399,7 +5399,7 @@
     "reg_no": "EPD-IES-0012668:001 (S-P-12668)",
     "uuid": "94453f20-6aad-4e13-37ed-08dc2e3a4f3f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5411,7 +5411,7 @@
     "reg_no": "EPD-IES-0012667:001 (S-P-12667)",
     "uuid": "d0658a38-d0f4-45ac-37ec-08dc2e3a4f3f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5423,7 +5423,7 @@
     "reg_no": "EPD-IES-0012518:002 (S-P-12518)",
     "uuid": "afc7a2af-e372-46ed-0c3c-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5435,7 +5435,7 @@
     "reg_no": "EPD-IES-0012520:002 (S-P-12520)",
     "uuid": "ddf83791-39f3-4bfa-0c3e-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5447,7 +5447,7 @@
     "reg_no": "EPD-IES-0012512:002 (S-P-12512)",
     "uuid": "b4262ae7-efbf-421d-0c36-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5459,7 +5459,7 @@
     "reg_no": "EPD-IES-0012515:002 (S-P-12515)",
     "uuid": "4f6684aa-b7fb-4f29-0c39-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5471,7 +5471,7 @@
     "reg_no": "EPD-IES-0012517:002 (S-P-12517)",
     "uuid": "5df2d8a3-b3e9-4248-0c3b-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5483,7 +5483,7 @@
     "reg_no": "EPD-IES-0012519:002 (S-P-12519)",
     "uuid": "8b9a3b5c-0b19-4839-0c3d-08dc2618afea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5495,7 +5495,7 @@
     "reg_no": "EPD-IES-0002170:003 (S-P-02170)",
     "uuid": "513629d5-f85a-45a5-8fbe-e34e2c33b2cf",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -5507,7 +5507,7 @@
     "reg_no": "EPD-IES-0001357:002 (S-P-01357)",
     "uuid": "57481439-c273-4a2d-8a8a-43d3b9737bb7",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -5519,7 +5519,7 @@
     "reg_no": "EPD-IES-0008361:002 (S-P-08361)",
     "uuid": "af8b9e38-3765-45e8-fb02-08db0ebfb3ba",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 52.5,
     "functional_unit": "m2"
   },
@@ -5533,7 +5533,7 @@
     "reg_no": "EPD-IES-0008299:002 (S-P-08299)",
     "uuid": "fa1e6777-95f5-447a-6691-08db0918e002",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 23.1,
     "functional_unit": "m2"
   },
@@ -5575,7 +5575,7 @@
     "reg_no": "EPD-IES-0003002:001",
     "uuid": "22ceaf12-d7b9-4d59-af23-08ddeea008e1",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "laminat"
   },
   {
     "category": "golv",
@@ -5611,7 +5611,7 @@
     "reg_no": "EPD-IES-0002867:001 (S-P-02867)",
     "uuid": "e3d31757-f945-4c26-86e7-08db1f814439",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5623,7 +5623,7 @@
     "reg_no": "EPD-IES-0005896:001 (S-P-05896)",
     "uuid": "b513a511-6c0c-4cd7-83e4-08db196a7980",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5635,7 +5635,7 @@
     "reg_no": "EPD-IES-0008639:001 (S-P-08639)",
     "uuid": "7e839510-506a-4905-86f1-08db1f814439",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5647,7 +5647,7 @@
     "reg_no": "EPD-IES-0008643:001 (S-P-08643)",
     "uuid": "2d5679d9-fe04-4a95-86f5-08db1f814439",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5659,7 +5659,7 @@
     "reg_no": "EPD-IES-0014266:001",
     "uuid": "6b0610dc-2a13-4843-7c0e-08dc7a6854e0",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5671,7 +5671,7 @@
     "reg_no": "EPD-IES-0014250:001",
     "uuid": "33aee401-12bc-4202-7bfe-08dc7a6854e0",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5683,7 +5683,7 @@
     "reg_no": "EPD-IES-0014259:001",
     "uuid": "549a70df-3af9-48b3-7c07-08dc7a6854e0",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -5695,7 +5695,7 @@
     "reg_no": "EPD-IES-0009979:002 (S-P-09979)",
     "uuid": "ba667f34-e767-403d-af77-08db7e36184f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -5707,7 +5707,7 @@
     "reg_no": "EPD-IES-0026749:002",
     "uuid": "80c1e4c2-1f61-45f1-0e57-08de1ff79c85",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -5719,7 +5719,7 @@
     "reg_no": "EPD-IES-0013778:002 (S-P-13778)",
     "uuid": "5e308800-7891-48f3-4512-08dc6fc9d4ca",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 13.56,
     "functional_unit": "m2"
   },
@@ -5733,7 +5733,7 @@
     "reg_no": "EPD-IES-0009186:001 (S-P-09186)",
     "uuid": "1eb5a2ef-f165-46aa-6435-08db4c6777db",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 49.58,
     "functional_unit": "m2"
   },
@@ -5747,7 +5747,7 @@
     "reg_no": "EPD-IES-0009185:001 (S-P-09185)",
     "uuid": "01c0e612-a9ec-4e6f-6434-08db4c6777db",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 38.27,
     "functional_unit": "m2"
   },
@@ -5761,7 +5761,7 @@
     "reg_no": "EPD-IES-0004847:002 (S-P-04847)",
     "uuid": "4739d797-67c3-43c5-d5c1-08d9889885e0",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 22.65,
     "functional_unit": "m2"
   },
@@ -5775,7 +5775,7 @@
     "reg_no": "EPD-IES-0004834:002 (S-P-04834)",
     "uuid": "ad6d36b9-4977-445a-d5b4-08d9889885e0",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 51.55,
     "functional_unit": "m2"
   },
@@ -5789,7 +5789,7 @@
     "reg_no": "EPD-IES-0004842:002 (S-P-04842)",
     "uuid": "522b7e93-2eef-4c16-d5bc-08d9889885e0",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 26.47,
     "functional_unit": "m2"
   },
@@ -5803,7 +5803,7 @@
     "reg_no": "EPD-IES-0006811:001 (S-P-06811)",
     "uuid": "44969709-e66b-4626-72ae-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 45.59,
     "functional_unit": "m2"
   },
@@ -5817,7 +5817,7 @@
     "reg_no": "EPD-IES-0006813:001 (S-P-06813)",
     "uuid": "c877bbae-d572-43ce-72b0-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 52.81,
     "functional_unit": "m2"
   },
@@ -5831,7 +5831,7 @@
     "reg_no": "EPD-IES-0006821:001 (S-P-06821)",
     "uuid": "3fe9db08-4477-473c-72b8-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 39.92,
     "functional_unit": "m2"
   },
@@ -5845,7 +5845,7 @@
     "reg_no": "EPD-IES-0004843:002 (S-P-04843)",
     "uuid": "abbd8152-be89-4dec-d5bd-08d9889885e0",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 23.01,
     "functional_unit": "m2"
   },
@@ -5859,7 +5859,7 @@
     "reg_no": "EPD-IES-0004830:002 (S-P-04830)",
     "uuid": "56389bcc-1764-401e-d5b0-08d9889885e0",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 51.72,
     "functional_unit": "m2"
   },
@@ -5873,7 +5873,7 @@
     "reg_no": "EPD-IES-0005931:001 (S-P-05931)",
     "uuid": "7a710c91-6ff1-43c7-83a9-08db196a7980",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "keramik"
   },
   {
     "category": "golv",
@@ -5885,7 +5885,7 @@
     "reg_no": "EPD-IES-0014446:002",
     "uuid": "5c4fcdd5-075a-4790-6cca-08dc83e25481",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -5897,7 +5897,7 @@
     "reg_no": "EPD-IES-0006769:002 (S-P-06769)",
     "uuid": "b4163e7e-ac55-4fa0-7284-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 14.57,
     "functional_unit": "m2"
   },
@@ -5911,7 +5911,7 @@
     "reg_no": "EPD-IES-0010630:001 (S-P-10630)",
     "uuid": "aaf5abf3-e572-41d8-9567-08dbafc3074c",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "gummi"
   },
   {
     "category": "golv",
@@ -5923,7 +5923,7 @@
     "reg_no": "EPD-IES-0006825:001 (S-P-06825)",
     "uuid": "c27e1d22-9d3f-4db9-72bc-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 39.92,
     "functional_unit": "m2"
   },
@@ -5937,7 +5937,7 @@
     "reg_no": "EPD-IES-0006778:001 (S-P-06778)",
     "uuid": "c58e57a5-b2f9-4f16-728d-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "keramik"
   },
   {
     "category": "golv",
@@ -5949,7 +5949,7 @@
     "reg_no": "EPD-IES-0004111:001 (S-P-04111)",
     "uuid": "94b56ac8-bd63-4efe-364d-08d92a378dea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "keramik"
   },
   {
     "category": "golv",
@@ -5961,7 +5961,7 @@
     "reg_no": "EPD-IES-0006763:001 (S-P-06763)",
     "uuid": "f7876088-1c3e-49ef-727e-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "keramik"
   },
   {
     "category": "golv",
@@ -5973,7 +5973,7 @@
     "reg_no": "EPD-IES-0004342:001 (S-P-04342)",
     "uuid": "0233ada2-1a39-46bb-a677-08d941ecbd27",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 15.62,
     "functional_unit": "m2"
   },
@@ -6023,7 +6023,7 @@
     "reg_no": "EPD-IES-0006770:002 (S-P-06770)",
     "uuid": "ee219f54-5272-4c7d-7285-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 14.41,
     "functional_unit": "m2"
   },
@@ -6037,7 +6037,7 @@
     "reg_no": "EPD-IES-0004343:001 (S-P-04343)",
     "uuid": "e0586358-3166-4196-a678-08d941ecbd27",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 15.48,
     "functional_unit": "m2"
   },
@@ -6051,7 +6051,7 @@
     "reg_no": "EPD-IES-0006406:004 (S-P-06406)",
     "uuid": "e75fcccd-b045-46e1-70bc-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6063,7 +6063,7 @@
     "reg_no": "EPD-IES-0008161:003 (S-P-08161)",
     "uuid": "8157a3d7-10a2-4d79-7e3c-08dafac289ab",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -6075,7 +6075,7 @@
     "reg_no": "EPD-IES-0008162:003 (S-P-08162)",
     "uuid": "046ee81b-4a73-4d8f-7e3d-08dafac289ab",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -6123,7 +6123,7 @@
     "reg_no": "EPD-IES-0007560:002 (S-P-07560)",
     "uuid": "72066b09-8d65-43d3-f2d8-08dac61a0bcf",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -6135,7 +6135,7 @@
     "reg_no": "EPD-IES-0009070:001 (S-P-09070)",
     "uuid": "80a7afe1-ab1e-47b3-9f05-08db3c30f032",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "trä",
     "gwp_per_functional_unit": 12.01,
     "functional_unit": "m2"
   },
@@ -6149,7 +6149,7 @@
     "reg_no": "EPD-IES-0016524:002",
     "uuid": "2de570fc-c08e-4642-ee76-08dcd182a55e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6161,7 +6161,7 @@
     "reg_no": "EPD-IES-0026717:003",
     "uuid": "5a355926-bc67-49f4-57cd-08de6ed302ea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6173,7 +6173,7 @@
     "reg_no": "EPD-IES-0025687:001",
     "uuid": "705bfc63-f000-4de9-2bd6-08ddeea93ee4",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6185,7 +6185,7 @@
     "reg_no": "EPD-IES-0008742:001 (S-P-08742)",
     "uuid": "79f2e50b-76b0-4e60-9745-08db25ed179a",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "laminat"
   },
   {
     "category": "golv",
@@ -6197,7 +6197,7 @@
     "reg_no": "EPD-IES-0006740:002 (S-P-06740)",
     "uuid": "efdf656f-bee9-4a6d-7267-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "laminat"
   },
   {
     "category": "golv",
@@ -6209,7 +6209,7 @@
     "reg_no": "EPD-IES-0008769:011 (S-P-08769)",
     "uuid": "ac18d907-e79f-45a3-9760-08db25ed179a",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "laminat"
   },
   {
     "category": "golv",
@@ -6261,7 +6261,7 @@
     "reg_no": "EPD-IES-0009014:001 (S-P-09014)",
     "uuid": "96c089bf-8f74-4975-a95c-08db351e923a",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 20.14,
     "functional_unit": "m2"
   },
@@ -6275,7 +6275,7 @@
     "reg_no": "EPD-IES-0022390:001",
     "uuid": "b35d6d33-e10d-4ac8-7d4f-08dd818ef804",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 48.72,
     "functional_unit": "m2"
   },
@@ -6289,7 +6289,7 @@
     "reg_no": "EPD-IES-0016126:002",
     "uuid": "af3105fb-f1d9-4133-1c28-08dcbdd06284",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -6301,7 +6301,7 @@
     "reg_no": "EPD-IES-0011889:001 (S-P-11889)",
     "uuid": "2c4812ad-2e54-42d8-c2ea-08dbfcbd856b",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 135.35,
     "functional_unit": "m2"
   },
@@ -6315,7 +6315,7 @@
     "reg_no": "EPD-IES-0011309:001 (S-P-11309)",
     "uuid": "a2638985-1100-47d8-4b03-08dbd56cc074",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 67.26,
     "functional_unit": "m2"
   },
@@ -6330,7 +6330,8 @@
     "reg_no": "NEPD-3574-2167-EN (EPD Norge)",
     "uuid": "external-forbo-marmoleum-decibel-35",
     "source_registry": "epd_norge",
-    "notes": "Thicker variant (3.5mm) with acoustic backing. Higher GWP than 2.5mm due to additional material. Estimated from 2024 EPD."
+    "notes": "Thicker variant (3.5mm) with acoustic backing. Higher GWP than 2.5mm due to additional material. Estimated from 2024 EPD.",
+    "subcategory": "linoleum"
   },
   {
     "category": "golv",
@@ -6343,7 +6344,8 @@
     "reg_no": "NEPD-3410-2062-EN (EPD Norge)",
     "uuid": "external-forbo-marmoleum-sheet-25",
     "source_registry": "epd_norge",
-    "notes": "Similar GWP profile to Striato variant. Bio-based linoleum (linseed oil, wood flour, jute backing). Carbon negative A1-A3."
+    "notes": "Similar GWP profile to Striato variant. Bio-based linoleum (linseed oil, wood flour, jute backing). Carbon negative A1-A3.",
+    "subcategory": "linoleum"
   },
   {
     "category": "golv",
@@ -6356,7 +6358,8 @@
     "reg_no": "4790859342.102.2 (UL Environment)",
     "uuid": "external-forbo-marmoleum-striato-25",
     "source_registry": "ul_environment",
-    "notes": "GWP-fossil 4.36, GWP-total -1.24 (carbon negative due to biogenic uptake -5.60). Weight 2.9 kg/m2. No CO2 certificates used."
+    "notes": "GWP-fossil 4.36, GWP-total -1.24 (carbon negative due to biogenic uptake -5.60). Weight 2.9 kg/m2. No CO2 certificates used.",
+    "subcategory": "linoleum"
   },
   {
     "category": "golv",
@@ -6380,7 +6383,7 @@
     "reg_no": "EPD-IES-0017792:003",
     "uuid": "8c9d1843-7d54-48c6-77b9-08dd058f97f6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -6392,7 +6395,7 @@
     "reg_no": "EPD-IES-0026525:001",
     "uuid": "a11dbcd8-8871-45cf-eee7-08de20310599",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6404,7 +6407,7 @@
     "reg_no": "EPD-IES-0005303:001",
     "uuid": "86b4da25-ad09-457a-b115-08dd19c26392",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6416,7 +6419,7 @@
     "reg_no": "EPD-IES-0005312:001",
     "uuid": "c977e1bf-c5a3-4bea-b116-08dd19c26392",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6428,7 +6431,7 @@
     "reg_no": "EPD-IES-0021466:001",
     "uuid": "dbbc0ea2-09b1-4c25-b35f-08dd7184b8f3",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "vinyl",
     "gwp_per_functional_unit": 28.63,
     "functional_unit": "m2"
   },
@@ -6442,7 +6445,7 @@
     "reg_no": "EPD-IES-0005369:001 (S-P-05369)",
     "uuid": "a9151bbf-dbc3-4b2d-c3a9-08dbfcbd856b",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "vinyl",
     "gwp_per_functional_unit": 132.96,
     "functional_unit": "m2"
   },
@@ -6456,7 +6459,7 @@
     "reg_no": "EPD-IES-0004426:001 (S-P-04426)",
     "uuid": "1a1ce712-41d2-4d71-a6e5-08d941ecbd27",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 15.71,
     "functional_unit": "m2"
   },
@@ -6484,7 +6487,7 @@
     "reg_no": "EPD-IES-0028696:002",
     "uuid": "edc53f66-578f-4d5b-7e3f-08de6a173edc",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 50.06,
     "functional_unit": "m2"
   },
@@ -6498,7 +6501,7 @@
     "reg_no": "EPD-IES-0028704:002",
     "uuid": "939806f7-e206-4a0e-0638-08de688d96f4",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 77.36,
     "functional_unit": "m2"
   },
@@ -6512,7 +6515,7 @@
     "reg_no": "EPD-IES-0011120:004 (S-P-11120)",
     "uuid": "736f8ca0-2c30-4102-be71-08dbca6d93f2",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6538,7 +6541,7 @@
     "reg_no": "EPD-IES-0008875:004",
     "uuid": "bf91922c-d401-4fe6-bc65-08dd2896d93b",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6550,7 +6553,7 @@
     "reg_no": "EPD-IES-0016521:001",
     "uuid": "ba32846a-7798-46b5-c9bd-08dcd16045e6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "trä"
   },
   {
     "category": "golv",
@@ -6562,7 +6565,7 @@
     "reg_no": "EPD-IES-0022383:001",
     "uuid": "4c258bc3-951a-4528-6979-08dd8190b740",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 98.28,
     "functional_unit": "m2"
   },
@@ -6576,7 +6579,7 @@
     "reg_no": "EPD-IES-0022382:001",
     "uuid": "645bb53f-b401-40ee-7d4d-08dd818ef804",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 72.03,
     "functional_unit": "m2"
   },
@@ -6590,7 +6593,7 @@
     "reg_no": "EPD-IES-0022381:001",
     "uuid": "7d3c3aff-3423-4e6b-7b76-08dd819126d6",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 115.92,
     "functional_unit": "m2"
   },
@@ -6604,7 +6607,7 @@
     "reg_no": "EPD-IES-0001355:002 (S-P-01355)",
     "uuid": "7eb76592-85db-44f7-9a33-0139eb82e22d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6616,7 +6619,7 @@
     "reg_no": "EPD-IES-0004430:001 (S-P-04430)",
     "uuid": "694da0a0-e101-4f0d-a6e9-08d941ecbd27",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 15.04,
     "functional_unit": "m2"
   },
@@ -6630,7 +6633,7 @@
     "reg_no": "EPD-IES-0001029:003 (S-P-01029)",
     "uuid": "3b46fc75-c733-48d1-bf6e-ecfd86beaf33",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6642,7 +6645,7 @@
     "reg_no": "EPD-IES-0016685:002",
     "uuid": "510e9840-cca6-4b26-d3e6-08dcd9316d94",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6654,7 +6657,7 @@
     "reg_no": "EPD-IES-0014191:002",
     "uuid": "3ee70fc9-ec08-40bf-7bb7-08dc7a6854e0",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6666,7 +6669,7 @@
     "reg_no": "EPD-IES-0016709:002",
     "uuid": "ec78a0ca-26e2-48d4-4d7b-08dcd93a5734",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6678,7 +6681,7 @@
     "reg_no": "EPD-IES-0016710:001",
     "uuid": "f9e3f784-0474-45e5-4884-08dcd93a643a",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6690,7 +6693,7 @@
     "reg_no": "EPD-IES-0010141:002 (S-P-10141)",
     "uuid": "13b3937b-41f4-474e-c86b-08db8d2354cc",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6702,7 +6705,7 @@
     "reg_no": "EPD-IES-0010145:002 (S-P-10145)",
     "uuid": "f34cc7d6-32f8-4dcd-c86f-08db8d2354cc",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6714,7 +6717,7 @@
     "reg_no": "EPD-IES-0011665:001 (S-P-11665)",
     "uuid": "cad2d661-365d-47c6-0f16-08dbf049e6f6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6726,7 +6729,7 @@
     "reg_no": "EPD-IES-0011977:001 (S-P-11977)",
     "uuid": "90ed2bc4-0983-431c-c34c-08dbfcbd856b",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6738,7 +6741,7 @@
     "reg_no": "EPD-IES-0020977:001",
     "uuid": "3aec1681-41ed-4cd1-b0c7-08dd66c8fe4d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6750,7 +6753,7 @@
     "reg_no": "EPD-IES-0013310:001 (S-P-13310)",
     "uuid": "ce8d8ff1-dc12-448a-e5a8-08dc592fb87d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6762,7 +6765,7 @@
     "reg_no": "EPD-IES-0011629:001 (S-P-11629)",
     "uuid": "22a71b07-f7fa-48e6-0ee8-08dbf049e6f6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6774,7 +6777,7 @@
     "reg_no": "EPD-IES-0026203:001",
     "uuid": "8565138e-a3d1-4b12-2096-08de07048464",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6786,7 +6789,7 @@
     "reg_no": "EPD-IES-0004454:003",
     "uuid": "61eb4202-2f81-4af0-125b-08dc90830688",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "epoxi",
     "gwp_per_functional_unit": 40.32,
     "functional_unit": "m2"
   },
@@ -6800,7 +6803,7 @@
     "reg_no": "EPD-IES-0023844:001",
     "uuid": "b5b031de-497f-4600-679f-08dd9cd1ac5e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6812,7 +6815,7 @@
     "reg_no": "EPD-IES-0023845:001",
     "uuid": "68c90080-3bf7-4ab2-607c-08dd9cd6b312",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6824,7 +6827,7 @@
     "reg_no": "EPD-IES-0023846:001",
     "uuid": "8f332471-b6ef-458e-67a0-08dd9cd1ac5e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6836,7 +6839,7 @@
     "reg_no": "EPD-IES-0023847:001",
     "uuid": "ad01c76a-48ff-4e97-67a1-08dd9cd1ac5e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6848,7 +6851,7 @@
     "reg_no": "EPD-IES-0023848:001",
     "uuid": "8f50bc2a-ea4e-4931-67a2-08dd9cd1ac5e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6860,7 +6863,7 @@
     "reg_no": "EPD-IES-0012372:001 (S-P-12372)",
     "uuid": "fa5decd8-f3ba-440a-404b-08dc1e80f228",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6872,7 +6875,7 @@
     "reg_no": "EPD-IES-0012373:001 (S-P-12373)",
     "uuid": "7b679287-0313-496f-404c-08dc1e80f228",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6884,7 +6887,7 @@
     "reg_no": "EPD-IES-0007852:001 (S-P-07852)",
     "uuid": "6b5eadec-93b1-4096-964e-08dadc0085d8",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6896,7 +6899,7 @@
     "reg_no": "EPD-IES-0008172:005 (S-P-08172)",
     "uuid": "8a12af67-8f80-468e-1d4f-08dafd1f406d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6908,7 +6911,7 @@
     "reg_no": "EPD-IES-0008169:004 (S-P-08169)",
     "uuid": "32a8558a-53cf-4c68-1d4c-08dafd1f406d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6920,7 +6923,7 @@
     "reg_no": "EPD-IES-0012374:003 (S-P-12374)",
     "uuid": "264b7782-8668-4100-404d-08dc1e80f228",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6932,7 +6935,7 @@
     "reg_no": "EPD-IES-0012375:004 (S-P-12375)",
     "uuid": "d15978d8-f0b4-4223-404e-08dc1e80f228",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6944,7 +6947,7 @@
     "reg_no": "EPD-IES-0008174:002 (S-P-08174)",
     "uuid": "73122cdb-3728-42bb-1d51-08dafd1f406d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -6956,7 +6959,7 @@
     "reg_no": "EPD-IES-0008143:001",
     "uuid": "a1289cd8-59fa-49e5-7984-08dd203871a8",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6968,7 +6971,7 @@
     "reg_no": "EPD-IES-0001353:002 (S-P-01353)",
     "uuid": "8bab024e-33a7-4554-90a5-e75a9d101265",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6980,7 +6983,7 @@
     "reg_no": "EPD-IES-0001346:010 (S-P-01346)",
     "uuid": "32ae7ea1-dc6c-4888-b9e6-735328c7c13e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -6992,7 +6995,7 @@
     "reg_no": "EPD-IES-0005038:004 (S-P-05038)",
     "uuid": "ec22114a-e2ce-44c1-8c9f-08d99c62d4ab",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "vinyl"
   },
   {
     "category": "golv",
@@ -7004,7 +7007,7 @@
     "reg_no": "EPD-IES-0001837:002 (S-P-01837)",
     "uuid": "e74992d4-d717-4e70-b54a-8febbaeed550",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7016,7 +7019,7 @@
     "reg_no": "EPD-IES-0008175:001 (S-P-08175)",
     "uuid": "62a2c83f-0166-4673-1d52-08dafd1f406d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7028,7 +7031,7 @@
     "reg_no": "EPD-IES-0015974:001",
     "uuid": "37d05712-cbc2-443f-0f8c-08dcb53ac180",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7040,7 +7043,7 @@
     "reg_no": "EPD-IES-0015976:001",
     "uuid": "1b688547-f6a0-4b3e-0f8e-08dcb53ac180",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7052,7 +7055,7 @@
     "reg_no": "EPD-IES-0025909:001",
     "uuid": "875fda4b-1710-420f-5c05-08ddfa79a482",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7064,7 +7067,7 @@
     "reg_no": "EPD-IES-0015984:002",
     "uuid": "fbf73425-1bcf-4661-9b37-08dcb57a7fd1",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7076,7 +7079,7 @@
     "reg_no": "EPD-IES-0008170:003 (S-P-08170)",
     "uuid": "ef396299-1314-4356-1d4d-08dafd1f406d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7088,7 +7091,7 @@
     "reg_no": "EPD-IES-0008171:003 (S-P-08171)",
     "uuid": "77e476be-bb0a-45ad-1d4e-08dafd1f406d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "textil"
   },
   {
     "category": "golv",
@@ -7100,7 +7103,7 @@
     "reg_no": "EPD-IES-0011459:001 (S-P-11459)",
     "uuid": "3fe57ce3-c61e-4c83-9b79-08dbdfa8f0c9",
     "source_registry": "environdec",
-    "subcategory": "",
+    "subcategory": "keramik",
     "gwp_per_functional_unit": 9.43,
     "functional_unit": "m2"
   },

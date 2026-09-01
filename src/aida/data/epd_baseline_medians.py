@@ -69,6 +69,25 @@ _MIN_SAMPLES_OVERRIDE: dict[tuple[str, str], int] = {
 # classify into a subcategory get no typvärde (stay LLM-uppskattning).
 _SUBCATEGORIZED_CATEGORIES = {"sanitet", "belysning", "vitvaror"}
 
+# Categories where a subtype is PREFERRED but the category aggregate is still a
+# legitimate answer. Different from _SUBCATEGORIZED_CATEGORIES above: there, a
+# flat aggregate over toilets and taps is meaningless, so an unclassified item
+# gets nothing. Here the category mean is coherent enough to fall back on.
+#
+# The reason golv is split is not incoherence, it is namability. NollCO2 models
+# a typical building part for a given building type ("ett idag byggnadstypiskt
+# sätt"), and §5.3 puts a proxy for a merely similar product at the LOWEST data
+# priority. A baseline that says "11.3 kg CO2e/m2, the average of linoleum,
+# carpet, parquet, terrazzo and vinyl" cannot answer "which floor did you
+# cost?", because the answer is "none that exists". The subtypes span 5.4 to
+# 17.4, a factor of three.
+#
+# Fallback is mandatory, not a nicety: only textil (30), vinyl (29) and trä (18)
+# clear _MIN_SAMPLES. linoleum (3), laminat (3), keramik (4) and gummi (1) do
+# not, and a thin bucket is a worse answer than an honest category mean. Which
+# level was used is reported back in the result so the UI can say so.
+_SUBTYPE_PREFERRED_CATEGORIES = {"golv"}
+
 # Still excluded wholesale: no subcategory taxonomy defined, too heterogeneous
 # to aggregate meaningfully.
 _HETEROGENEOUS_CATEGORIES = {"storköksutrustning"}
@@ -159,6 +178,16 @@ def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
             sub = _epd_subcategory(cat, e)
             if not sub:
                 continue  # unclassified item in a heterogeneous category
+        elif cat in _SUBTYPE_PREFERRED_CATEGORIES:
+            # Counted TWICE on purpose, once in its own subtype bucket and once
+            # in the category bucket. The category aggregate has to stay
+            # complete, because it is the fallback for every subtype too thin to
+            # publish — building it from the leftovers instead would make it the
+            # mean of exactly the floors nobody could name.
+            sub = _epd_subcategory(cat, e)
+            if sub:
+                grouped.setdefault((cat, sub, unit), []).append(float(gwp))
+            sub = ""
         else:
             sub = ""
         grouped.setdefault((cat, sub, unit), []).append(float(gwp))
@@ -175,6 +204,12 @@ def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
             "full_median": round(median(values), 2),
             "min": round(min(values), 2),
             "max": round(max(values), 2),
+            "subcategory": sub,
+            # "subtype" | "category" — which level the number actually came
+            # from. Carried in the payload rather than inferred by the caller
+            # from a non-empty subcategory, because a subtype request that fell
+            # back to the category must not read as a subtype answer.
+            "level": "subtype" if sub else "category",
         }
     return result
 
@@ -182,19 +217,79 @@ def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
 _TYPVÄRDEN: dict[tuple[str, str, str], dict] | None = None
 
 
+# Swedish material names -> EPD subtype key, for the subtype-preferred
+# categories. Kept separate from palats_client's SUBCATEGORY_KEYWORDS on
+# purpose: that taxonomy classifies second-hand LISTINGS and is tuned against
+# 701 live ads, this one reads the standard material the baseline agent named
+# ("Homogen vinylmatta (PVC)"). Same words, different job, and coupling them
+# would mean a baseline tweak could silently move the reuse search.
+#
+# Order matters, substring match, most specific first. "linoleum" before
+# "matta" because a linoleum floor is often written "linoleummatta", and
+# "plastmatta" before the bare "matta" that textilgolv shares.
+_MATERIAL_SUBTYPE_KEYWORDS: dict[str, list[tuple[str, list[str]]]] = {
+    "golv": [
+        ("linoleum", ["linoleum", "marmoleum"]),
+        ("laminat", ["laminat"]),
+        ("keramik", ["klinker", "kakel", "keramik", "terrazzo", "granitkeramik"]),
+        ("trä", ["parkett", "trägolv", "massivt trä", "ekgolv", "furugolv",
+                 "bambu", "kork"]),
+        ("gummi", ["gummi"]),
+        ("epoxi", ["epoxi", "härdplast", "akrylat", "polyuretangolv"]),
+        ("vinyl", ["vinyl", "plastmatta", "pvc", "homogen matta",
+                   "heterogen matta", "plastgolv"]),
+        ("textil", ["textil", "heltäckningsmatta", "nålfilt", "mattplatt",
+                    "matta"]),
+    ],
+}
+
+
+def subtype_from_material(category: str, material: str) -> str:
+    """Infer the EPD subtype key from a named standard material.
+
+    Returns "" when the category has no subtype taxonomy or nothing matched —
+    the caller then gets the category aggregate, which is a valid answer here
+    (unlike the sanitet/belysning/vitvaror split, where a miss means no number).
+    """
+    subs = _MATERIAL_SUBTYPE_KEYWORDS.get(category)
+    if not subs or not material:
+        return ""
+    text = material.lower()
+    for subtype, keywords in subs:
+        if any(kw in text for kw in keywords):
+            return subtype
+    return ""
+
+
 def get_baseline_typvärde(category: str, unit: str, subcategory: str = "") -> dict | None:
     """Look up EPD-baseline typvärde for a (category, unit[, subcategory]).
 
-    For subcategorized categories (sanitet, belysning, vitvaror) a subcategory
-    is required — pass the component's inferred subcategory. For all other
-    categories subcategory is ignored.
+    Three behaviours, by category:
+
+    - subcategorized (sanitet, belysning, vitvaror): a subcategory is REQUIRED.
+      A flat mean over toilets and taps is meaningless, so a miss returns None
+      and the caller falls through to an LLM estimate.
+    - subtype-preferred (golv): the subtype is tried first and the category
+      aggregate is the fallback, so a floor the catalog has too few of still
+      gets a number. Read ``level`` to tell the two apart.
+    - everything else: subcategory is ignored.
 
     Returns a dict with baseline_co2e_per_unit, sample_size, full_median, min,
-    max — or None if no usable typvärde exists. Cached lazily on first call.
+    max, subcategory and level — or None if no usable typvärde exists. Cached
+    lazily on first call.
     """
     global _TYPVÄRDEN
     if _TYPVÄRDEN is None:
         _TYPVÄRDEN = _compute_typvärden()
+
+    if category in _SUBTYPE_PREFERRED_CATEGORIES and subcategory:
+        hit = _TYPVÄRDEN.get((category, subcategory, unit))
+        if hit:
+            return hit
+        # Fall through to the category aggregate below. Deliberately not
+        # returning None: an unfamiliar or thin floor subtype should still get a
+        # baseline, just an honestly labelled one.
+
     sub = subcategory if category in _SUBCATEGORIZED_CATEGORIES else ""
     return _TYPVÄRDEN.get((category, sub, unit))
 
