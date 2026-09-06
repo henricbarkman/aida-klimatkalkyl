@@ -28,6 +28,7 @@ from aida.data.climate_data import (
     normalize_component_name,
     resolve_category,
 )
+from aida.data.nordic_supply import availability_label, nordic_supplier
 from aida.llm_json import extract_json_object, extract_json_value
 from aida.models import (
     Alternative,
@@ -47,6 +48,13 @@ EPD_ALTERNATIVES_PATH = Path(__file__).parent.parent / "data" / "epd_alternative
 # the N lowest-GWP per category — per component, after narrowing to its unit.
 # This keeps the per-component prompt bounded.
 _MAX_ALTERNATIVES_PER_CATEGORY = 80
+
+# How many rows in a queue must come from a Nordic supplier, when the catalog
+# can supply that many. Five, because the model picks two to four alternatives
+# from the queue: fewer than five and a category could still produce a set with
+# nothing orderable in it, while a much larger number would start displacing
+# rows the model would actually have chosen.
+_NORDIC_QUOTA = 5
 
 # Heterogeneous categories whose candidates are capped and filtered PER
 # subcategory (a toilet, a tap and a basin live in "sanitet" but are not
@@ -87,7 +95,9 @@ TEKNISKA REGLER:
 - Använd GWP-värdena från EPD-listan — de är GWP-fossil A1-A3 (samma metod som Boverket-baslinjen), verifierade och direkt jämförbara.
 - Om ett omräknat värde visas (efter →), använd det omräknade värdet för beräkningar.
 - Ange EPD-registreringsnummer i source-fältet.
-- Prioritera svenska/nordiska produkter (SE, NORD, RER).
+- Använd fältet "Tillgänglighet", inte "Geo", för att bedöma om en förvaltare kan köpa produkten. Geo är deklarationens giltighetsområde, inte var varan finns: Ahlsell AB deklarerar GLO.
+- Är klimatskillnaden liten mellan två alternativ, välj det med "nordisk leverantör". Är skillnaden stor, välj det bästa ändå och nämn i reasoning att leverantören är utländsk.
+- Minst ett av dina alternativ ska ha "nordisk leverantör" om listan innehåller något sådant.
 - Om EPD-värdet är i en annan enhet (kg) än projektets enhet (m2, st), gör en rimlig omräkning och notera det.
 - co2e_kg MÅSTE vara > 0 — alla byggmaterial har klimatpåverkan. Returnera aldrig 0.
 - Föreslå KOMPLETTA system, inte enskilda komponenter.
@@ -136,6 +146,41 @@ def _load_epd_alternatives() -> dict[str, list[dict]]:
 
 # Units that describe an area-measured building element.
 _AREA_UNITS = {"m2", "m²", "kvm"}
+
+# Units that can share one queue. Two rows may be ranked against each other only
+# if their units fall in the same class, because ranking is what decides which
+# alternatives a förvaltare is shown and a number in the wrong unit is not a
+# better product, it is a different question answered.
+#
+# Mass and count share a class deliberately: a washbasin mixer declared per
+# styck and one declared per kilo are both offered for the same fixture, and
+# splitting them starved the sanitet bucket once already.
+#
+# Length is its own class, and that is the 2026-09-06 addition. Only the area
+# branch used to narrow at all, so a kg-measured component drew on the whole
+# bucket: 18 of `el`'s 28 rows are cables declared per linear metre, and a
+# per-metre figure for a thin signal cable is numerically tiny next to a per-kilo
+# one, so those 18 swept the front. The queue's top five read as savings of 30x
+# to 80x against a 2.48 kg CO2e/kg typvärde, and every one of them was a phantom
+# in the same way as the parquet example below.
+#
+# The baseline side already knew this. `epd_baseline_medians` keeps a separate
+# el/lm typvärde at 24.19 next to el/kg at 2.48; only the alternatives side was
+# putting the two in one list.
+_UNIT_CLASSES: tuple[frozenset[str], ...] = (
+    frozenset(_AREA_UNITS),
+    frozenset({"lm", "m", "meter", "löpmeter"}),
+    frozenset({"kg", "st", "styck", "pcs"}),
+)
+
+
+def _unit_class(unit: str) -> frozenset[str] | None:
+    """The comparability class a unit belongs to, or None if it has no peers."""
+    lowered = unit.strip().lower()
+    for klass in _UNIT_CLASSES:
+        if lowered in klass:
+            return klass
+    return None
 
 
 def _epd_comparable(epd: dict) -> tuple[float, str]:
@@ -189,15 +234,17 @@ def _select_epd_candidates(
     appliances) legitimately draw on both units, and narrowing that side starved
     the sanitet bucket once already.
     """
-    if project_unit.strip().lower() not in _AREA_UNITS:
+    klass = _unit_class(project_unit)
+    if klass is None:
         matching = epds
     else:
-        matching = [e for e in epds if _epd_comparable(e)[1] in _AREA_UNITS]
+        matching = [e for e in epds if _epd_comparable(e)[1] in klass]
         if not matching:
             # Better a unit-mismatched suggestion than none at all, but say so.
             logger.warning(
-                "No area-declared EPDs in category %s; falling back to the "
-                "full bucket (%d rows, mixed units)", category, len(epds),
+                "No EPDs in category %s share a unit class with %r; falling "
+                "back to the full bucket (%d rows, mixed units)",
+                category, project_unit, len(epds),
             )
             matching = epds
 
@@ -215,8 +262,87 @@ def _select_epd_candidates(
         for sub_epds in by_sub.values():
             sub_epds.sort(key=rank)
             flat.extend(sub_epds[:_MAX_ALTERNATIVES_PER_CATEGORY])
-        return flat
-    return sorted(matching, key=rank)[:_MAX_ALTERNATIVES_PER_CATEGORY]
+        return _apply_nordic_quota(flat, matching, rank, category)
+    selected = sorted(matching, key=rank)[:_MAX_ALTERNATIVES_PER_CATEGORY]
+    return _apply_nordic_quota(selected, matching, rank, category)
+
+
+def _row_key(epd: dict) -> tuple:
+    """Identity for a catalog row. uuid where present, name+category otherwise."""
+    return (epd.get("uuid") or "", epd.get("category", ""), epd.get("name", ""))
+
+
+def _apply_nordic_quota(
+    selected: list[dict],
+    pool: list[dict],
+    rank,
+    category: str,
+    quota: int = _NORDIC_QUOTA,
+) -> list[dict]:
+    """Guarantee `quota` Nordic-supplier rows in the queue, taking from the tail.
+
+    A quota, not a filter, and the distinction is the whole design. Förvaltare
+    want to buy from Nordic wholesalers, so a queue with no Nordic row in it is
+    useless to them in practice. But the lowest-GWP product in a category is
+    often not Nordic, and hiding it would make the tool worse at the thing it
+    exists for. So: keep the best rows by GWP, and if fewer than `quota` of them
+    come from a Nordic supplier, promote the best Nordic rows from the pool and
+    drop an equal number from the BACK of the selection.
+
+    Three properties this preserves, each of which a filter would break:
+
+    - The count never falls. Displacement is one-for-one, so "flera alternativ
+      visas" survives the guarantee.
+    - Nothing near the front is displaced. The rows that go are the worst in a
+      selection that is already capped at 80 and from which the model picks two
+      to four; they were never going to be offered.
+    - A category with no Nordic rows at all is left alone rather than padded.
+      That is a coverage gap, and the honest response is to report it, not to
+      manufacture a Nordic-looking queue.
+
+    Promotion cannot displace another Nordic row, so calling this twice is a
+    no-op the second time.
+    """
+    if quota <= 0 or not selected:
+        return selected
+
+    chosen = {_row_key(e) for e in selected}
+    have = sum(1 for e in selected if nordic_supplier(e))
+    if have >= quota:
+        return selected
+
+    available = sorted(
+        (e for e in pool
+         if nordic_supplier(e) and _row_key(e) not in chosen),
+        key=rank,
+    )
+    wanted = min(quota - have, len(available))
+    if wanted <= 0:
+        # Either the pool has no more Nordic rows, or every one is already in.
+        # Both mean the catalog cannot meet the quota here; say which category,
+        # because that list is the input to the sourcing work.
+        if have < quota:
+            logger.info(
+                "Nordisk kvot ej uppfylld för %s: %d av %d möjliga i kön, "
+                "katalogen har inga fler", category, have, quota,
+            )
+        return selected
+
+    # Drop from the back, worst GWP first, and never a Nordic row — displacing
+    # one to make room for another would leave the count unchanged and the
+    # queue no more available.
+    keep = sorted(selected, key=rank)
+    droppable = [i for i in range(len(keep) - 1, -1, -1)
+                 if not nordic_supplier(keep[i])]
+    for i in droppable[:wanted]:
+        keep[i] = None  # type: ignore[call-overload]
+    result = [e for e in keep if e is not None]
+    result.extend(available[:wanted])
+    logger.info(
+        "Nordisk kvot för %s: befordrade %d nordiska rader (%d -> %d av %d)",
+        category, wanted, have, have + wanted, quota,
+    )
+    return sorted(result, key=rank)
 
 
 # Both of these moved to aida.name_match. The price matcher used a bare
@@ -318,9 +444,15 @@ def _format_epd_list(epds: list[dict]) -> str:
         source = epd.get("source_registry", "environdec")
         source_tag = f" [{source}]" if source != "environdec" else ""
 
+        # Availability is shown separately from Geo, and both are shown, because
+        # they answer different questions and the model was previously told to
+        # use Geo for a question Geo cannot answer. Geo is the declaration's
+        # validity region; the label is about the supplier. Ahlsell AB declares
+        # GLO and is the most orderable row in the catalog.
         lines.append(
             f"- {epd['name']} | {epd.get('owner', '?')} | "
             f"{gwp_str} | "
+            f"Tillgänglighet: {availability_label(epd)} | "
             f"Geo: {epd.get('geo', '?')}{reg_str}{source_tag}"
         )
     return "\n".join(lines)
@@ -1196,7 +1328,7 @@ TILLGÄNGLIGA EPD:er FÖR DENNA KATEGORI ({len(epds)} st):
 
 Välj de 2-4 bästa alternativen från listan ovan. Beräkna total CO2e baserat på EPD-värdet × {proj_comp.quantity} {proj_comp.unit}.
 Om EPD-enheten inte matchar projektenheten: hoppa över den EPD:n. Räkna aldrig om mellan enheter med en antagen densitet eller tjocklek — en sådan omräkning ser ut som en besparing men är en gissning.
-Prioritera svenska/nordiska produkter.
+Se till att minst ett alternativ har "nordisk leverantör", om listan innehåller något sådant. Finns inget, säg det i reasoning i stället för att låtsas.
 """
     else:
         prompt += """

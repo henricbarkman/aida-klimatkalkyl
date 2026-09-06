@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, replace
 from datetime import date
@@ -662,6 +663,85 @@ _NEGATIVE_TERMS: dict[str, set[str]] = {
 }
 
 
+# Query terms that must match as whole words. Everything else keeps the plain
+# substring test, and the asymmetry is the whole point of this constant.
+#
+# On 2026-09-06 four contaminations were traced to bare substring matching in one
+# evening -- "duct" inside "Product" put 23 rows of gravel, concrete piles and
+# joinery into `ventilation`; "fan" inside "Fangyuan" and "ALFANAR" added more;
+# "ahu" inside "Mahurangi" fetched eight New Zealand ready-mix concretes; "lack"
+# inside "Black" offered roofing felt as paint. The obvious repair is to bound
+# every term. It was written, and then measured against the real catalog before
+# being kept, which is what stopped it: bounding every term makes 115 shipped
+# rows unreachable by their own category's queries, and only about 40 of those
+# are contamination.
+#
+# The reason no general rule works is visible once the losses are read one by
+# one. Every collision above is a term sitting inside an unrelated longer word --
+# but so is every legitimate compound the loose rule depends on:
+#
+#     wrong                        right
+#     pro-DUCT     (not a duct)    Star-FLOOR, Mape-FLOOR  (are floors)
+#     B-LACK       (not lack)      Polar-PIPE, Pipe-life   (are pipes)
+#     as-PIR-e     (not PIR)       i-CABLE                 (is cable)
+#     c-LAMP-s     (not a lamp)    sludge-PAINT            (is paint)
+#     Ma-HAU-rangi (not an AHU)    Scot-LARCH              (is larch)
+#     water-p-ROOFING              betong-produkter        (is concrete)
+#
+# Position does not separate them: both columns are suffix matches. Length does
+# not either: "pipe" and "duct" are both four letters and land on opposite
+# sides. The difference is semantic -- in the right-hand column the compound is a
+# kind of the thing named, in the left-hand column the spelling is a coincidence
+# -- and no rule available at this layer can see that. So the set is explicit,
+# and each entry earns its place by an observed collision rather than by a
+# property of the string.
+#
+# Read as a maintenance instruction: adding a term here is cheap and safe.
+# Removing one, or bounding a term not listed, needs the same measurement --
+# `scripts/audit_queue_fronts.py` will show what reached the front of a queue,
+# but only a rebuild shows what stopped reaching the catalog at all.
+# Measured on the shipped catalog with exactly this set: 1296 rows stay
+# reachable, 37 stop being reachable, and reading all 37 by hand they are gravel,
+# concrete piles, timber connectors, wall ties, spiral staircases, mooring wire,
+# shower enclosures, two vinyl floors and a box of brass clamps. None is a
+# building product for the category that was fetching it.
+#
+# The one near-miss is worth recording. "pir" also stops reaching "Glava Proff 34
+# Plate m/papir", a real Norwegian mineral wool batt whose paper facing spells
+# the term by accident. It survives anyway, because Glava AS is a recognised
+# Nordic owner and the supplement fetches that route by supplier rather than by
+# product word -- the two apertures cover each other, which is the argument for
+# having both.
+WORD_BOUNDED_TERMS: frozenset[str] = frozenset({
+    "duct", "fan", "pir", "lamp", "laminate", "roofing", "ahu", "lack",
+    # A negative term rather than a query: `golv` rejects on "bed", which sits
+    # inside "bedroom" and "embedded". A negative that misfires is the invisible
+    # half of this defect class -- a contaminated row announces itself at the
+    # front of a queue, a wrongly excluded one announces nothing ever.
+    "bed",
+})
+
+
+def _word_match(term: str, text: str) -> bool:
+    """Does `term` occur in `text` as a whole word, allowing a plural or gerund?
+
+    Both ends are bounded, unlike the sibling rule in
+    `scripts/fetch_nordic_supplement.py`, which leaves the end open. There the
+    terms are deliberate stems and "floor" must reach "flooring"; here an open
+    end is exactly what lets "duct" reach "Product". The (s|es|ing) allowance
+    covers the inflections that actually appear in EPD names -- "ducts",
+    "ducting", "fans", "lamps".
+    """
+    return re.search(r"\b" + re.escape(term) + r"(s|es|ing)?\b", text) is not None
+
+
+def _term_matches(term: str, text: str) -> bool:
+    """Substring by default, whole word for the terms that have earned it."""
+    if term in WORD_BOUNDED_TERMS:
+        return _word_match(term, text)
+    return term in text
+
+
 def _score_match(
     epd: EPDSummary,
     query_lower: str,
@@ -673,10 +753,18 @@ def _score_match(
     name_lower = epd.name.lower().strip()
     owner_lower = epd.owner.lower().strip()
 
-    # Reject items containing negative terms for this category
+    # Reject items containing negative terms for this category. Word-bounded for
+    # the same reason as the match tests below, and here the cost of not doing it
+    # falls the other way: a negative that fires on a substring silently DISCARDS
+    # a legitimate product. `golv` rejects "bed", which sits inside "bedroom" and
+    # "embedded", so a floor declared as "Bedroom vinyl" or a screed with
+    # "embedded heating" would never have reached the catalog to be noticed
+    # missing. That is the invisible half of this defect class: the contaminated
+    # rows announce themselves at the front of a queue, the excluded ones never
+    # announce anything at all.
     if component_hint:
         negatives = _NEGATIVE_TERMS.get(component_hint.lower(), set())
-        if negatives and any(neg in name_lower for neg in negatives):
+        if negatives and any(_term_matches(neg, name_lower) for neg in negatives):
             return 0.0
 
     # --- Match detection ---
@@ -693,11 +781,11 @@ def _score_match(
         score = 50.0
         name_match = True
     # All query tokens found in name
-    elif query_tokens and all(t in name_lower for t in query_tokens):
+    elif query_tokens and all(_term_matches(t, name_lower) for t in query_tokens):
         score = 45.0
         name_match = True
     # Query substring in name
-    elif query_lower in name_lower:
+    elif _term_matches(query_lower, name_lower):
         score = 40.0
         name_match = True
     # Match in owner name only

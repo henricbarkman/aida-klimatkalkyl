@@ -1224,12 +1224,10 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .welcome-box h2 { font-size: 27px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.15; color: var(--kk-charcoal); margin: 0 0 12px; }
 .welcome-lead { font-size: 16.5px; font-weight: 300; line-height: 1.55; color: var(--kk-charcoal); margin: 0; }
 
-/* Hero: full-bleed cream band med jämförelsen */
-.welcome-figure { margin: 0; padding: 26px 40px 24px; background: var(--kk-cream); border-top: 1px solid var(--kk-gold-light); border-bottom: 1px solid var(--kk-gold-light); }
-.wf-scale { display: flex; align-items: center; justify-content: center; gap: 26px; text-align: center; }
-.wf-term { font-size: 13.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; line-height: 1.4; color: var(--kk-charcoal); flex: 1; }
-.wf-approx { font-size: 62px; font-weight: 300; line-height: 0.9; color: var(--kk-red-orange); flex-shrink: 0; }
-.wf-caption { display: block; margin-top: 14px; font-size: 13px; line-height: 1.6; color: #7a6a4a; text-align: center; max-width: 54ch; margin-left: auto; margin-right: auto; }
+/* Bakgrund och syfte: en lugn inramad mening, inte en figur att avkoda */
+.welcome-why { margin: 4px 40px 0; padding: 15px 20px; background: var(--kk-cream); border-left: 3px solid var(--kk-gold); border-radius: 0 4px 4px 0; }
+.welcome-why p { font-size: 13.5px; line-height: 1.65; color: #6f6144; margin: 0; }
+.welcome-why strong { color: var(--kk-charcoal); font-weight: 700; }
 
 .welcome-body { padding: 24px 40px 8px; }
 .welcome-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-400); margin-bottom: 10px; }
@@ -1252,11 +1250,8 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .welcome-start:hover { background: var(--kk-dark-red); }
 .welcome-box :focus-visible { outline: 2px solid var(--kk-red-orange); outline-offset: 2px; }
 
-/* Inladdning: rutan reser sig, likhetstecknet landar sist */
 @keyframes welcomeRise { from { opacity: 0; transform: translateY(16px) scale(0.985); } to { opacity: 1; transform: none; } }
-@keyframes welcomeApprox { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
 .welcome-box { animation: welcomeRise 0.34s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
-.wf-approx { animation: welcomeApprox 0.4s cubic-bezier(0.2, 1.3, 0.4, 1) 0.26s both; }
 
 @media (max-width: 560px) {
   #welcomeModal { padding: 0; align-items: stretch; }
@@ -1264,16 +1259,14 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   .welcome-intro { padding: 30px 22px 22px; }
   .welcome-box h2 { font-size: 23px; }
   .welcome-lead { font-size: 15.5px; }
-  .welcome-figure { padding: 22px 22px 20px; }
-  .wf-scale { flex-direction: column; gap: 6px; }
-  .wf-approx { font-size: 44px; }
-  .welcome-body { padding: 24px 22px 8px; }
+  .welcome-why { margin: 4px 22px 0; padding: 14px 16px; }
+  .welcome-body { padding: 22px 22px 8px; }
   .welcome-note { padding: 4px 22px 0; }
   .welcome-foot { padding: 14px 22px 18px; gap: 12px; }
   .welcome-start { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .welcome-box, .wf-approx { animation: none; }
+  .welcome-box { animation: none; }
 }
 
 /* === Step-back navigation (Feature 10) === */
@@ -1455,14 +1448,9 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
       <p class="welcome-lead">Ett beslutsstöd som räknar fram klimatpåverkan och kostnad för ett ombyggnadsprojekt medan valen fortfarande går att ändra.</p>
     </div>
 
-    <figure class="welcome-figure">
-      <div class="wf-scale">
-        <div class="wf-term">Nybyggnation</div>
-        <div class="wf-approx" aria-hidden="true">&#8776;</div>
-        <div class="wf-term">Ombyggnation</div>
-      </div>
-      <figcaption class="wf-caption">Ombyggnationer och renoveringar står för ungefär lika stor del av byggsektorns klimatpåverkan som nybyggnationer. Ändå är det nybyggnationerna som räknas på.</figcaption>
-    </figure>
+    <div class="welcome-why">
+      <p>Ombyggnationer och renoveringar orsakar <strong>ungefär lika stora utsläpp som nybyggnationer</strong>, men det är nybyggnationerna som räknas på. AIda finns för att göra beräkningen snabb nog att hinnas med även i ett vanligt ombyggnadsprojekt.</p>
+    </div>
 
     <div class="welcome-body">
       <div class="welcome-label">Vad AIda gör</div>
@@ -1475,8 +1463,8 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
           <span>Kör en analys per byggnadsdel eller etapp. En hel fastighet i en enda beskrivning ger grövre siffror än tre avgränsade analyser.</span>
         </li>
         <li>
-          <strong>Berätta så mycket du kan</strong>
-          <span>Ju mer AIda vet om nuläget, befintliga material, skick och mängder, desto mer precist blir resultatet. Men du behöver inte vara noggrann. Ungefärliga uppgifter räcker långt, och AIda visar vilka antaganden den gjort.</span>
+          <strong>Beskriv behoven framåt</strong>
+          <span>Ju tydligare du berättar vad lokalen ska användas till och vad som ska åtgärdas, desto mer precist blir resultatet. Befintliga material och skick hjälper också. Du behöver inte vara noggrann, AIda visar vilka antaganden den gjort.</span>
         </li>
         <li>
           <strong>Rätta AIda i chatten</strong>
