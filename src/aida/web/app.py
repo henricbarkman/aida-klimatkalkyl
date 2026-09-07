@@ -819,6 +819,23 @@ def api_chat():
 
 # === Analyses CRUD (Supabase) ===
 
+
+def _nullable_text(value):
+    """Empty form fields arrive as '', which Postgres rejects for a DATE and
+    stores as a meaningless '' for TEXT. Both should read as "not answered".
+
+    Applies to property_ref and planned_start: the browser sends '' when the
+    user clears the field, and an empty string is not the same answer as a
+    missing key. Without this, clearing the month field fails the whole PATCH
+    with a date parse error and the analysis silently stops autosaving.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
 @app.route('/api/analyses', methods=['POST'])
 @require_supabase_auth
 def create_analysis():
@@ -836,6 +853,14 @@ def create_analysis():
         # Orchestration increment 4: the chat is part of the analysis, not of
         # the browser that happened to run it.
         'conversation_data': data.get('conversation_data'),
+        # Which building this analysis is about, and roughly when the work is
+        # planned. Both optional. They exist so analyses stop being isolated
+        # events: two analyses on the same school can be related, and the set
+        # can be read as a pipeline over time. Asked for by Anna Florqvist
+        # 2026-09-07 (matching material against the ten-year plan), and the
+        # cheapest way to keep that option open while the tool is being tested.
+        'property_ref': _nullable_text(data.get('property_ref')),
+        'planned_start': _nullable_text(data.get('planned_start')),
     }
     result = supabase_request('POST', 'analyses', data=row, token=token)
     if isinstance(result, list):
@@ -850,7 +875,7 @@ def create_analysis():
 def list_analyses():
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     params = {
-        'select': 'id,name,status,created_at,updated_at',
+        'select': 'id,name,status,created_at,updated_at,property_ref,planned_start',
         'user_id': f'eq.{request.user_id}',
         'order': 'updated_at.desc',
         'limit': '20',
@@ -884,6 +909,12 @@ def update_analysis(analysis_id):
                 'conversation_data'):
         if key in data:
             update[key] = data[key]
+    # Kept apart from the loop above because '' has to become NULL rather than
+    # be written through: an empty month string is a date parse error, and it
+    # would fail the whole PATCH, not just this field.
+    for key in ('property_ref', 'planned_start'):
+        if key in data:
+            update[key] = _nullable_text(data[key])
     params = {
         'id': f'eq.{analysis_id}',
         'user_id': f'eq.{request.user_id}',
@@ -1194,6 +1225,12 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .project-rename-input { background: transparent; border: 1px solid var(--kk-gray-300); border-radius: 4px; padding: 2px 6px; font-size: inherit; font-family: inherit; color: inherit; outline: none; min-width: 120px; }
 .project-rename-input:focus { border-color: var(--kk-charcoal); }
+.meta-label { display: block; font-size: 13px; font-weight: 600; color: var(--kk-charcoal); margin-bottom: 5px; }
+.meta-input { width: 100%; padding: 10px 12px; border: 1px solid var(--kk-gray-200); border-radius: 8px; font-size: 14px; font-family: inherit; color: var(--kk-charcoal); outline: none; }
+.meta-input:focus { border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.15); }
+.meta-hint { font-size: 12px; color: var(--kk-gray-400); margin: 6px 0 18px; }
+.meta-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.project-meta-line { font-size: 11px; color: var(--kk-gray-400); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* === Reasoning expander (Feature 2) === */
 .reasoning-toggle { background: none; border: none; color: var(--kk-gray-400); font-size: 11px; cursor: pointer; padding: 0; font-family: inherit; text-decoration: underline; white-space: nowrap; }
@@ -1338,6 +1375,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
       <div id="projectList"></div>
       <div class="dropdown-divider"></div>
       <button class="dropdown-item" onclick="startRenameProject()">Byt namn på projektet</button>
+      <button class="dropdown-item" onclick="openProjectMeta()">Fastighet och tidpunkt</button>
       <button class="dropdown-item" onclick="createNewProject()">+ Skapa nytt projekt</button>
     </div>
   </div>
@@ -1486,6 +1524,24 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 </div>
 
 <!-- About modal (Feature 5) -->
+<div id="projectMetaModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeProjectMeta()" role="dialog" aria-modal="true" aria-labelledby="projectMetaTitle">
+  <div class="modal-box" style="max-width:440px">
+    <button class="modal-close" onclick="closeProjectMeta()" aria-label="St&#xE4;ng">&#x2715;</button>
+    <h2 id="projectMetaTitle">Fastighet och tidpunkt</h2>
+    <p style="margin-bottom:22px">Kopplar analysen till en byggnad och en ungef&#xE4;rlig tidpunkt, s&#xE5; att flera analyser p&#xE5; samma fastighet g&#xE5;r att l&#xE4;sa ihop och planera efter. B&#xE5;da f&#xE4;lten &#xE4;r frivilliga.</p>
+    <label class="meta-label" for="metaPropertyRef">Fastighet eller objektsnummer</label>
+    <input class="meta-input" id="metaPropertyRef" type="text" maxlength="120" placeholder="T.ex. Stadsbiblioteket">
+    <p class="meta-hint">Samma ben&#xE4;mning som i Pythagoras, om du har den.</p>
+    <label class="meta-label" for="metaPlannedStart">Planerad utf&#xF6;randetidpunkt</label>
+    <input class="meta-input" id="metaPlannedStart" type="month">
+    <p class="meta-hint">Ungef&#xE4;rlig m&#xE5;nad r&#xE4;cker. L&#xE4;mna tomt om det inte &#xE4;r best&#xE4;mt &#xE4;n.</p>
+    <div class="meta-actions">
+      <button class="btn btn-secondary" onclick="closeProjectMeta()">Avbryt</button>
+      <button class="btn" onclick="saveProjectMeta()">Spara</button>
+    </div>
+  </div>
+</div>
+
 <div id="aboutModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAbout()">
   <div class="modal-box">
     <button class="modal-close" onclick="closeAbout()" aria-label="St&#xE4;ng">&#x2715;</button>
@@ -1550,6 +1606,14 @@ let state = {
   // kept apart from the concrete binding in `selections`. Durable across reruns
   // so a choice is only lost when the alternative genuinely stops being offered.
   selectionIntent: {},
+  // Which building the analysis is about, and roughly when the work is planned.
+  // Both optional, both free of the analysis flow: nothing downstream reads them
+  // yet. They are stored so a year of test runs adds up to a usable set instead
+  // of a pile of unrelated reports. propertyRef is free text (a Pythagoras
+  // designation if the user has one), plannedStart is 'YYYY-MM' in the UI and
+  // 'YYYY-MM-01' in the database.
+  propertyRef: '',
+  plannedStart: '',
   get step() { return _step; },
   set step(v) { _step = v; updatePlaceholder(); },
 };
@@ -2980,7 +3044,44 @@ function renderRecomputeAlternativesAction() {
 // About modal (Feature 5)
 function openAbout() { document.getElementById('aboutModal').style.display = 'flex'; }
 function closeAbout() { document.getElementById('aboutModal').style.display = 'none'; }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeAbout(); closeWelcome(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeAbout(); closeWelcome(); closeProjectMeta(); } });
+
+// === Fastighet och tidpunkt ===
+// Vilken byggnad analysen gäller och ungefär när arbetet ska ske. Båda frivilliga,
+// och medvetet utanför analysflödet: inget steg läser dem idag. De finns för att en
+// samling analyser ska gå att läsa som ett bestånd över tid i stället för som lösa
+// rapporter. Efterfrågat av Anna Florqvist 2026-09-07.
+let _projectMetaReturnFocus = null;
+
+function openProjectMeta() {
+  document.getElementById('projectMenu').style.display = 'none';
+  _projectMetaReturnFocus = document.activeElement;
+  document.getElementById('metaPropertyRef').value = state.propertyRef || '';
+  document.getElementById('metaPlannedStart').value = state.plannedStart || '';
+  document.getElementById('projectMetaModal').style.display = 'flex';
+  document.getElementById('metaPropertyRef').focus();
+}
+
+function closeProjectMeta() {
+  const m = document.getElementById('projectMetaModal');
+  // Guarded because Escape fires this for every dialog. Without the check, a
+  // closed dialog would still yank focus back on every Escape press.
+  if (!m || m.style.display === 'none') return;
+  m.style.display = 'none';
+  if (_projectMetaReturnFocus && _projectMetaReturnFocus.focus) _projectMetaReturnFocus.focus();
+  _projectMetaReturnFocus = null;
+}
+
+function saveProjectMeta() {
+  state.propertyRef = document.getElementById('metaPropertyRef').value.trim();
+  // A browser without <input type="month"> renders a plain text box, so the value
+  // can be anything. Only a well-formed month is kept; the column is a DATE and a
+  // bad string would fail the save rather than this one field.
+  const month = document.getElementById('metaPlannedStart').value.trim();
+  state.plannedStart = /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : '';
+  closeProjectMeta();
+  if (HAS_SUPABASE && currentUser) scheduleAutoSave();
+}
 
 // === Välkomstdialog ===
 // Kryssrutan är en preferens, inte en engångshandling: den speglar sparat läge
@@ -3678,7 +3779,17 @@ function scheduleAutoSave() {
 }
 
 async function autoSave() {
-  if (!supabaseClient || !currentUser || saveInProgress) return;
+  if (!supabaseClient || !currentUser) return;
+  // A save already running means this call would drop whatever changed since it
+  // started. Come back instead of returning: the debounce timer has already
+  // fired, so nothing else is going to retry, and the edit disappears with no
+  // error anywhere. Typing in the metadata dialog and closing it is where that
+  // shows most, because there is no later step that resaves the field.
+  if (saveInProgress) {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(autoSave, 500);
+    return;
+  }
   saveInProgress = true;
   const indicator = document.getElementById('saveIndicator');
   if (indicator) { indicator.textContent = 'Sparar...'; indicator.style.display = 'inline'; indicator.style.color = 'var(--kk-gray-400)'; }
@@ -3690,7 +3801,11 @@ async function autoSave() {
                                         selection_intent: state.selectionIntent})
     : null;
   const analysisData = {
-    name: state.project ? (state.project.name || state.project.building_type || 'Nytt projekt') : 'Nytt projekt',
+    // Falls back to the property before 'Nytt projekt': someone who names the
+    // building before describing the job has already said something more useful
+    // than the placeholder.
+    name: state.project ? (state.project.name || state.project.building_type || 'Nytt projekt')
+                        : (state.propertyRef || 'Nytt projekt'),
     status: state.step,
     project_data: projectDataToSave,
     baseline_data: state.baseline,
@@ -3701,6 +3816,11 @@ async function autoSave() {
     // piggyback like directives — project_data is null until intake succeeds,
     // and the advisory questions we most want to keep happen before that.
     conversation_data: (state.conversation && state.conversation.length) ? state.conversation : null,
+    property_ref: state.propertyRef || null,
+    // The month input gives 'YYYY-MM'; the column is a DATE, so anchor it to the
+    // first of the month. We only ever show the month back, so the day is a
+    // storage detail and never a claim about precision we do not have.
+    planned_start: state.plannedStart ? (state.plannedStart + '-01') : null,
   };
   try {
     if (currentAnalysisId) {
@@ -3893,11 +4013,25 @@ async function loadAnalysesList() {
         const item = document.createElement('div');
         item.className = 'dropdown-item' + (a.id === currentAnalysisId ? ' active' : '');
         item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;cursor:pointer';
-        const nameSpan = document.createElement('span');
+        // Name on top, building and month underneath when they are set. The second
+        // line is what tells the user the metadata actually stuck; without it the
+        // dialog writes into a void and nobody fills it in twice.
+        const textWrap = document.createElement('div');
+        textWrap.style.cssText = 'flex:1;min-width:0';
+        const nameSpan = document.createElement('div');
         nameSpan.textContent = a.name || 'Nytt projekt';
-        nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
-        nameSpan.onclick = () => { loadAnalysis(a.id); toggleProjectMenu(); };
-        item.appendChild(nameSpan);
+        nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        textWrap.appendChild(nameSpan);
+        const meta = [a.property_ref, a.planned_start ? String(a.planned_start).slice(0, 7) : '']
+          .filter(Boolean).join(', ');
+        if (meta) {
+          const metaLine = document.createElement('div');
+          metaLine.className = 'project-meta-line';
+          metaLine.textContent = meta;
+          textWrap.appendChild(metaLine);
+        }
+        textWrap.onclick = () => { loadAnalysis(a.id); toggleProjectMenu(); };
+        item.appendChild(textWrap);
         const del = document.createElement('button');
         del.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--kk-gray-400);padding:2px 4px;flex-shrink:0';
         del.title = 'Ta bort';
@@ -3937,6 +4071,9 @@ async function loadAnalysis(id) {
     state.selections = data.selections_data || {};
     state.reportMarkdown = data.report_markdown;
     state.step = data.status || 'idle';
+    state.propertyRef = data.property_ref || '';
+    // DATE comes back as 'YYYY-MM-DD'; the month input wants 'YYYY-MM'.
+    state.plannedStart = data.planned_start ? String(data.planned_start).slice(0, 7) : '';
     // Restore standing directives (piggybacked in project_data); keep the working
     // project object clean of the persistence-only key.
     state.directives = (state.project && state.project.directives)
@@ -4040,6 +4177,8 @@ function createNewProject() {
   state.step = 'idle';
   state.directives = {global: [], byComponent: {}};
   state.selectionIntent = {};
+  state.propertyRef = '';
+  state.plannedStart = '';
   document.getElementById('projectName').textContent = 'Nytt projekt';
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
