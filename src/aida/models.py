@@ -1,4 +1,4 @@
-"""Data models for AIda climate calculator."""
+"""Data models for Aida climate calculator."""
 
 from __future__ import annotations
 
@@ -203,7 +203,7 @@ class Alternative:
     alternative_type: str = ""  # "reuse", "climate_optimized", "baseline", "info"
     # Units in stock on Palats at analysis time, for reuse listings. cost_sek
     # and co2e_kg are deliberately computed for the FULL component quantity
-    # regardless: AIda is an early-planning tool and stock turns over long
+    # regardless: Aida is an early-planning tool and stock turns over long
     # before anything is procured (Henric, 2026-08-15). This field is what lets
     # the UI show which part of those numbers is an assumption instead of
     # silently implying the stock is there. None for non-reuse alternatives and

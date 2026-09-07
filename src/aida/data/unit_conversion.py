@@ -1,6 +1,6 @@
 """Unit conversion for climate data: kg CO2e/kg → kg CO2e per functional unit.
 
-Boverket provides climate data in kg CO2e/kg. AIda needs values per functional
+Boverket provides climate data in kg CO2e/kg. Aida needs values per functional
 unit (m2, st, lm) to match how renovation projects are described.
 
 Conversion formula for area-based products:
@@ -161,7 +161,7 @@ def convert_to_functional_unit(
 
     Args:
         co2e_per_kg: Climate impact in kg CO2e per kg of material
-        component_key: AIda component category (e.g. "golv", "fönster")
+        component_key: Aida component category (e.g. "golv", "fönster")
         density_kg_m3: Material density from Boverket (optional, used for area method)
         areal_density_kg_m2: Areal weight from Boverket (optional). When present
             it is used directly for area products (no thickness assumption), which

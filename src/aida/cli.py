@@ -1,4 +1,4 @@
-"""AIda CLI. Climate calculator for building renovations.
+"""Aida CLI. Climate calculator for building renovations.
 
 Usage:
     python -m aida.cli intake --input "<description>"

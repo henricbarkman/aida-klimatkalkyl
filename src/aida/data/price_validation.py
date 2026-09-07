@@ -1,4 +1,4 @@
-"""Price and CO2 reasonableness validation for AIda.
+"""Price and CO2 reasonableness validation for Aida.
 
 Validates prices and CO2 values against expected ranges per component category.
 Mild outliers get flagged ("verifiera"). Extreme outliers get clamped to

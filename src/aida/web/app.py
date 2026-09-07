@@ -1,4 +1,4 @@
-"""AIda Web UI. Flask app with split chat/results layout."""
+"""Aida Web UI. Flask app with split chat/results layout."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def step_failed(exc: Exception, step: str):
     if isinstance(exc, ModelOutputError):
         logger.error("%s: unreadable model output: %s | raw=%r", step, exc, exc.raw[:2000])
         return jsonify({
-            'error': f'AIda kunde inte tolka svaret från modellen under {step}. '
+            'error': f'Aida kunde inte tolka svaret från modellen under {step}. '
                      'Försök igen, det brukar gå igenom vid nästa försök.'
         }), 502
     logger.exception("%s failed", step)
@@ -309,7 +309,7 @@ def rate_limited(f):
     Per caller, counted in requests, in process. Deliberately NOT a global
     spend cap: one was built and removed the same day (2026-08-31). A ceiling
     on total daily cost cannot tell "a stranger is hammering the app" from
-    "four colleagues are testing it", and the second is what AIda exists for.
+    "four colleagues are testing it", and the second is what Aida exists for.
     Blocking the success case is worse than the risk it removes, especially
     since the OpenRouter key carries a hard monthly limit that stops runaway
     spending for real, and scripts/aida_budget_watch.py in the generalassistant
@@ -358,7 +358,7 @@ LOGIN_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIda | Logga in</title>
+<title>Aida | Logga in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -378,7 +378,7 @@ body { font-family: 'Roboto', sans-serif; height: 100vh; display: flex; align-it
 </head>
 <body>
 <div class="login-box">
-  <h1>AIda</h1>
+  <h1>Aida</h1>
   <p>Klimatkalkyl och beslutsstöd för ombyggnationer</p>
   <form method="POST">
     <input type="password" name="password" placeholder="Lösenord" autofocus>
@@ -599,10 +599,10 @@ def api_report_docx():
             h_style = doc.styles[f'Heading {level}']
             h_style.font.color.rgb = RGBColor(0x2C, 0x3E, 0x50)
 
-        # AIda branding header
+        # Aida branding header
         header_p = doc.add_paragraph()
         header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        run = header_p.add_run('AIda')
+        run = header_p.add_run('Aida')
         run.bold = True
         run.font.size = Pt(10)
         run.font.color.rgb = BRAND_BLUE
@@ -715,7 +715,7 @@ def api_report_docx():
         doc.add_paragraph()
         footer_p = doc.add_paragraph()
         footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = footer_p.add_run('Genererad av AIda | AI-stödd klimatanalys för ombyggnadsprojekt')
+        run = footer_p.add_run('Genererad av Aida | AI-stödd klimatanalys för ombyggnadsprojekt')
         run.font.size = Pt(8)
         run.font.color.rgb = GRAY_99
 
@@ -724,7 +724,7 @@ def api_report_docx():
         buf.seek(0)
 
         today = date.today().strftime('%Y-%m-%d')
-        filename = f'AIda_rapport_{today}.docx'
+        filename = f'Aida_rapport_{today}.docx'
 
         return Response(
             buf.getvalue(),
@@ -913,7 +913,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIda | Klimatkalkyl för ombyggnationer</title>
+<title>Aida | Klimatkalkyl för ombyggnationer</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E84E0D' stroke-width='1.5' stroke-linecap='round'><circle cx='12' cy='12' r='5'/><path d='M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1306,7 +1306,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 <!-- Auth overlay -->
 <div id="authOverlay">
   <div class="login-box">
-    <h1>AIda</h1>
+    <h1>Aida</h1>
     <p>Klimatkalkyl och beslutsstöd för ombyggnationer</p>
     <input type="email" id="authEmail" placeholder="E-post" autofocus>
     <input type="password" id="authPassword" placeholder="Lösenord" onkeydown="if(event.key==='Enter')handleAuth()">
@@ -1325,7 +1325,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 <div class="topbar">
   <div class="topbar-logo">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
-    <span>AIda</span>
+    <span>Aida</span>
   </div>
   {% if has_supabase %}
   <div class="topbar-center" id="projectDropdown" style="position:relative">
@@ -1397,7 +1397,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
   <div class="chat-panel">
     <div class="chat-container">
       <div class="chat-header">
-        <h2>AIda</h2>
+        <h2>Aida</h2>
       </div>
       <div class="messages" id="messages">
         <div class="msg bot">Hej! Beskriv ditt projekt. Berätta vad byggnaden används till, byggnadsår, ungefärlig yta och vilka behoven är.</div>
@@ -1434,27 +1434,27 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 
 <!-- Footer -->
 <div class="footer" style="display:flex;justify-content:center;align-items:center;gap:8px">
-  <span style="font-size:11px;color:var(--kk-gray-400)">AIda kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
+  <span style="font-size:11px;color:var(--kk-gray-400)">Aida kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
 </div>
 
-<!-- Välkomstdialog: visas första besöket, går att kalla tillbaka från Om AIda -->
+<!-- Välkomstdialog: visas första besöket, går att kalla tillbaka från Om Aida -->
 <div id="welcomeModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeWelcome()" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
   <div class="welcome-box">
     <button class="welcome-close" onclick="closeWelcome()" aria-label="Stäng">&#x2715;</button>
 
     <div class="welcome-intro">
       <div class="welcome-eyebrow">Karlstads kommun &middot; Klimatneutrala Karlstad 2030</div>
-      <h2 id="welcomeTitle">Välkommen till AIda</h2>
+      <h2 id="welcomeTitle">Välkommen till Aida</h2>
       <p class="welcome-lead">Ett beslutsstöd som räknar fram klimatpåverkan och kostnad för ett ombyggnadsprojekt medan valen fortfarande går att ändra.</p>
     </div>
 
     <div class="welcome-why">
-      <p>Ombyggnationer och renoveringar orsakar <strong>ungefär lika stora utsläpp som nybyggnationer</strong>, men det är nybyggnationerna som räknas på. AIda finns för att göra beräkningen snabb nog att hinnas med även i ett vanligt ombyggnadsprojekt.</p>
+      <p>Ombyggnationer och renoveringar orsakar <strong>ungefär lika stora utsläpp som nybyggnationer</strong>, men det är nybyggnationerna som räknas på. Aida finns för att göra beräkningen snabb nog att hinnas med även i ett vanligt ombyggnadsprojekt.</p>
     </div>
 
     <div class="welcome-body">
-      <div class="welcome-label">Vad AIda gör</div>
-      <p>Du beskriver projektet med egna ord i chatten. AIda tar fram en klimatbaslinje, letar återbruk, jämför klimatoptimerade nyinköp och rankar alternativen på både utsläpp och kronor. Resultatet blir ett underlag du kan ta med dig i genomförandet av projektet.</p>
+      <div class="welcome-label">Vad Aida gör</div>
+      <p>Du beskriver projektet med egna ord i chatten. Aida tar fram en klimatbaslinje, letar återbruk, jämför klimatoptimerade nyinköp och rankar alternativen på både utsläpp och kronor. Resultatet blir ett underlag du kan ta med dig i genomförandet av projektet.</p>
 
       <div class="welcome-label">Så får du bäst resultat</div>
       <ul class="welcome-tips">
@@ -1464,16 +1464,16 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
         </li>
         <li>
           <strong>Beskriv behoven framåt</strong>
-          <span>Ju tydligare du berättar vad lokalen ska användas till och vad som ska åtgärdas, desto mer precist blir resultatet. Befintliga material och skick hjälper också. Du behöver inte vara noggrann, AIda visar vilka antaganden den gjort.</span>
+          <span>Ju tydligare du berättar vad lokalen ska användas till och vad som ska åtgärdas, desto mer precist blir resultatet. Befintliga material och skick hjälper också. Du behöver inte vara noggrann, Aida visar vilka antaganden den gjort.</span>
         </li>
         <li>
-          <strong>Rätta AIda i chatten</strong>
+          <strong>Rätta Aida i chatten</strong>
           <span>Stämmer inte ett antagande, skriv det. Du kan justera mitt i flödet och be om en ny beräkning.</span>
         </li>
       </ul>
     </div>
 
-    <div class="welcome-note">AIda är en prototyp. Resultaten är ett underlag för beslut, inte ett klimatbokslut. Metod, datakällor och begränsningar finns under <a href="#" onclick="closeWelcome();openAbout();return false">Om verktyget</a>.</div>
+    <div class="welcome-note">Aida är en prototyp. Resultaten är ett underlag för beslut, inte ett klimatbokslut. Metod, datakällor och begränsningar finns under <a href="#" onclick="closeWelcome();openAbout();return false">Om verktyget</a>.</div>
 
     <div class="welcome-foot">
       <label class="welcome-checkbox" for="welcomeDontShow">
@@ -1489,10 +1489,10 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 <div id="aboutModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeAbout()">
   <div class="modal-box">
     <button class="modal-close" onclick="closeAbout()" aria-label="St&#xE4;ng">&#x2715;</button>
-    <h2>Om AIda</h2>
+    <h2>Om Aida</h2>
     <section>
-      <h3>Vad &#xE4;r AIda?</h3>
-      <p>AIda &#xE4;r ett AI-drivet beslutsst&#xF6;d f&#xF6;r klimatber&#xE4;kning vid ombyggnation av kommunala fastigheter. Verktyget utvecklas inom Klimatneutrala Karlstad 2030, finansierat av Vinnova, Energimyndigheten och Formas inom ramen f&#xF6;r strategiska innovationsprogrammet Viable Cities.</p>
+      <h3>Vad &#xE4;r Aida?</h3>
+      <p>Aida &#xE4;r ett AI-drivet beslutsst&#xF6;d f&#xF6;r klimatber&#xE4;kning vid ombyggnation av kommunala fastigheter. Verktyget utvecklas inom Klimatneutrala Karlstad 2030, finansierat av Vinnova, Energimyndigheten och Formas inom ramen f&#xF6;r strategiska innovationsprogrammet Viable Cities.</p>
     </section>
     <section>
       <h3>Datak&#xE4;llor</h3>
@@ -1505,7 +1505,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
     </section>
     <section>
       <h3>Metod</h3>
-      <p>AIda j&#xE4;mf&#xF6;r konventionella materialval (baslinje) mot klimatoptimerade alternativ med hj&#xE4;lp av verifierade EPD:er. Ber&#xE4;kningarna avser produktskedet (A1-A3) om inget annat anges.</p>
+      <p>Aida j&#xE4;mf&#xF6;r konventionella materialval (baslinje) mot klimatoptimerade alternativ med hj&#xE4;lp av verifierade EPD:er. Ber&#xE4;kningarna avser produktskedet (A1-A3) om inget annat anges.</p>
     </section>
     <section>
       <h3>Begr&#xE4;nsningar</h3>
@@ -1555,7 +1555,7 @@ let state = {
 };
 let activeTab = null;
 
-// === Pling när AIda är klar (Johanna feedback punkt 1) ===
+// === Pling när Aida är klar (Johanna feedback punkt 1) ===
 //
 // A short two-note pling via Web Audio (no asset, works offline). On by default,
 // toggleable, persisted. Browsers require a user gesture before audio plays, so
@@ -1641,7 +1641,7 @@ const STEP_NOTICES = {
 function stepNotice(stepKey, ok, detail) {
   const entry = STEP_NOTICES[stepKey];
   const title = entry ? (ok === false ? entry.fail : entry.ok)
-                      : (ok === false ? 'Något gick fel' : 'AIda är klar');
+                      : (ok === false ? 'Något gick fel' : 'Aida är klar');
   // The body carries the project, because she may have several analyses going
   // and a bare "Baslinjen är klar" does not say which one.
   const parts = [];
@@ -1671,7 +1671,7 @@ function badgeTitle(baseTitle, kind) {
   return baseTitle;
 }
 
-const BASE_TITLE = (typeof document !== 'undefined' && document.title) ? document.title : 'AIda';
+const BASE_TITLE = (typeof document !== 'undefined' && document.title) ? document.title : 'Aida';
 
 function _setBadge(kind) {
   try { document.title = badgeTitle(BASE_TITLE, kind); } catch (e) {}
@@ -1913,7 +1913,7 @@ function setLoading(on) {
     _loadingStart = Date.now();
     const el = document.createElement('div');
     el.className = 'msg bot'; el.id = 'typingBubble';
-    el.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div><span class="typing-text" id="typingText">AIda jobbar...</span><span class="elapsed-time" id="elapsedTime"></span></div>';
+    el.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div><span class="typing-text" id="typingText">Aida jobbar...</span><span class="elapsed-time" id="elapsedTime"></span></div>';
     document.getElementById('messages').appendChild(el);
     el.scrollIntoView({behavior:'smooth'});
     _loadingTimer = setInterval(() => {
@@ -1922,7 +1922,7 @@ function setLoading(on) {
       if (t && s >= 3) t.textContent = s + 's';
       const tx = document.getElementById('typingText');
       if (tx && s >= 5 && !tx.dataset.long) {
-        tx.textContent = 'AIda jobbar. Detta kan ta cirka 1-3 minuter.';
+        tx.textContent = 'Aida jobbar. Detta kan ta cirka 1-3 minuter.';
         tx.dataset.long = '1';
       }
     }, 1000);
@@ -1972,7 +1972,7 @@ function _scrubCtxDelimiters(s) {
   return s
     .replace(/Korrigering från användaren:/gi, '[korrigering]')
     .replace(/Tidigare diskussion i sessionen:/gi, '[diskussion]')
-    .replace(/^(Användare|AIda):/gim, '$1​:');  // zero-width space prevents role-line spoofing
+    .replace(/^(Användare|Aida):/gim, '$1​:');  // zero-width space prevents role-line spoofing
 }
 
 function buildCorrectionContext(text) {
@@ -1989,7 +1989,7 @@ function buildCorrectionContext(text) {
   const hist = llmHistory();
   if (hist.length > 0) {
     const tail = hist.slice(-8).map(m => {
-      const role = (m.role === 'user') ? 'Användare' : 'AIda';
+      const role = (m.role === 'user') ? 'Användare' : 'Aida';
       return role + ': ' + _scrubCtxDelimiters(m.content || '');
     }).join('\n');
     ctx += '\n\nTidigare diskussion i sessionen:\n' + tail;
@@ -2697,7 +2697,7 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
     ? 'hela baslinjen'
     : 'komponent(er) ' + componentIds.join(', ');
   const reasonNote = reason ? ' (' + reason + ')' : '';
-  addMsg('AIda räknar om ' + scope + reasonNote + '...', 'system');
+  addMsg('Aida räknar om ' + scope + reasonNote + '...', 'system');
   if (!orchestrated) setLoading(true);
   try {
     const body = {project: state.project};
@@ -2753,7 +2753,7 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     : 'alternativ för komponent(er) ' + componentIds.join(', ');
   const reasonNote = reason ? ' (' + reason + ')' : '';
   const feedbackNote = userFeedback ? ' Önskemål (sparas som stående): ' + userFeedback + '.' : '';
-  addMsg('AIda kör om ' + scope + reasonNote + feedbackNote + '...', 'system');
+  addMsg('Aida kör om ' + scope + reasonNote + feedbackNote + '...', 'system');
   if (!orchestrated) setLoading(true);
   try {
     const body = {project: state.project, baseline: state.baseline};
@@ -3079,7 +3079,7 @@ function getTypeBadge(alt) {
 // === Tab renderers ===
 function quantitySourceBadge(src) {
   if (src === 'user_specified') return '<span class="source-badge source-verified" title="Antalet kommer fr\u00e5n din projektbeskrivning">Du angav</span>';
-  return '<span class="source-badge source-estimate" title="AIda uppskattade antalet utifr\u00e5n area och byggnadstyp \u2014 granska om n\u00e5got verkar fel">AIda uppskattat</span>';
+  return '<span class="source-badge source-estimate" title="Aida uppskattade antalet utifr\u00e5n area och byggnadstyp \u2014 granska om n\u00e5got verkar fel">Aida uppskattat</span>';
 }
 
 // Snapshot of the inferred text at the moment edit was opened. Restores
@@ -3088,7 +3088,7 @@ function quantitySourceBadge(src) {
 let _naEditSnapshot = null;
 
 function renderNeedsAnalysis(na) {
-  // Editorial pairing: user voice (gray) \u2194 AIda voice (red), with vertical
+  // Editorial pairing: user voice (gray) \u2194 Aida voice (red), with vertical
   // accent stripes and a clear visual transition between them.
   const hasAny = na && (
     (na.from_user || '').trim() ||
@@ -3098,7 +3098,7 @@ function renderNeedsAnalysis(na) {
   );
   if (!hasAny) {
     return '<div class="needs-card">' +
-      '<div class="needs-card-head"><div class="needs-card-title">AIdas behovsanalys</div></div>' +
+      '<div class="needs-card-head"><div class="needs-card-title">Aidas behovsanalys</div></div>' +
       '<div class="needs-empty">Ingen behovsanalys finns f\u00f6r det h\u00e4r projektet \u2014 analysen tillkom efter att projektet skapades. K\u00f6ra om intake i chatten ger en analys som styr alternativvalet.</div></div>';
   }
   const fromUser = na.from_user || '';
@@ -3108,8 +3108,8 @@ function renderNeedsAnalysis(na) {
 
   let html = '<div class="needs-card">';
   html += '<div class="needs-card-head">';
-  html += '<div class="needs-card-title">AIdas behovsanalys</div>';
-  html += '<div class="needs-card-sub">Granska f\u00f6re baslinje \u00b7 korrigera om AIdas l\u00e4sning \u00e4r fel</div>';
+  html += '<div class="needs-card-title">Aidas behovsanalys</div>';
+  html += '<div class="needs-card-sub">Granska f\u00f6re baslinje \u00b7 korrigera om Aidas l\u00e4sning \u00e4r fel</div>';
   html += '</div>';
   html += '<div class="needs-body">';
 
@@ -3120,16 +3120,16 @@ function renderNeedsAnalysis(na) {
   html += '</div>';
 
   // Transition
-  html += '<div class="voice-transition">\u2193 AIdas l\u00e4sning av detta</div>';
+  html += '<div class="voice-transition">\u2193 Aidas l\u00e4sning av detta</div>';
 
-  // AIda voice block with edit affordance
+  // Aida voice block with edit affordance
   html += '<div class="voice-block voice-aida" id="aidaVoiceBlock">';
   html += '<div class="voice-aida-actions">';
   html += '<button type="button" class="voice-aida-edit" id="naEditBtn" onclick="toggleNeedsEdit()">';
   html += '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 2l3 3-9 9H2v-3l9-9z"/></svg>';
-  html += 'Justera AIdas l\u00e4sning</button>';
+  html += 'Justera Aidas l\u00e4sning</button>';
   html += '</div>';
-  html += '<div class="voice-label"><span class="dot"></span>AIda tolkar</div>';
+  html += '<div class="voice-label"><span class="dot"></span>Aida tolkar</div>';
   html += '<div class="voice-text" id="naInferredView">' + (inferred ? esc(inferred) : '<em class="empty">(ingen inferens)</em>') + '</div>';
   // Empty textarea \u2014 value populated via .value to preserve quotes/ampersands
   html += '<textarea class="voice-aida-textarea" id="naInferredEdit"></textarea>';
@@ -3144,14 +3144,14 @@ function renderNeedsAnalysis(na) {
     html += '<div class="needs-meta-row">';
     html += '<div>';
     if (assumptions.length) {
-      html += '<div class="needs-meta-label">Antaganden AIda gjort</div>';
+      html += '<div class="needs-meta-label">Antaganden Aida gjort</div>';
       html += '<ul class="needs-meta-list needs-meta-assumptions">';
       assumptions.forEach(a => { html += '<li>' + esc(a) + '</li>'; });
       html += '</ul>';
     }
     html += '</div><div>';
     if (clarify.length) {
-      html += '<div class="needs-meta-label">AIda hade g\u00e4rna vetat</div>';
+      html += '<div class="needs-meta-label">Aida hade g\u00e4rna vetat</div>';
       html += '<ul class="needs-meta-list needs-meta-clarify">';
       clarify.forEach(q => { html += '<li>' + esc(q) + '</li>'; });
       html += '</ul>';
@@ -3529,7 +3529,7 @@ function renderRapportContent() {
       if (!r.ok) { const d = await r.json(); alert('Fel: ' + d.error); return; }
       const blob = await r.blob();
       const today = new Date().toISOString().slice(0,10);
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'AIda_rapport_' + today + '.docx'; a.click();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Aida_rapport_' + today + '.docx'; a.click();
     } catch(e) { alert('Fel: ' + e.message); }
     finally { btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner Word (.docx)'; }
   };
@@ -4062,12 +4062,12 @@ function createNewProject() {
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='AIda Web UI')
+    parser = argparse.ArgumentParser(description='Aida Web UI')
     parser.add_argument('--port', type=int, default=5002)
     parser.add_argument('--host', type=str, default='127.0.0.1')
     args = parser.parse_args()
 
-    print(f"AIda web UI: http://{args.host}:{args.port}")
+    print(f"Aida web UI: http://{args.host}:{args.port}")
     app.run(host=args.host, port=args.port, debug=False)
 
 

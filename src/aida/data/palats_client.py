@@ -54,7 +54,7 @@ _AUTH_TTL = 840  # Refresh auth every 14 min (JWT lives 15 min)
 
 @dataclass
 class PalatsListing:
-    """A reuse listing from Palats, normalized for AIda."""
+    """A reuse listing from Palats, normalized for Aida."""
 
     id: str
     title: str
@@ -62,7 +62,7 @@ class PalatsListing:
     price: float  # SEK, 0 if free/unknown
     quantity: int
     unit: str
-    category: str  # AIda category key (golv, fönster, etc.) or ""
+    category: str  # Aida category key (golv, fönster, etc.) or ""
     subcategory: str  # Finer-grained key within category (e.g. "toalett" within "sanitet")
     image_url: str
     url: str  # Direct link to listing on palats.app
@@ -229,7 +229,7 @@ SUBCATEGORY_KEYWORDS: dict[str, list[tuple[str, list[str]]]] = {
 
 
 def _normalize_to_aida_subcategory(category: str, text: str) -> str:
-    """Map listing text to a finer subcategory within its AIda category.
+    """Map listing text to a finer subcategory within its Aida category.
 
     Returns '' if the category has no subcategories defined or no keyword matched.
     """
@@ -298,7 +298,7 @@ _NON_BUILDING_EXCEPTIONS = (
 )
 
 # Furniture, loose inventory and workwear. Palats carries all three (48
-# mötesstolar, 42 arbetskläder-underdelar), and until AIda has an inredning
+# mötesstolar, 42 arbetskläder-underdelar), and until Aida has an inredning
 # category they cannot substitute a building component. Matched as compound
 # tails against the TITLE only.
 #
@@ -360,7 +360,7 @@ CATEGORY_EXCLUSIONS: dict[str, tuple[str, ...]] = {
 
 
 def _normalize_to_aida_category(title: str, description: str = "") -> str:
-    """Map a Palats listing to an AIda component category using keywords.
+    """Map a Palats listing to an Aida component category using keywords.
 
     Classification reads the TITLE only. `description` is accepted for
     backwards compatibility and deliberately ignored: the field it carries is
@@ -370,7 +370,7 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
     that one was wrong — an "Omklädningsskåp" whose comment read "Rostigt
     golv" was classified as flooring and offered as a floor reuse option.
 
-    Returns the AIda category key (e.g. 'golv', 'fönster') or '' if no match.
+    Returns the Aida category key (e.g. 'golv', 'fönster') or '' if no match.
     """
     text = title.lower()
 
@@ -451,7 +451,7 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
         # (normalize_component_name) has had a `radiator` category all along,
         # and search_listings_for_component compares the two keys for equality,
         # so while radiators were filed as vvs here all eight live listings were
-        # unreachable for a radiator component: AIda searched, found nothing,
+        # unreachable for a radiator component: Aida searched, found nothing,
         # and reported "inget på Palats just nu". Same class as the klinker
         # mismatch fixed 2026-08-31, found by scripts/audit_catalog.py on its
         # first run — and precisely the half a verifier in the request path
@@ -464,7 +464,7 @@ def _normalize_to_aida_category(title: str, description: str = "") -> str:
         ("sanitet", ["toalett", "wc", "handfat", "tvättställ", "dusch",
                      "badkar", "urinal", "blandare", "kran"]),
         # Before ventilation-adjacent words could claim them: a köksfläkt is a
-        # white good in AIda's taxonomy and has its own typvärde.
+        # white good in Aida's taxonomy and has its own typvärde.
         ("vitvaror", ["tvättmaskin", "torktumlare", "torkskåp", "spis",
                       "häll", "ugn", "mikrovåg", "köksfläkt", "spisfläkt",
                       "spiskåp", "fläktkåp"]),
@@ -604,7 +604,7 @@ def search_listings_for_component(
     component_name: str,
     all_listings: list[dict] | None = None,
 ) -> list[PalatsListing]:
-    """Find Palats listings matching an AIda component.
+    """Find Palats listings matching an Aida component.
 
     Two-stage relevance: listings whose subcategory matches the component's
     intended subcategory come first, then other listings in the same
@@ -612,7 +612,7 @@ def search_listings_for_component(
     handfat/dusch/etc. within the same sanitet bucket.
 
     Args:
-        component_name: AIda component name (e.g. 'Toalettstol', 'Golv vinyl')
+        component_name: Aida component name (e.g. 'Toalettstol', 'Golv vinyl')
         all_listings: Pre-fetched raw listings (avoids re-fetching per component)
 
     Returns:

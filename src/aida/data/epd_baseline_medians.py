@@ -1,4 +1,4 @@
-"""EPD-based baseline typvärden per AIda category.
+"""EPD-based baseline typvärden per Aida category.
 
 Boverket's climate database is organized by material composition (~200 generic
 products), not by building component. For component categories that Boverket
@@ -6,7 +6,7 @@ lacks (notably golv and sanitet), the baseline agent falls back to LLM
 estimation — which is often unreliable.
 
 This module provides a middle tier: a category-aggregated "typvärde" derived
-from the upper half of Environdec EPDs (by climate impact) in each AIda
+from the upper half of Environdec EPDs (by climate impact) in each Aida
 category. It approximates "what conventional standard materials cost
 climate-wise" — matching the NollCO2 methodology's "Typical" framing.
 

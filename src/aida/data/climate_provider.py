@@ -22,7 +22,7 @@ from aida.data.climate_cache import CacheEntry, ClimateCache
 
 logger = logging.getLogger(__name__)
 
-# Maps Boverket category names (lowercase) → AIda component keys.
+# Maps Boverket category names (lowercase) → Aida component keys.
 # Used for unit conversion inference and search filtering.
 # Keys use common variations; matching is substring-based.
 BOVERKET_TO_AIDA: dict[str, str] = {
@@ -51,7 +51,7 @@ BOVERKET_TO_AIDA: dict[str, str] = {
 
 
 def _match_boverket_category(boverket_cat: str) -> str | None:
-    """Match a Boverket category name to an AIda component key."""
+    """Match a Boverket category name to an Aida component key."""
     cat_lower = boverket_cat.lower().strip()
     if cat_lower in BOVERKET_TO_AIDA:
         return BOVERKET_TO_AIDA[cat_lower]
@@ -108,7 +108,7 @@ class ClimateProvider:
 
         Args:
             product_name: Product or component name to look up.
-            component_hint: AIda component category (e.g. "golv", "isolering")
+            component_hint: Aida component category (e.g. "golv", "isolering")
                 for unit conversion. If empty, tries to infer from product_name.
         """
         if not product_name or not product_name.strip():
@@ -310,7 +310,7 @@ class ClimateProvider:
         if entries:
             self._cache.put_many(entries)
 
-        # Populate Boverket category → AIda component mappings
+        # Populate Boverket category → Aida component mappings
         self._sync_category_mappings(entries)
         self._boverket_synced = True
 

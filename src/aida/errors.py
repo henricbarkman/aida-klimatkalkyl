@@ -1,4 +1,4 @@
-"""Errors whose message is written for the person using AIda.
+"""Errors whose message is written for the person using Aida.
 
 Most exceptions must not reach the chat window: "Expecting value: line 1
 column 4 (char 3)" is what Sara got in June 2026, and it tells a building

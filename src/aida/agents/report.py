@@ -17,9 +17,9 @@ from aida.api_client import (
 )
 from aida.models import Project, Selections
 
-REPORT_SYSTEM_PROMPT = """Du är AIda:s rapportgenerator — en byggnadsexpert som skapar strukturerade beslutsunderlag för ombyggnadsprojekt.
+REPORT_SYSTEM_PROMPT = """Du är Aidas rapportgenerator — en byggnadsexpert som skapar strukturerade beslutsunderlag för ombyggnadsprojekt.
 
-AIda:s uppdrag är att hjälpa förvaltare och byggledare att hitta renoveringslösningar som kraftigt minskar klimatpåverkan utan att ge avkall på praktiska behov.
+Aidas uppdrag är att hjälpa förvaltare och byggledare att hitta renoveringslösningar som kraftigt minskar klimatpåverkan utan att ge avkall på praktiska behov.
 
 Varje rapport ska följa denna rubrikstruktur exakt:
 
@@ -60,7 +60,7 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
     """Generate a markdown report from project and selections.
 
     Reuse figures cover the full component quantity even when Palats holds
-    fewer units. Henric settled that on 2026-08-15: AIda plans early and stock
+    fewer units. Henric settled that on 2026-08-15: Aida plans early and stock
     turns over long before anything is procured, so capping to today's stock
     would be its own distortion. The report is what leaves the tool, though, so
     the assumption is appended deterministically rather than left to whether
@@ -353,7 +353,7 @@ def render_stock_caveats(caveats: list[dict]) -> str:
         "## Antaganden om tillgång till återbruk\n\n"
         "Kostnad och klimatnytta för återbruk är beräknade på hela behovet, även "
         "där Palats hade färre artiklar när analysen kördes. Det är avsiktligt: "
-        "AIda används i ett tidigt planeringsskede och marknadsplatsens lager "
+        "Aida används i ett tidigt planeringsskede och marknadsplatsens lager "
         "omsätts innan något handlas upp. Siffrorna förutsätter alltså att "
         "resten går att få tag på begagnat, vilket behöver stämmas av innan de "
         "används som underlag för upphandling.\n\n"

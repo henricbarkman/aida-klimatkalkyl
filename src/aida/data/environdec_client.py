@@ -859,7 +859,7 @@ def _mass_to_kg(value: float, unit: str) -> float | None:
 
 
 def _flow_property_unit(prop_name: str, ref_unit: str) -> str:
-    """Map a reference flow property to AIda's declared-unit vocabulary."""
+    """Map a reference flow property to Aida's declared-unit vocabulary."""
     low = prop_name.lower()
     if "mass" in low:
         return "kg"

@@ -1,6 +1,6 @@
 """Pricing lookup via LLM web search.
 
-Routes through OpenRouter (same key as rest of AIda).
+Routes through OpenRouter (same key as rest of Aida).
 Returns None silently if key is missing or any error occurs.
 """
 from __future__ import annotations

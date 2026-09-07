@@ -60,7 +60,7 @@ def get_client() -> anthropic.Anthropic:
     )
 
 
-# Default model for AIda's reasoning agents (OpenRouter format).
+# Default model for Aida's reasoning agents (OpenRouter format).
 # Opus 4.8: adaptive thinking only — budget_tokens 400s here (see call_model).
 DEFAULT_MODEL = "anthropic/claude-opus-4-8"
 
@@ -110,7 +110,7 @@ def call_model(
     """One entry point for an LLM call: adaptive thinking + effort. Returns the
     Message, so callers keep using extract_text() / block iteration unchanged.
 
-    Non-streaming: AIda's reasoning calls cap max_tokens at REASONING_MAX_TOKENS
+    Non-streaming: Aida's reasoning calls cap max_tokens at REASONING_MAX_TOKENS
     (16k), under the SDK's long-request guard and Vercel's maxDuration. Adaptive
     thinking self-scales, so this is ample headroom for thinking + the answer.
     """

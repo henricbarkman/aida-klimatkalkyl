@@ -67,7 +67,7 @@ _SUBCATEGORIZED_CATEGORIES = {"sanitet", "belysning", "vitvaror"}
 # here) — runs on the default Opus 4.8 model now, not the old Haiku.
 _ROUTER_MODEL = DEFAULT_MODEL
 
-SYSTEM_PROMPT = """Du är AIda:s alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
+SYSTEM_PROMPT = """Du är Aidas alternativanalys-agent — en byggnadsexpert som hittar klimatsmartare alternativ till konventionella byggmaterial.
 
 UPPDRAG:
 Hjälpa förvaltare och byggledare att hitta renoveringslösningar som kraftigt minskar klimatpåverkan utan att ge avkall på praktiska behov. Varje procentenhet reduktion räknas.
@@ -122,7 +122,7 @@ Svara med giltig JSON-array:
 
 
 def _load_epd_alternatives() -> dict[str, list[dict]]:
-    """Load pre-categorized EPD alternatives, grouped by AIda category.
+    """Load pre-categorized EPD alternatives, grouped by Aida category.
 
     Returns every positive-GWP row per category. Capping to the best-N happens
     in _select_epd_candidates instead, because it has to run AFTER the
@@ -758,7 +758,7 @@ def _add_palats_reuse(
             # Units match (both "st") — total is directly comparable.
             #
             # The total covers the FULL component quantity even when fewer are
-            # in stock, and so does total_co2e above. That is deliberate: AIda
+            # in stock, and so does total_co2e above. That is deliberate: Aida
             # plans early, and stock turns over long before procurement
             # (Henric, 2026-08-15). What was wrong was saying nothing about it.
             # Live check 2026-08-14: 30 windows needed, best listing had 3, and
@@ -1400,7 +1400,7 @@ Inga EPD:er tillgängliga för denna kategori. Returnera en tom array [].
         return []
 
 
-COMMENTARY_PROMPT = """Du är AIda — en byggnadsexpert som hjälper förvaltare och byggledare att hitta renoveringslösningar med kraftigt minskad klimatpåverkan.
+COMMENTARY_PROMPT = """Du är Aida — en byggnadsexpert som hjälper förvaltare och byggledare att hitta renoveringslösningar med kraftigt minskad klimatpåverkan.
 
 Du har just tagit fram alternativ för ett ombyggnadsprojekt. Skriv en kort kommentar om förslagen. Kommentaren ska:
 - Lyfta de mest intressanta alternativen och varför de sticker ut

@@ -19,7 +19,7 @@ from aida.api_client import DEFAULT_MODEL, extract_text, get_client
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Du är AIda, en byggnadsexpert som hjälper förvaltare och byggledare att hitta renoveringslösningar med kraftigt minskad klimatpåverkan utan att ge avkall på praktiska behov.
+SYSTEM_PROMPT = """Du är Aida, en byggnadsexpert som hjälper förvaltare och byggledare att hitta renoveringslösningar med kraftigt minskad klimatpåverkan utan att ge avkall på praktiska behov.
 
 Du ser projektets nuvarande state (komponenter, baslinje, alternativ, val) och har verktyg för att korrigera state och trigga om-körningar baserat på användarens input.
 
@@ -79,7 +79,7 @@ Baslinjen bygger på två källor, och varje komponent visar vilken som använts
 Om en användare undrar varför ett golv inte har en Boverket-produkt: förklara att Boverket
 saknar golv som kategori, så vi använder ett EPD-typvärde istället för att låna en orelaterad
 Boverket-produkt. Det är design, inte bugg. Använd description-fältet i baseline-state — det
-innehåller AIdas resonemang.
+innehåller Aidas resonemang.
 
 Om baslinjevärdet uppenbart inte matchar materialet användaren beskriver: be hen bekräfta
 materialet och kör om baslinjen.

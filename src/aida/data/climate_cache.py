@@ -188,7 +188,7 @@ class ClimateCache:
         return cursor.rowcount
 
     def put_category_mappings(self, mappings: dict[str, str]) -> None:
-        """Store Boverket category → AIda component key mappings."""
+        """Store Boverket category → Aida component key mappings."""
         conn = self._get_conn()
         conn.executemany(
             "INSERT OR REPLACE INTO boverket_categories "
@@ -198,7 +198,7 @@ class ClimateCache:
         conn.commit()
 
     def get_aida_component(self, boverket_category: str) -> str | None:
-        """Look up AIda component key for a Boverket category."""
+        """Look up Aida component key for a Boverket category."""
         conn = self._get_conn()
         row = conn.execute(
             "SELECT aida_component FROM boverket_categories WHERE boverket_category = ?",
@@ -207,7 +207,7 @@ class ClimateCache:
         return row[0] if row else None
 
     def get_categories_for_aida_key(self, aida_key: str) -> list[str]:
-        """Get all Boverket categories that map to an AIda component key."""
+        """Get all Boverket categories that map to an Aida component key."""
         conn = self._get_conn()
         rows = conn.execute(
             "SELECT boverket_category FROM boverket_categories WHERE aida_component = ?",

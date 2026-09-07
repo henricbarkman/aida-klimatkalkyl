@@ -67,7 +67,7 @@ def _validate_baseline(results: list[BaselineResult], components: list) -> list[
     return results
 
 
-MATCH_SYSTEM_PROMPT = """Du är AIda:s baslinjeberäknare — en byggnadsexpert som beräknar baslinjen för klimatpåverkan.
+MATCH_SYSTEM_PROMPT = """Du är Aidas baslinjeberäknare — en byggnadsexpert som beräknar baslinjen för klimatpåverkan.
 
 Baslinjen representerar standardfallet enligt NollCO2-metoden: vad det kostar klimatmässigt om projektet använder konventionella material utan särskild klimathänsyn.
 
