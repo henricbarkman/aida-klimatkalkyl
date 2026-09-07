@@ -118,6 +118,14 @@ class EPDDetail:
     # stays available.
     gwp_luluc_a1a3: float | None = None
     gwp_ghg_a1a3: float | None = None
+    # Free text describing the reference flow ("250mm of EPS insulation board",
+    # "1 m2 of EPS 80 with 31 mm thickness, R-value of 1 K*m2/W"). It is the
+    # only place an area-declared insulation says WHAT AREA OF WHAT -- the
+    # product name never carries a thickness (0 of 137 rows) and neither does
+    # any structured field. Without it an m2 insulation figure cannot be
+    # interpreted at all, let alone compared: 0.46 kg CO2e/m2 is meaningless
+    # until you know whether that is 45 mm or 250 mm.
+    flow_description: str = ""
 
 
 class EnvirondecClient:
@@ -517,6 +525,7 @@ class EnvirondecClient:
             reference_mass_kg=reference_mass_kg,
             gwp_luluc_a1a3=gwp_luluc,
             gwp_ghg_a1a3=gwp_ghg,
+            flow_description=self._reference_flow_description(data),
         )
 
     def _extract_reference_flow(self, data: dict) -> tuple[str, float | None]:
@@ -568,6 +577,25 @@ class EnvirondecClient:
             declared_unit = _parse_unit_from_description(desc_text)
 
         return declared_unit, reference_mass_kg
+
+    def _reference_flow_description(self, data: dict) -> str:
+        """Free text of the reference flow, or "" when absent.
+
+        Kept separate from _extract_reference_flow rather than folded into its
+        return tuple: that function is about the unit basis and is read by the
+        per-kg normalisation, and widening its contract to carry an unrelated
+        string would put a second concern inside a function whose correctness
+        already had to be argued once (the 1000x per-tonne bug).
+        """
+        exchanges = data.get("exchanges", {}).get("exchange", [])
+        ref_ex = self._reference_exchange(data, exchanges)
+        if not ref_ex:
+            return ""
+        desc = ref_ex.get("referenceToFlowDataSet", {}).get("shortDescription", [])
+        for entry in desc:
+            if isinstance(entry, dict) and entry.get("value"):
+                return str(entry["value"])
+        return ""
 
     @staticmethod
     def _reference_exchange(data: dict, exchanges: list) -> dict | None:

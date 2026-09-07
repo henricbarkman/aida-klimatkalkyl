@@ -19,6 +19,7 @@ JJ/project team can adjust these based on actual project specifications.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 
@@ -87,6 +88,20 @@ COMPONENT_CONVERSIONS: dict[str, ConversionSpec] = {
         method="area",
         typical_thickness_m=0.200,  # 200mm isolering
         description="Tilläggsisolering, 200mm",
+    ),
+
+    # Paint has no meaningful "thickness x density". What decides how much
+    # product a square metre costs is åtgång (spread rate), so `farg` converts
+    # only through AREAL_DENSITY_KG_M2 below. typical_thickness_m is left at 0
+    # deliberately: it keeps the density path in convert_to_functional_unit and
+    # the whole of convert_m3_to_m2 from firing on paint, so a row we cannot
+    # give a spread rate keeps its native unit instead of getting an invented
+    # one.
+    "farg": ConversionSpec(
+        target_unit="m2",
+        method="area",
+        typical_thickness_m=0.0,
+        description="Färg, omräknad via åtgång (kg/m2), inte tjocklek",
     ),
 
     # --- Count-based (CO2e/st = CO2e/kg × typisk vikt) ---
@@ -218,6 +233,55 @@ def convert_m3_to_m2(co2e_per_m3: float, component_key: str) -> tuple[float, str
     return round(co2e_per_m3 * spec.typical_thickness_m, 2), "m2"
 
 
+# --- Thermal resistance -----------------------------------------------------
+#
+# An m2-declared insulation figure is per square metre AT THAT PRODUCT'S OWN
+# THICKNESS, and the thickness is in neither the product name (0 of 137 rows)
+# nor any structured field. So 0.46 and 21.41 kg CO2e/m2 can sit in the same
+# bucket describing the same material at different depths, and ranking them puts
+# the thinnest declaration first. That is what decision #22 in the mission file
+# flagged.
+#
+# Some declarations state a thermal resistance in the reference flow text, and
+# many state R = 1 exactly, which is the industry's own way of making products
+# comparable. Where it is stated we can read it; where it is not, nothing in the
+# data recovers it.
+#
+# Deliberately NOT normalised into the ranking. Measured 2026-09-07: only 23 of
+# 113 m2 rows declare R, and restricting the queue to those would drop 35 of the
+# 40 Nordic rows -- all of ROCKWOOL, both Ekolution hemp rows and Isover
+# Building Insulation -- leaving a Glava/Isover glass wool monoculture. Scaling
+# the 23 to a reference R while leaving 90 rows unscaled would be worse still,
+# since the normalised rows would read about five times higher than the rest for
+# no physical reason. So the value is recorded and surfaced as a caveat rather
+# than silently folded into an order it cannot support.
+_R_DECLARED = re.compile(
+    r"(?:r[-\s]?value|thermal resistance|resistenza termica)"
+    r"[^0-9]{0,25}(\d+(?:[.,]\d+)?)",
+    re.IGNORECASE,
+)
+
+
+def declared_thermal_resistance(flow_description: str) -> float | None:
+    """The R-value (m2K/W) an EPD states for its declared unit, or None.
+
+    Reads only what the declaration says. No thickness-times-lambda fallback:
+    that would trade a manufacturer's figure for a guess at the material's
+    conductivity, and it would apply to eight rows, several of them composites
+    (a gypsum board with 20 mm of EPS bonded to it) or products for tunnels
+    rather than buildings.
+    """
+    if not flow_description:
+        return None
+    match = _R_DECLARED.search(flow_description)
+    if not match:
+        return None
+    value = float(match.group(1).replace(",", "."))
+    # Building insulation sits between R=0.5 and R=10. Outside that the regex
+    # has caught a product code, a year, or a lambda.
+    return value if 0.3 <= value <= 12 else None
+
+
 def get_density_from_extra(extra_json: str) -> float | None:
     """Extract density from a cache entry's extra_json field."""
     if not extra_json:
@@ -252,6 +316,76 @@ TYPICAL_DENSITIES: dict[str, float] = {
     "tak": 2100,        # betongpannor ~2000-2200
     "isolering": 30,    # mineralull/glasull ~20-40
 }
+
+# Applied weight per square metre (kg/m2) for products whose EPD is declared per
+# kg but whose component is measured in m2, and where "density x thickness" is
+# the wrong model. Paint and render are applied at a rate (åtgång), not built to
+# a thickness, so this is the parameter the trade actually specifies.
+#
+# Keyed by category, then by product-name keywords, because a category can hold
+# several application rates. A row matching nothing gets no bridge and keeps its
+# kg unit, which is the point: this table is an allow-list, not a default.
+#
+# Why this is a smaller assumption than it looks. The bridge multiplies every
+# matched row in a category by the SAME constant, so the ranking among bridged
+# rows is completely unaffected by the value chosen. What the value decides is
+# the level, i.e. how bridged rows compare against rows already declared per m2,
+# and what the baseline typvärde comes out at. Getting the order of magnitude
+# right is therefore what matters; the third digit is not doing any work.
+#
+# farg 0.45 kg/m2: two coats, paint density ~1.4 kg/l. Swedish facade paint is
+#   commonly stated at 4-6 m2/l per coat and interior paint at 7-10, which puts
+#   exterior work near 0.5-0.7 kg/m2 and interior near 0.28-0.40. The bucket
+#   holds both in roughly equal numbers, so the midpoint is the honest single
+#   value.
+#
+#   It was first set at 0.55, the exterior end, and that was wrong for a bucket
+#   that is mostly interior wall paint. The tripwire in test_epd_bucket_purity
+#   caught it: painting 8 m2 came out at 9.9 kg CO2e against 15.4 kg for the
+#   gypsum board behind it, which is not a credible ratio for two coats of
+#   paint. That test exists because Henric flagged the same ratio at 85.6 kg in
+#   August, and it earned its place a second time here.
+#
+#   An interior/exterior split by product name was measured and rejected: it
+#   classifies only 26 of 43 rows, and the coverage that actually applies is a
+#   property of the job (how many coats, what substrate), not of what the tin is
+#   marketed as. The component being repainted decides that, not the EPD.
+#
+# fasadskikt 20 kg/m2 for render: ~12 mm at ~1650 kg/m3. Weber's own data sheets
+#   put putsbruk at 1.5-1.8 kg/m2 per mm, and Swedish render runs 10 mm for a
+#   thin coat to 25 mm-plus for traditional three-coat work, so the range is
+#   roughly 15-40 kg/m2. Only render matches here; the sandwich panels and WPC
+#   profiles in the same category are built to a thickness and must not borrow
+#   a mortar's spread rate.
+AREAL_DENSITY_KG_M2: dict[str, list[tuple[list[str], float]]] = {
+    "farg": [
+        (["paint", "färg", "farg", "coating", "coatings", "enamel", "lasyr",
+          "rödfärg", "sludgepaint", "husmaling", "emulsion", "primer"], 0.45),
+    ],
+    "fasadskikt": [
+        (["puts", "putsbruk", "murbruk", "render", "renders", "mortar",
+          "kalkspritputs", "stänkputs", "spritputs", "rivputs",
+          "slamningsputs", "lerputs", "finputsbruk", "designputs"], 20.0),
+    ],
+}
+
+
+def areal_density_for_product(category: str, product_name: str) -> float | None:
+    """Applied kg/m2 for a product, or None when no rate is known for it.
+
+    None is the common answer and the safe one: the caller then leaves the row
+    in its declared unit rather than promoting it into an m2 queue on a spread
+    rate borrowed from a different kind of product.
+    """
+    rules = AREAL_DENSITY_KG_M2.get(category)
+    if not rules or not product_name:
+        return None
+    name_lower = product_name.lower()
+    for keywords, kg_per_m2 in rules:
+        if any(kw in name_lower for kw in keywords):
+            return kg_per_m2
+    return None
+
 
 # Material-specific density overrides based on product name keywords.
 # Used when the generic TYPICAL_DENSITIES is too broad (e.g. "golv" covers

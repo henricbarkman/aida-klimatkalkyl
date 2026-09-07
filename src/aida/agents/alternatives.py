@@ -186,12 +186,22 @@ def _unit_class(unit: str) -> frozenset[str] | None:
 def _epd_comparable(epd: dict) -> tuple[float, str]:
     """The (gwp, unit) pair an EPD can actually be compared against a component.
 
-    Uses the derived functional unit ONLY for m3-declared rows. That conversion
-    is the geometric thickness bridge, a fact about the product. The kg -> m2
-    bridge is a density assumption about the whole category, and
-    epd_baseline_medians refuses it for exactly that reason (see its m3
-    comment); accepting it here would put the alternatives side on a basis the
-    baseline rejects.
+    Uses the derived functional unit for m3-declared rows, and for kg-declared
+    rows whose conversion is marked `fu_basis == "areal_density"`.
+
+    Those are the two bridges that describe the product rather than guess at the
+    category. The m3 one is geometric: a facade panel IS 22 mm. The åtgång one
+    is an application rate, which is what paint and render are actually
+    specified by, and it is restricted by an allow-list to product families
+    where such a rate exists (see AREAL_DENSITY_KG_M2). A general kg -> m2
+    bridge remains refused: it rests on a category-wide density, and folding
+    that in moved yttervägg/m2 from 39.4 to 207.9 the one time it was tried.
+    The marker is what separates the third case from the second, since all
+    three arrive here as a number and a unit.
+
+    Both bridges are honoured on the baseline side too. A candidate ranked in m2
+    against a baseline that ignored the same rows would be compared with the
+    wrong reference, which is how the queue and the report end up disagreeing.
 
     Returning both together matters: for a converted row the comparable figure
     is the functional-unit one, and ranking on the raw declared value instead
@@ -202,7 +212,7 @@ def _epd_comparable(epd: dict) -> tuple[float, str]:
     """
     unit = str(epd.get("unit", "")).lower()
     gwp = epd.get("gwp_a1a3", 0)
-    if unit == "m3":
+    if unit == "m3" or epd.get("fu_basis") == "areal_density":
         fu_gwp = epd.get("gwp_per_functional_unit")
         fu_unit = epd.get("functional_unit")
         if fu_unit and isinstance(fu_gwp, (int, float)):
@@ -449,13 +459,38 @@ def _format_epd_list(epds: list[dict]) -> str:
         # use Geo for a question Geo cannot answer. Geo is the declaration's
         # validity region; the label is about the supplier. Ahlsell AB declares
         # GLO and is the most orderable row in the catalog.
+        # Insulation only. An m2-declared insulation figure is per square metre
+        # at that product's own thickness, and the thickness is nowhere in the
+        # data, so two rows in this list can describe the same material at very
+        # different depths. Where the declaration states a thermal resistance it
+        # is shown, because that is the one thing that makes two rows genuinely
+        # comparable -- and showing it on some rows and not others is the point:
+        # the model can then see which comparisons it is entitled to make.
+        r_str = ""
+        r_value = epd.get("r_value")
+        if r_value:
+            r_str = f" | deklarerad vid R={r_value} m2K/W"
+
         lines.append(
             f"- {epd['name']} | {epd.get('owner', '?')} | "
-            f"{gwp_str} | "
+            f"{gwp_str}{r_str} | "
             f"Tillgänglighet: {availability_label(epd)} | "
             f"Geo: {epd.get('geo', '?')}{reg_str}{source_tag}"
         )
     return "\n".join(lines)
+
+
+# Warning appended to the EPD list for insulation, where the declared unit hides
+# a variable the förvaltare is actually choosing.
+ISOLERING_R_CAVEAT = (
+    "\nOBS om isolering: ett m2-värde gäller produktens EGEN tjocklek, som "
+    "sällan står i deklarationen. Rader märkta \"deklarerad vid R=...\" är "
+    "räknade på en angiven värmemotstånd och kan jämföras med varandra. Rader "
+    "utan sådan märkning kan INTE jämföras rakt av, varken med varandra eller "
+    "med de märkta: en tunn skiva ser billigare ut enbart för att den är tunn. "
+    "Rangordna dem inte som om skillnaden vore klimatprestanda, och säg i "
+    "reasoning när en jämförelse vilar på olika tjocklekar."
+)
 
 
 # Keywords that indicate a component part rather than a complete system.
@@ -1322,9 +1357,12 @@ ANVÄNDNINGSKONTEXT FÖR DENNA KOMPONENT (funktionella krav från intake):
 """
 
     if epds:
+        r_caveat = ISOLERING_R_CAVEAT if any(
+            e.get("category") == "isolering" for e in epds
+        ) else ""
         prompt += f"""
 TILLGÄNGLIGA EPD:er FÖR DENNA KATEGORI ({len(epds)} st):
-{_format_epd_list(epds)}
+{_format_epd_list(epds)}{r_caveat}
 
 Välj de 2-4 bästa alternativen från listan ovan. Beräkna total CO2e baserat på EPD-värdet × {proj_comp.quantity} {proj_comp.unit}.
 Om EPD-enheten inte matchar projektenheten: hoppa över den EPD:n. Räkna aldrig om mellan enheter med en antagen densitet eller tjocklek — en sådan omräkning ser ut som en besparing men är en gissning.

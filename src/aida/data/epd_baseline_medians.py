@@ -153,13 +153,24 @@ def _compute_typvärden() -> dict[tuple[str, str, str], dict]:
         # queries and the m2 typvärde was decided by six entries, two of them
         # aluminium.
         #
-        # Scoped to m3 on purpose. kg-declared EPDs also carry a functional-unit
-        # figure, but that one leans on a category-wide density assumption and
-        # has never fed the medians; folding it in here moved yttervägg/m2 from
-        # 39.4 to 207.9 and its ceiling to 6548 kg/m2. The thickness bridge is a
-        # geometric fact about the product, the density bridge is an estimate
-        # about the category, and only the first belongs in a baseline.
-        if unit == "m3":
+        # Two bridges are accepted, and a third is still refused.
+        #
+        # The m3 one is geometric: a facade panel IS 22 mm thick, so converting
+        # it is a fact about the product.
+        #
+        # `fu_basis == "areal_density"` is an åtgång, the rate at which paint or
+        # render is applied. It is what the trade specifies those products by,
+        # it is restricted to an allow-list of product families that have such a
+        # rate, and it converts the only way a painted or rendered surface can
+        # honestly be counted -- per square metre. Before it, farg/m2 was five
+        # rows and every Swedish paint sat in a kg bucket no component queries.
+        #
+        # What stays refused is the general kg bridge on a category-wide
+        # density. Folding that in moved yttervägg/m2 from 39.4 to 207.9 and its
+        # ceiling to 6548 kg/m2. The difference is not the arithmetic, which is
+        # identical, but whether the number multiplied in describes the product
+        # or the category it happens to sit in.
+        if unit == "m3" or e.get("fu_basis") == "areal_density":
             fu_gwp = e.get("gwp_per_functional_unit")
             fu_unit = e.get("functional_unit")
             if isinstance(fu_gwp, (int, float)) and fu_unit:

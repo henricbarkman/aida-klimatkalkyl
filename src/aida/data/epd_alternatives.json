@@ -2186,7 +2186,10 @@
     "reg_no": "EPD-IES-0014603:003",
     "uuid": "42835dd9-cc19-4f51-98ca-08dc8a1e4132",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.26,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2198,7 +2201,10 @@
     "reg_no": "EPD-IES-0017745:001",
     "uuid": "aa71eb9a-6bc1-4073-d5a9-08dd03212129",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.12,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2210,7 +2216,10 @@
     "reg_no": "EPD-IES-0028200:002",
     "uuid": "79115629-b9d1-4bbf-633c-08de54f646a5",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.89,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2223,7 +2232,10 @@
     "reg_no": "EPD-IES-0031386:001",
     "uuid": "b370501e-a7a5-472d-f8f2-08de9ecacc6c",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.11,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2235,7 +2247,10 @@
     "reg_no": "EPD-IES-0006748:001 (S-P-06748)",
     "uuid": "957dd168-7f41-4600-726f-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.41,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2247,7 +2262,10 @@
     "reg_no": "EPD-IES-0006745:001 (S-P-06745)",
     "uuid": "f56618e4-4ebc-423e-726c-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.57,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2259,7 +2277,10 @@
     "reg_no": "EPD-IES-0006749:001 (S-P-06749)",
     "uuid": "2dc9a67f-2b05-4826-7270-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.47,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2271,7 +2292,10 @@
     "reg_no": "EPD-IES-0017744:001",
     "uuid": "2b3f5b7a-2b34-487c-ea71-08dd031d7189",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.91,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2283,7 +2307,10 @@
     "reg_no": "EPD-IES-0028198:003",
     "uuid": "ff0e739e-7c9a-46de-52b8-08de54f59717",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.83,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2295,7 +2322,10 @@
     "reg_no": "EPD-IES-0003899:003",
     "uuid": "e6fb4b5a-24d0-4fcd-52b9-08de54f59717",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.42,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2307,7 +2337,10 @@
     "reg_no": "EPD-IES-0028197:002",
     "uuid": "460de6b1-fd96-4e79-690a-08de54f41c2a",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.89,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2332,7 +2365,10 @@
     "reg_no": "EPD-IES-0031499:001",
     "uuid": "fdd401a3-f975-43a7-7f7a-08dea1d7d6cb",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.31,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2345,7 +2381,10 @@
     "reg_no": "EPD-IES-0031498:001",
     "uuid": "925178e7-c3f6-4722-7f79-08dea1d7d6cb",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.45,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2358,7 +2397,10 @@
     "reg_no": "EPD-IES-0031418:001",
     "uuid": "91e2c561-d854-416d-3b35-08de9f85417d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.31,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2371,7 +2413,10 @@
     "reg_no": "EPD-IES-0031421:001",
     "uuid": "fce69bc5-7d46-475c-3b37-08de9f85417d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.55,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2384,7 +2429,10 @@
     "reg_no": "EPD-IES-0031494:001",
     "uuid": "8ee56951-40cf-4e6f-7a32-08dea1c77496",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.32,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2396,7 +2444,10 @@
     "reg_no": "EPD-IES-0017743:001",
     "uuid": "96606a8b-1555-4047-ea70-08dd031d7189",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.81,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2408,7 +2459,10 @@
     "reg_no": "EPD-IES-0006746:001 (S-P-06746)",
     "uuid": "ea42f600-d134-48a9-726d-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.71,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2420,7 +2474,10 @@
     "reg_no": "EPD-IES-0006747:001 (S-P-06747)",
     "uuid": "242e71ed-febd-4ee0-726e-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.03,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2432,7 +2489,10 @@
     "reg_no": "EPD-IES-0017739:001",
     "uuid": "76c02fb5-792f-4d7a-77ff-08dd03210a76",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.31,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2444,7 +2504,10 @@
     "reg_no": "EPD-IES-0003340:002 (S-P-03340)",
     "uuid": "ac5412a2-f49d-4c29-4523-08dc6fc9d4ca",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.54,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2456,7 +2519,10 @@
     "reg_no": "EPD-IES-0013783:002 (S-P-13783)",
     "uuid": "7349af94-c7e4-46bc-4517-08dc6fc9d4ca",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.81,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2468,7 +2534,10 @@
     "reg_no": "EPD-IES-0017740:001",
     "uuid": "468ca05e-21fb-4a7e-ea6f-08dd031d7189",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.45,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2480,7 +2549,10 @@
     "reg_no": "EPD-IES-0017742:001",
     "uuid": "3e5544c8-42f3-48e9-d5a8-08dd03212129",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.72,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2492,7 +2564,10 @@
     "reg_no": "EPD-IES-0007623:003 (S-P-07623)",
     "uuid": "7d9bc347-6b93-454e-5e5e-08dacafbef27",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.15,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2508,18 +2583,6 @@
   },
   {
     "category": "farg",
-    "name": "Epoxy coatings",
-    "owner": "ISOMAT S.A.",
-    "gwp_a1a3": 2.44,
-    "unit": "kg",
-    "geo": "GLO",
-    "reg_no": "EPD-IES-0016840:002",
-    "uuid": "c95d596d-a901-4f60-dd75-08dcde299096",
-    "source_registry": "environdec",
-    "subcategory": ""
-  },
-  {
-    "category": "farg",
     "name": "Estalia Water-based Paints",
     "owner": "Estalia Performance Coatings Spa",
     "gwp_a1a3": 2.23,
@@ -2528,7 +2591,10 @@
     "reg_no": "EPD-IES-0004547:003 (S-P-04547)",
     "uuid": "8c322cc3-b6d6-44b9-54a8-08d966bc892d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2540,7 +2606,10 @@
     "reg_no": "EPD-IES-0019949:001",
     "uuid": "3062e2df-6121-4dd1-9caa-08dd50097760",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.5,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2552,7 +2621,10 @@
     "reg_no": "EPD-IES-0013887:001 (S-P-13887)",
     "uuid": "1a7ea90e-bc4f-457a-4590-08dc6fc9d4ca",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.3,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2564,7 +2636,10 @@
     "reg_no": "EPD-IES-0022552:001",
     "uuid": "476e745e-bc8a-4128-a0a8-08dd8687b01d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.63,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2576,7 +2651,10 @@
     "reg_no": "EPD-IES-0010316:002 (S-P-10316)",
     "uuid": "6b2e5ab1-b519-45ef-6c37-08db99396d74",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.4,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2625,7 +2703,10 @@
     "reg_no": "EPD-IES-0005708:003 (S-P-05708)",
     "uuid": "382c0b1f-efb1-4fc7-8f4c-08d9fb553f52",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.97,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2638,7 +2719,10 @@
     "reg_no": "EPD-IES-0005743:001 (S-P-05743)",
     "uuid": "a6071b8f-eec5-4f83-9fbb-08da00ea3f82",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.61,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2650,7 +2734,10 @@
     "reg_no": "EPD-IES-0017736:001",
     "uuid": "006ccef7-022d-4ddf-ea6e-08dd031d7189",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.62,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2662,7 +2749,10 @@
     "reg_no": "EPD-IES-0017737:001",
     "uuid": "1382466a-83d6-42a4-7f2d-08dd0311e722",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.49,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2686,7 +2776,10 @@
     "reg_no": "EPD-IES-0016528:002",
     "uuid": "afc24eff-569d-4017-d6d8-08dcd195ddc1",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.56,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2698,7 +2791,10 @@
     "reg_no": "EPD-IES-0025270:001",
     "uuid": "92e925a6-1cab-4463-ca80-08ddd2f1706e",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.59,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2710,7 +2806,10 @@
     "reg_no": "EPD-IES-0024668:001",
     "uuid": "cab9bbac-7a88-468e-02d9-08ddaf4c5dde",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.91,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2722,7 +2821,10 @@
     "reg_no": "EPD-IES-0017738:001",
     "uuid": "55e4030e-a168-4d7e-7f2e-08dd0311e722",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.26,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2734,7 +2836,10 @@
     "reg_no": "EPD-IES-0017741:001",
     "uuid": "355bc506-e51a-4fad-d5a7-08dd03212129",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.97,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2758,7 +2863,10 @@
     "reg_no": "EPD-IES-0015115:001",
     "uuid": "cb93bea1-3683-40cf-9ae2-08dc8a1e4132",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.98,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2771,7 +2879,10 @@
     "reg_no": "EPD-IES-0026568:001",
     "uuid": "87748cf2-78f7-4b2b-60e2-08de16e733ea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.21,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "farg",
@@ -2784,7 +2895,10 @@
     "reg_no": "EPD-IES-0024932:001",
     "uuid": "cd1010ba-c5f3-4a31-5c50-08ddbddeea39",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.19,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3154,7 +3268,10 @@
     "reg_no": "EPD-IES-0008396:001 (S-P-08396)",
     "uuid": "9b1c8f25-d342-44ee-8714-08db12ef4389",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.2,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3167,7 +3284,10 @@
     "reg_no": "EPD-IES-0008410:001 (S-P-08410)",
     "uuid": "307903b5-3cf6-4104-df76-08db13dce426",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 2.8,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3223,7 +3343,10 @@
     "reg_no": "EPD-IES-0018590:001",
     "uuid": "38ff98d4-bf3c-4c35-e8a9-08dd33b91633",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 0.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3236,7 +3359,10 @@
     "reg_no": "EPD-IES-0018598:001",
     "uuid": "1f081ed4-f93f-490d-05de-08dd346f8eed",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3249,7 +3375,10 @@
     "reg_no": "EPD-IES-0005956:001",
     "uuid": "6e814e98-54c5-461f-7093-08dd1b79333c",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 2.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3262,7 +3391,10 @@
     "reg_no": "EPD-IES-0005957:001",
     "uuid": "2bb431e0-ed69-4e0b-7094-08dd1b79333c",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 1.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3275,7 +3407,10 @@
     "reg_no": "EPD-IES-0020004:001",
     "uuid": "4bbd5c62-861d-42d9-4ed2-08dd518a8a82",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3288,7 +3423,10 @@
     "reg_no": "EPD-IES-0020005:001",
     "uuid": "01adc992-27f1-4c37-4ed3-08dd518a8a82",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 2.8,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3301,7 +3439,10 @@
     "reg_no": "EPD-IES-0020000:003",
     "uuid": "d4fe8c7d-f269-4a9f-8dbe-08dd518bbaee",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3314,7 +3455,10 @@
     "reg_no": "EPD-IES-0026640:001",
     "uuid": "88032ce9-630c-4b56-2066-08de1b7a3276",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3327,7 +3471,10 @@
     "reg_no": "EPD-IES-0026642:001",
     "uuid": "cd8d5db6-2915-46d6-c6ea-08de1b832691",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 5.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3340,7 +3487,10 @@
     "reg_no": "EPD-IES-0026558:001",
     "uuid": "e591fa29-02b6-452e-29b6-08de16e472dc",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.4,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3353,7 +3503,10 @@
     "reg_no": "EPD-IES-0026561:001",
     "uuid": "84d6cdce-fba7-404b-57d8-08de16e61985",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.8,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3366,7 +3519,10 @@
     "reg_no": "EPD-IES-0026566:001",
     "uuid": "ff0e8c8f-993f-4d48-4a17-08de16e85696",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 6.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3379,7 +3535,10 @@
     "reg_no": "EPD-IES-0026569:001",
     "uuid": "c3165465-dc9f-46fa-4a18-08de16e85696",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3392,7 +3551,10 @@
     "reg_no": "EPD-IES-0026570:001",
     "uuid": "05a76e94-3779-46b8-4a19-08de16e85696",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3405,7 +3567,10 @@
     "reg_no": "EPD-IES-0026571:001",
     "uuid": "963c061d-fb54-418d-60e3-08de16e733ea",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3418,7 +3583,10 @@
     "reg_no": "EPD-IES-0024919:001",
     "uuid": "3c548651-6eaf-4f4e-ffca-08ddbde7899d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3431,7 +3599,10 @@
     "reg_no": "EPD-IES-0024920:001",
     "uuid": "1f7e23ae-c9a3-43ef-f885-08ddbde7a27d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3444,7 +3615,10 @@
     "reg_no": "EPD-IES-0024922:001",
     "uuid": "2586b28b-f31a-40d1-f886-08ddbde7a27d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 5.4,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3457,7 +3631,10 @@
     "reg_no": "EPD-IES-0024923:001",
     "uuid": "0d8ffa22-33a4-4910-5c4c-08ddbddeea39",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.8,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3470,7 +3647,10 @@
     "reg_no": "EPD-IES-0024925:001",
     "uuid": "0ddeeef2-bb07-45bd-ffcb-08ddbde7899d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3483,7 +3663,10 @@
     "reg_no": "EPD-IES-0024926:001",
     "uuid": "83daa123-0d56-4011-8b59-08ddbddf37df",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3496,7 +3679,10 @@
     "reg_no": "EPD-IES-0024928:001",
     "uuid": "122ab212-fc52-4422-ffcc-08ddbde7899d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 5.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3509,7 +3695,10 @@
     "reg_no": "EPD-IES-0024929:001",
     "uuid": "c9f0875f-f133-4ef8-ffcd-08ddbde7899d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.2,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3522,7 +3711,10 @@
     "reg_no": "EPD-IES-0020010:003",
     "uuid": "74272546-716b-47e5-ca75-08dd518c714a",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 2.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3535,7 +3727,10 @@
     "reg_no": "EPD-IES-0024933:001",
     "uuid": "c5e2b8ed-ecfd-4497-ffcf-08ddbde7899d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.8,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3548,7 +3743,10 @@
     "reg_no": "EPD-IES-0024934:001",
     "uuid": "3225d19e-e6d7-46bc-5c51-08ddbddeea39",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.8,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3561,7 +3759,10 @@
     "reg_no": "EPD-IES-0024935:001",
     "uuid": "68fe3f0c-29a4-4e74-ffd0-08ddbde7899d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3574,7 +3775,10 @@
     "reg_no": "EPD-IES-0024936:001",
     "uuid": "75b979f3-f5d2-493f-5c52-08ddbddeea39",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3587,7 +3791,10 @@
     "reg_no": "EPD-IES-0020071:001",
     "uuid": "47f01d49-8423-470b-a27d-08dd54cbd219",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 4.6,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3600,7 +3807,10 @@
     "reg_no": "EPD-IES-0020072:001",
     "uuid": "b02c085b-d345-4689-a27e-08dd54cbd219",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 5.2,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3613,7 +3823,10 @@
     "reg_no": "EPD-IES-0020001:003",
     "uuid": "a9dce81a-d6a0-41ee-4ecf-08dd518a8a82",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.4,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fasadskikt",
@@ -3626,7 +3839,10 @@
     "reg_no": "EPD-IES-0020002:003",
     "uuid": "ee2a0549-91d4-4953-4ed0-08dd518a8a82",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "gwp_per_functional_unit": 3.0,
+    "functional_unit": "m2",
+    "fu_basis": "areal_density"
   },
   {
     "category": "fönster",
@@ -10123,7 +10339,8 @@
     "reg_no": "EPD-IES-0021369:002",
     "uuid": "a5526801-6050-4587-86a5-08dd6dcc8dc4",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10160,7 +10377,8 @@
     "reg_no": "EPD-IES-0006460:002 (S-P-06460)",
     "uuid": "ec528333-ab34-4e5d-7109-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10212,7 +10430,8 @@
     "reg_no": "EPD-IES-0006461:002 (S-P-06461)",
     "uuid": "b18fafdc-b53a-4a91-710a-08da598ce856",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10224,7 +10443,8 @@
     "reg_no": "EPD-IES-0005850:001 (S-P-05850)",
     "uuid": "781f9e6f-298d-4993-74dc-08dbb6589a9d",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10236,7 +10456,8 @@
     "reg_no": "EPD-IES-0009825:003 (S-P-09825)",
     "uuid": "c26c1a2f-d13c-4cd7-aeb5-08db7e36184f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10337,7 +10558,8 @@
     "reg_no": "EPD-IES-0009837:003 (S-P-09837)",
     "uuid": "15e2cbc3-1699-4bff-aecb-08db7e36184f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10422,7 +10644,8 @@
     "reg_no": "EPD-IES-0017405:001",
     "uuid": "b91fc441-16ad-4391-6341-08dcf5dca843",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10434,7 +10657,8 @@
     "reg_no": "EPD-IES-0017384:001",
     "uuid": "357659c3-4f61-43f5-632c-08dcf5dca843",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10446,7 +10670,8 @@
     "reg_no": "EPD-IES-0017388:001",
     "uuid": "09487e1c-f9c1-44ac-6330-08dcf5dca843",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10458,7 +10683,8 @@
     "reg_no": "EPD-IES-0020110:001",
     "uuid": "59ef25bd-92f4-40e1-1905-08dd5597dfa3",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10470,7 +10696,8 @@
     "reg_no": "EPD-IES-0017518:001",
     "uuid": "3ded806d-78dd-4457-c23f-08dcfa9ee204",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.76
   },
   {
     "category": "isolering",
@@ -10494,7 +10721,8 @@
     "reg_no": "EPD-IES-0019885:001",
     "uuid": "e54b1e7f-10e7-4413-bad1-08dd4cf084f8",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 3.67
   },
   {
     "category": "isolering",
@@ -10555,7 +10783,8 @@
     "reg_no": "EPD-IES-0028136:001",
     "uuid": "003232a7-8f38-42d0-4e8c-08de533e8c48",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10567,7 +10796,8 @@
     "reg_no": "EPD-IES-0026646:001",
     "uuid": "8c0c66a2-68ab-4fe1-4174-08de535ab9d3",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -10762,7 +10992,8 @@
     "reg_no": "EPD-IES-0007844:002 (S-P-07844)",
     "uuid": "7b0e3772-d742-4e79-9645-08dadc0085d8",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 2.46
   },
   {
     "category": "isolering",
@@ -10774,7 +11005,8 @@
     "reg_no": "EPD-IES-0010251:001 (S-P-10251)",
     "uuid": "b0e4ed0f-6dbb-4a9a-7b7e-08db9241f6b6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 3.66
   },
   {
     "category": "isolering",
@@ -10786,7 +11018,8 @@
     "reg_no": "EPD-IES-0010250:001 (S-P-10250)",
     "uuid": "08e1b782-d26e-4f0d-7b7d-08db9241f6b6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 3.66
   },
   {
     "category": "isolering",
@@ -10798,7 +11031,8 @@
     "reg_no": "EPD-IES-0010269:001 (S-P-10269)",
     "uuid": "d27d8ad8-cdd6-41f3-0948-08db94c6c0e3",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 3.67
   },
   {
     "category": "isolering",
@@ -11016,7 +11250,8 @@
     "reg_no": "EPD-IES-0007847:004 (S-P-07847)",
     "uuid": "6f79021a-e7cf-4366-9648-08dadc0085d8",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.95
   },
   {
     "category": "isolering",
@@ -11184,7 +11419,8 @@
     "reg_no": "EPD-IES-0004824:001 (S-P-04824)",
     "uuid": "1ab833f4-06cf-4c6a-d5aa-08d9889885e0",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -11674,7 +11910,8 @@
     "reg_no": "EPD-IES-0010011:001",
     "uuid": "1a3aabae-b743-490e-3ddb-08dd2e3b22e9",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -11686,7 +11923,8 @@
     "reg_no": "EPD-IES-0020112:002",
     "uuid": "6e79f99b-96e5-47d9-64b1-08dd559ebe0f",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.0
   },
   {
     "category": "isolering",
@@ -11698,7 +11936,8 @@
     "reg_no": "EPD-IES-0010249:001 (S-P-10249)",
     "uuid": "e7d3b3dc-ae52-4c69-7b7c-08db9241f6b6",
     "source_registry": "environdec",
-    "subcategory": ""
+    "subcategory": "",
+    "r_value": 1.06
   },
   {
     "category": "isolering",
