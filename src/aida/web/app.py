@@ -817,6 +817,65 @@ def api_chat():
         return step_failed(e, 'chatt-svaret')
 
 
+# Tools a cell may reach. Deliberately not the whole HANDLERS table: rerun_baseline
+# and rerun_alternatives exist to let the *model* queue work, and exposing them
+# here would let a crafted request ask for a full recompute of everything, which
+# is the one operation that costs every other component its choices.
+_CELL_TOOLS = ('update_component', 'add_component', 'remove_component', 'select_alternative')
+
+
+@app.route('/api/mutate', methods=['POST'])
+@require_auth
+@rate_limited
+def api_mutate():
+    """One state mutation, from a cell instead of from the chat.
+
+    The point of this endpoint is that it does NOT contain any rules. It hands the
+    edit to the same functions the chat agent's tools call, so an edit made by
+    typing in a cell and the same edit made by asking Aida in the chat cannot
+    produce different state. No model runs here, so it is fast and free.
+
+    Request:  {tool, input, project?, baseline?, alternatives?, selections?}
+    Response: {ok, message, state_updates}
+    """
+    from aida.mutations import apply_mutation
+
+    data = request.json or {}
+    tool = data.get('tool')
+    if tool not in _CELL_TOOLS:
+        return jsonify({'error': f'Otillåtet verktyg: {tool}'}), 400
+    if not isinstance(data.get('input'), dict):
+        return jsonify({'error': 'input måste vara ett objekt.'}), 400
+    # The handlers reach straight into these bags. A missing or wrongly typed one
+    # raises deep inside and surfaces as a 500 logged as an unexpected server
+    # error, when what actually happened is an ordinary malformed request. A
+    # project is required because every handler starts from its components; the
+    # rest may legitimately be absent on an analysis that has not got that far.
+    if not isinstance(data.get('project'), dict):
+        return jsonify({'error': 'project måste vara ett objekt.'}), 400
+    for bag, kind in (('baseline', dict), ('alternatives', dict), ('selections', dict)):
+        value = data.get(bag)
+        if value is not None and not isinstance(value, kind):
+            return jsonify({'error': f'{bag} måste vara ett objekt eller saknas.'}), 400
+
+    try:
+        result = apply_mutation(
+            tool=tool,
+            inp=data['input'],
+            project=data.get('project'),
+            baseline=data.get('baseline'),
+            alternatives=data.get('alternatives'),
+            selections=data.get('selections') or {},
+            # A cell has no model to follow the prompt's mandatory rerun pattern,
+            # so the module applies it instead.
+            auto_rerun=True,
+        )
+        return jsonify(result)
+    except Exception as e:
+        app.logger.exception("mutate failed: %s", tool)
+        return step_failed(e, 'ändringen')
+
+
 # === Analyses CRUD (Supabase) ===
 
 
@@ -1226,6 +1285,26 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .sheet-empty { border: 1px dashed var(--kk-gray-300); border-radius: 8px; padding: 18px 20px; background: white; }
 .sheet-empty p { font-size: 12.5px; color: var(--kk-gray-500); line-height: 1.5; max-width: 60ch; }
 .sheet-empty .btn { margin-top: 14px; }
+
+/* === Editable cells (orchestration-redesign §12.4) ===
+   A cell reads as text until you touch it. Drawing every editable value as an
+   input box would turn a results table into a form, and most of the time the
+   user is reading, not typing. The affordance appears on hover and focus, which
+   is the spreadsheet convention the name Arbetsblad is borrowing from. */
+.cell-input { width: 100%; font: inherit; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 3px 6px; margin: -3px -6px; font-family: inherit; }
+.cell-input:hover:not(:disabled) { border-color: var(--kk-gray-200); background: white; }
+.cell-input:focus { outline: none; border-color: var(--kk-dark-red); background: white; box-shadow: 0 0 0 2px rgba(181,32,31,0.12); }
+.cell-input:disabled { color: var(--kk-gray-400); cursor: not-allowed; }
+.cell-input.saving { border-color: var(--kk-gold); background: var(--kk-cream); }
+td.cell-num .cell-input { text-align: right; }
+select.cell-input { cursor: pointer; }
+.cell-remove { background: none; border: none; color: var(--kk-gray-400); cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 6px; border-radius: 4px; font-family: inherit; }
+.cell-remove:hover:not(:disabled) { color: var(--kk-dark-red); background: var(--kk-gray-100); }
+.cell-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.cell-add { padding: 10px 16px; border-top: 1px solid var(--kk-gray-200); }
+.cell-add button { background: none; border: 1px dashed var(--kk-gray-300); color: var(--kk-gray-500); border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.cell-add button:hover:not(:disabled) { border-color: var(--kk-dark-red); color: var(--kk-dark-red); }
+.cell-add button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* === Confirm actions in chat (legacy, kept for history rendering) === */
 .confirm-actions { display: none; }
@@ -2037,7 +2116,13 @@ function setProgressStep(name) {
 
 let _loadingTimer = null;
 let _loadingStart = null;
+// Whether a pipeline step is running. Editable cells read this: a cell edited
+// during a rerun would be overwritten by that rerun's answer without a word
+// (orchestration-redesign §12.4, regel 3).
+let _runInFlight = false;
 function setLoading(on) {
+  _runInFlight = on;
+  if (typeof setCellsDisabled === 'function') setCellsDisabled(on);
   document.getElementById('sendBtn').disabled = on;
   document.getElementById('userInput').disabled = on;
   // Always clean up previous loading state first (prevents duplicates)
@@ -3482,24 +3567,63 @@ function saveNeedsEdit() {
 // cfg.hideTitle: the sheet prints the section name in its own header, so the
 // renderer must not print it a second time. Absent cfg means the tab view, which
 // is what every existing caller wants and what the parity test pins.
+// An editable cell carries the two things the commit needs, and nothing else:
+// which component, which field. The old value rides along so a blur that changed
+// nothing can return without a round trip.
+function cellInput(cid, field, value, label, type) {
+  const v = value == null ? '' : String(value);
+  return '<input class="cell-input" data-cid="' + esc(cid) + '" data-field="' + field + '"' +
+         ' data-was="' + esc(v) + '" value="' + esc(v) + '" aria-label="' + esc(label) + '"' +
+         (type === 'number' ? ' type="number" min="0" step="any"' : ' type="text"') + '>';
+}
+
+// Unit is a closed set: add_component rejects anything outside m2/st/lm, so a
+// free-text cell could only produce a rejection the user has to guess their way
+// out of. An unrecognised stored unit is kept as an option so an older analysis
+// does not silently have its unit rewritten by the act of opening it.
+const CELL_UNITS = ['m2', 'st', 'lm'];
+function cellUnit(cid, unit) {
+  const cur = unit == null ? '' : String(unit);
+  const opts = CELL_UNITS.concat(CELL_UNITS.indexOf(cur) === -1 && cur ? [cur] : []);
+  return '<select class="cell-input" data-cid="' + esc(cid) + '" data-field="unit"' +
+         ' data-was="' + esc(cur) + '" aria-label="Enhet">' +
+         opts.map(u => '<option value="' + esc(u) + '"' + (u === cur ? ' selected' : '') + '>' + esc(u) + '</option>').join('') +
+         '</select>';
+}
+
 function projektHtml(st, cfg) {
   const d = st.project;
   let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">Projektinformation</div>';
   html += renderNeedsAnalysis(d.needs_analysis);
   html += '<div class="comp-card"><div class="comp-card-header"><h3>' + esc(d.building_type) + ', ' + esc(d.area_bta) + ' m\u00b2 BTA' + (d.name ? ' (' + esc(d.name) + ')' : '') + '</h3></div>';
-  html += '<table class="comp-table"><thead><tr><th>Komponent</th><th>Antal</th><th>Enhet</th><th>Kategori</th><th>K\u00e4lla</th></tr></thead><tbody>';
+  const edit = !!(cfg && cfg.editable);
+  html += '<table class="comp-table"><thead><tr><th>Komponent</th><th>Antal</th><th>Enhet</th><th>Kategori</th><th>K\u00e4lla</th>' + (edit ? '<th></th>' : '') + '</tr></thead><tbody>';
   d.components.forEach(c => {
-    const nameCell = '<div style="font-weight:500">' + esc(c.name) + '</div>' +
-      (c.usage_context ? '<div class="usage-context"><span class="usage-context-label">Anv\u00e4ndning</span>' + esc(c.usage_context) + '</div>' : '');
-    html += '<tr>' +
-      '<td>' + nameCell + '</td>' +
-      '<td>' + esc(c.quantity) + '</td>' +
-      '<td>' + esc(c.unit) + '</td>' +
-      '<td>' + esc(c.category || '\u2013') + '</td>' +
-      '<td>' + quantitySourceBadge(c.quantity_source) + '</td>' +
-      '</tr>';
+    const usage = c.usage_context ? '<div class="usage-context"><span class="usage-context-label">Anv\u00e4ndning</span>' + esc(c.usage_context) + '</div>' : '';
+    if (edit) {
+      html += '<tr>' +
+        '<td>' + cellInput(c.id, 'name', c.name, 'Namn') + usage + '</td>' +
+        '<td class="cell-num">' + cellInput(c.id, 'quantity', c.quantity, 'Antal', 'number') + '</td>' +
+        '<td>' + cellUnit(c.id, c.unit) + '</td>' +
+        '<td>' + cellInput(c.id, 'category', c.category, 'Kategori') + '</td>' +
+        '<td>' + quantitySourceBadge(c.quantity_source) + '</td>' +
+        '<td><button class="cell-remove" data-remove="' + esc(c.id) + '" title="Ta bort ' + esc(c.name) + '" aria-label="Ta bort ' + esc(c.name) + '">&#xD7;</button></td>' +
+        '</tr>';
+    } else {
+      html += '<tr>' +
+        '<td>' + '<div style="font-weight:500">' + esc(c.name) + '</div>' + usage + '</td>' +
+        '<td>' + esc(c.quantity) + '</td>' +
+        '<td>' + esc(c.unit) + '</td>' +
+        '<td>' + esc(c.category || '\u2013') + '</td>' +
+        '<td>' + quantitySourceBadge(c.quantity_source) + '</td>' +
+        '</tr>';
+    }
   });
-  html += '</tbody></table></div>';
+  html += '</tbody></table>';
+  if (edit) {
+    html += '<div class="cell-add"><button id="addCompBtn" type="button">L\u00e4gg till komponent</button></div>';
+  }
+  html += '</div>';
   if (d.description) {
     html += '<div class="comp-card" style="margin-top:12px"><div class="comp-card-header"><h3>Beskrivning</h3></div><div style="padding:12px 16px;font-size:13px;color:var(--kk-gray-500);line-height:1.5">' + esc(d.description) + '</div></div>';
   }
@@ -3507,8 +3631,137 @@ function projektHtml(st, cfg) {
 }
 
 function renderProjektContent() {
-  document.getElementById('resultContent').innerHTML = projektHtml(state);
+  // Henric, 2026-09-08: Stegvis gets editable cells too, gates and all. The two
+  // views differ in how much the tool steers, not in what you are allowed to fix.
+  document.getElementById('resultContent').innerHTML = projektHtml(state, {editable: true});
   _populateNeedsTextarea();
+  bindCells();
+}
+
+// === Editable cells (orchestration-redesign §12.4) ===
+//
+// Rule 1: a cell and the chat are two doors onto the same mutation. The cell does
+// not edit state; it posts to /api/mutate, which runs the same function the chat
+// agent's tool calls, and the answer comes back through applyAgentStateUpdates
+// exactly like a chat turn. So a cell cannot invent its own idea of what goes
+// stale, and the scoped reruns happen either way.
+//
+// Rule 3: a cell is locked while anything is running. Without it an edit made
+// during a rerun is overwritten by that rerun's answer, silently.
+let _mutationInFlight = false;
+
+function cellsLocked() { return _mutationInFlight || _runInFlight; }
+
+function setCellsDisabled(on) {
+  document.querySelectorAll('.cell-input, .cell-remove, #addCompBtn').forEach(el => { el.disabled = on; });
+}
+
+function bindCells() {
+  document.querySelectorAll('.cell-input').forEach(el => {
+    // 'change', not 'input': commit on blur or Enter, not on every keystroke.
+    el.onchange = () => commitCell(el);
+    el.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+      // Escape puts the cell back the way it was without a round trip.
+      else if (e.key === 'Escape') { el.value = el.dataset.was; el.blur(); }
+    };
+  });
+  document.querySelectorAll('.cell-remove').forEach(el => {
+    el.onclick = () => removeComponentCell(el.dataset.remove);
+  });
+  const add = document.getElementById('addCompBtn');
+  if (add) add.onclick = () => addComponentCell();
+  if (cellsLocked()) setCellsDisabled(true);
+}
+
+function commitCell(el) {
+  const value = el.value.trim();
+  if (value === (el.dataset.was || '')) return;   // blur without an edit
+  const field = el.dataset.field;
+  if (field === 'name' && !value) {
+    addMsg('En komponent måste ha ett namn. Ta bort raden i stället om den inte ska vara med.', 'system');
+    el.value = el.dataset.was;
+    return;
+  }
+  const input = {component_id: el.dataset.cid};
+  if (field === 'quantity') {
+    const n = Number(value);
+    if (!(n > 0)) {
+      addMsg('Mängden måste vara ett tal större än noll.', 'system');
+      el.value = el.dataset.was;
+      return;
+    }
+    input.quantity = n;
+  } else {
+    input[field] = value;
+  }
+  el.classList.add('saving');
+  return sendMutation('update_component', input);
+}
+
+function removeComponentCell(cid) {
+  const comp = (state.project && state.project.components || []).find(c => c.id === cid);
+  if (!comp) return;
+  if (!confirm('Ta bort ' + comp.name + '? Baslinje, alternativ och val för just den komponenten försvinner. Övriga rörs inte.')) return;
+  return sendMutation('remove_component', {component_id: cid});
+}
+
+function addComponentCell() {
+  const name = (prompt('Vad ska läggas till?') || '').trim();
+  if (!name) return;
+  const qty = Number((prompt('Hur många eller hur mycket? (bara siffran)') || '').trim());
+  if (!(qty > 0)) { addMsg('Ingen komponent tillagd: mängden måste vara ett tal större än noll.', 'system'); return; }
+  const unit = (prompt('Enhet: m2, st eller lm') || '').trim();
+  if (CELL_UNITS.indexOf(unit) === -1) { addMsg('Ingen komponent tillagd: enheten måste vara m2, st eller lm.', 'system'); return; }
+  return sendMutation('add_component', {name, quantity: qty, unit, quantity_source: 'user_specified'});
+}
+
+async function sendMutation(tool, input) {
+  if (cellsLocked()) return;
+  _mutationInFlight = true;
+  setCellsDisabled(true);
+  try {
+    const r = await authFetch('/api/mutate', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tool, input, project: state.project, baseline: state.baseline,
+                            alternatives: state.alternatives, selections: state.selections}),
+    });
+    const d = await r.json();
+    if (d.error) { addMsg('Fel: ' + d.error, 'system'); refreshResults(); return; }
+    // A refused edit is not a failure to report as one: the handler explains why
+    // ("det finns redan en komponent som heter..."), and the view goes back to
+    // what is actually stored so the cell never shows a value the state lacks.
+    if (!d.ok) { addMsg(d.message, 'system'); refreshResults(); return; }
+    addMsg(d.message, 'system');
+    applyAgentStateUpdates(d.state_updates);
+    refreshResults();
+    const pending = d.state_updates && d.state_updates.pending_actions;
+    if (pending && pending.length) {
+      // Hand the lock over, do not drop it. These reruns are dispatched with
+      // orchestrated=true, and that flag is exactly what stops them calling
+      // setLoading, because it was written for runChat which already holds the
+      // lock around the whole sequence. So nobody holds it here unless we do,
+      // and an unlocked rerun is the worst window there is: applyAgentStateUpdates
+      // replaces baseline, alternatives and selections wholesale, so a second
+      // edit sent meanwhile answers from the pre-rerun snapshot and its reply
+      // overwrites everything the rerun had merged in. setLoading also greys the
+      // chat input and shows the working indicator, which is what should be on
+      // screen while a run the user's own edit started is still going.
+      setLoading(true);
+      _mutationInFlight = false;
+      try {
+        await processPendingActions(pending);
+      } finally {
+        setLoading(false);
+      }
+    }
+  } catch (e) {
+    addMsg('Ändringen gick inte igenom: ' + e.message, 'system');
+    refreshResults();
+  } finally {
+    _mutationInFlight = false;
+    setCellsDisabled(cellsLocked());
+  }
 }
 
 // Baseline costs come from the LLM and can be absent. Same rule as everywhere
@@ -3891,7 +4144,7 @@ function sheetHtml(st) {
     html += '<div class="sheet-head"><h2>' + esc(sec.title) + '</h2>'
           + (filled ? '' : '<span class="sheet-pending">väntar</span>') + '</div>';
     if (filled) {
-      html += sec.html(st, {hideTitle: true});
+      html += sec.html(st, {hideTitle: true, editable: true});
     } else {
       const act = sec.ready(st) ? sec.action : null;
       html += '<div class="sheet-empty"><p>' + esc(sec.empty) + '</p>'
@@ -3906,6 +4159,7 @@ function sheetHtml(st) {
 function renderSheet() {
   document.getElementById('resultContent').innerHTML = sheetHtml(state);
   _populateNeedsTextarea();
+  bindCells();
   bindAltRows();
   bindReportDownloads();
 }
