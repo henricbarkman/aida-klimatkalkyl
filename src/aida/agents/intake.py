@@ -128,6 +128,7 @@ TIDIGARE DISKUSSION:
 - Bevara projektnamn från tidigare beskrivning om det inte uttryckligen ändras.
 - Bevara usage_context från tidigare iteration om komponenten inte ändrats — uppdatera bara när komponenten ändrats eller ny info påverkar funktionella krav.
 - Bevara needs_analysis från tidigare iteration om varken byggnadstyp eller huvudsaklig användning ändrats. Uppdatera `from_user` om användaren tillfört ny direkt-info; uppdatera `inferred` bara om någon förutsättning faktiskt skiftat.
+- Rensa `would_clarify` vid varje iteration: frågorna visas för användaren i chatten som en inbjudan att svara innan baslinjen räknas. Ta bort varje fråga som korrigeringen nu besvarar (svaret går in i `from_user` och berörda komponenters `usage_context`). Behåll bara det som fortfarande är obesvarat, viktigast först, max 3.
 """
 
 

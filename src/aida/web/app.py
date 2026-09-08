@@ -1916,6 +1916,30 @@ function addMsg(text, cls, role) {
   return entry;
 }
 
+// The confirm message after intake (Henric 2026-09-08). Intake already writes
+// the questions Aida would have liked answered into needs_analysis.would_clarify,
+// but they were only rendered in the results panel, where nobody answers them.
+// Putting them in the chat turns "vad Aida hade velat veta" into an invitation:
+// answer what you know, or go straight on. Capped so it reads as a nudge and
+// not as a form, and the button keeps 'baslinje' in its label because the
+// reload path matches on that word to decide which confirm is still live.
+const INTAKE_CLARIFY_MAX = 3;
+function intakeSummary(project) {
+  const compList = (project.components || []).map(c => '- ' + c.name + ' (' + c.quantity + ' ' + c.unit + ')').join('\n');
+  let text = '**' + project.building_type + '**, ' + project.area_bta + ' m²\n\n**Komponenter:**\n' + compList;
+  const na = project.needs_analysis || {};
+  const asks = (Array.isArray(na.would_clarify) ? na.would_clarify : [])
+    .map(q => String(q || '').trim()).filter(Boolean).slice(0, INTAKE_CLARIFY_MAX);
+  let hint;
+  if (asks.length) {
+    text += '\n\n**Bra att veta innan jag räknar:**\n' + asks.map(q => '- ' + q).join('\n');
+    hint = 'Svara i chatten på det du vet, eller gå vidare direkt. Skriv också om något inte stämmer.';
+  } else {
+    hint = 'Skriv i chatten om något inte stämmer.';
+  }
+  return {text, btnLabel: 'Bekräfta och beräkna baslinje →', hint};
+}
+
 function addConfirmMsg(text, btnLabel, hint) {
   state.conversation.push({text, cls: 'bot', confirm: {btnLabel, hint}});
   _saveConversation();
@@ -2244,12 +2268,8 @@ async function runIntake(desc) {
     // Disable later tabs if re-running
     ['baslinje','alternativ','rapport'].forEach(t => { const el = document.getElementById('tab-'+t); if(el) el.disabled = true; });
 
-    const compList = d.components.map(c => '- ' + c.name + ' (' + c.quantity + ' ' + c.unit + ')').join('\n');
-    addConfirmMsg(
-      '**' + d.building_type + '**, ' + d.area_bta + ' m\u00b2\n\n**Komponenter:**\n' + compList,
-      'Bekr\u00e4fta och ber\u00e4kna baslinje \u2192',
-      'Skriv i chatten om n\u00e5got inte st\u00e4mmer.'
-    );
+    const summary = intakeSummary(d);
+    addConfirmMsg(summary.text, summary.btnLabel, summary.hint);
     setLoading(false);
   } catch(e) { addMsg('Fel: ' + e.message, 'system'); setLoading(false); }
 }
@@ -4145,12 +4165,8 @@ function restoreUI() {
     } else {
       addMsg('Projekt laddat: ' + (state.project.building_type || 'Okänt') + ', ' + (state.project.area_bta || '?') + ' m\u00b2.', 'bot');
       if (state.step === 'intake_done') {
-        const compList = state.project.components.map(c => '- ' + c.name + ' (' + c.quantity + ' ' + c.unit + ')').join('\n');
-        addConfirmMsg(
-          '**' + state.project.building_type + '**, ' + state.project.area_bta + ' m\u00b2\n\n**Komponenter:**\n' + compList,
-          'Bekr\u00e4fta och ber\u00e4kna baslinje \u2192',
-          'Skriv i chatten om n\u00e5got inte st\u00e4mmer.'
-        );
+        const summary = intakeSummary(state.project);
+        addConfirmMsg(summary.text, summary.btnLabel, summary.hint);
       } else if (state.step === 'baseline_done') {
         const total = state.baseline.components.reduce((s,c) => s + c.co2e_kg, 0);
         addConfirmMsg(
