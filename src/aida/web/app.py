@@ -3324,8 +3324,20 @@ function saveNeedsEdit() {
   renderProjektContent();
 }
 
-function renderProjektContent() {
-  const d = state.project;
+// Section renderers, split in two (orchestration-redesign §12.2, step 1).
+//
+// <name>Html(st) is pure: state in, HTML string out, no DOM. render<Name>Content()
+// keeps the old name and every call site, writes into the tab and binds events.
+// The split is what lets the same section render into a tab (Stegvis) or into
+// the sheet (Chatt) without a second copy of the markup. Nothing about the
+// output changes here; scripts/test_render_parity.js holds that to the letter.
+//
+// The pure half takes state as an argument rather than reading the global, so a
+// caller can render a snapshot. Event handlers stay in the DOM half and keep
+// reading the global `state`, because they fire later, when it has moved on.
+// `cfg` arrives in step 2, when there is something for it to vary.
+function projektHtml(st) {
+  const d = st.project;
   let html = '<div class="section-title">Projektinformation</div>';
   html += renderNeedsAnalysis(d.needs_analysis);
   html += '<div class="comp-card"><div class="comp-card-header"><h3>' + esc(d.building_type) + ', ' + esc(d.area_bta) + ' m\u00b2 BTA' + (d.name ? ' (' + esc(d.name) + ')' : '') + '</h3></div>';
@@ -3345,7 +3357,11 @@ function renderProjektContent() {
   if (d.description) {
     html += '<div class="comp-card" style="margin-top:12px"><div class="comp-card-header"><h3>Beskrivning</h3></div><div style="padding:12px 16px;font-size:13px;color:var(--kk-gray-500);line-height:1.5">' + esc(d.description) + '</div></div>';
   }
-  document.getElementById('resultContent').innerHTML = html;
+  return html;
+}
+
+function renderProjektContent() {
+  document.getElementById('resultContent').innerHTML = projektHtml(state);
   _populateNeedsTextarea();
 }
 
@@ -3402,8 +3418,8 @@ function basisLine(c) {
   return subLine(esc(b.label || 'EPD-typvärde'), txt + scope);
 }
 
-function renderBaslinjeContent() {
-  const d = state.baseline;
+function baslinjeHtml(st) {
+  const d = st.baseline;
   const total = d.components.reduce((s,c) => s + c.co2e_kg, 0);
   const cost = knownCostRollup(d.components);
   let html = '<div class="section-title">Baslinje (NollCO2-metoden)</div>';
@@ -3439,7 +3455,11 @@ function renderBaslinjeContent() {
     html += '<tr><td style="font-weight:500">' + esc(c.component_name) + materialLine + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + perUnit + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + basisLine(c) + '</td><td style="text-align:right">' + (c.cost_sek > 0 ? Math.round(c.cost_sek).toLocaleString('sv') : '<span style="color:var(--kk-gray-500)">Pris saknas</span>') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
   });
   html += '</tbody></table></div>';
-  document.getElementById('resultContent').innerHTML = html;
+  return html;
+}
+
+function renderBaslinjeContent() {
+  document.getElementById('resultContent').innerHTML = baslinjeHtml(state);
 }
 
 // Climate benefit per krona. Johanna, juni 2026: "Alternativen ska visas med
@@ -3523,12 +3543,12 @@ function formatValuePerKg(comp, alt) {
   return Math.round(v.value).toLocaleString('sv') + ' kr';
 }
 
-function renderAlternativContent() {
-  const data = state.alternatives;
+function alternativHtml(st) {
+  const data = st.alternatives;
   let html = '<div class="section-title">J\u00e4mf\u00f6relse per komponent</div>';
   html += '<div class="method-label">Klimatmetod: GWP-fossil, livscykelskedena A1-A3 (Boverkets klimatdatabas)</div>';
   html += '<div class="source-legend"><span><span class="source-badge source-verified">EPD</span> Verifierad k\u00e4lla</span><span><span class="source-badge source-aggregate">EPD-typvärde</span> Kategori-typvärde (övre halvan)</span><span><span class="source-badge source-estimate">Est.</span> Uppskattning</span></div>';
-  const projComps = (state.project && state.project.components) || [];
+  const projComps = (st.project && st.project.components) || [];
   data.components.forEach(comp => {
     const pc = projComps.find(p => p.id === comp.component_id);
     const qtyLabel = pc ? esc(pc.quantity) + ' ' + esc(pc.unit) + ' ' + quantitySourceBadge(pc.quantity_source) : '';
@@ -3536,12 +3556,12 @@ function renderAlternativContent() {
     const header = '<h3>' + esc(comp.component_name) + '</h3>' + (qtyLabel ? '<div style="font-size:12px;color:var(--kk-gray-500);margin-top:2px">Antal: ' + qtyLabel + '</div>' : '') + usageBlock;
     html += '<div class="comp-card"><div class="comp-card-header">' + header + '</div>';
     html += '<table class="comp-table"><thead><tr><th style="width:32px"></th><th>Typ</th><th>Material</th><th>K\u00e4lla</th><th style="text-align:right">CO\u2082e (kg)</th><th style="text-align:right">Kostnad</th><th style="text-align:right" title="Merkostnad delat med sparade kilo CO\u2082e. L\u00e4gst v\u00e4rde \u00f6verst.">kr/sparat kg</th><th></th></tr></thead><tbody>';
-    const blSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === 'Baslinje';
+    const blSel = st.selections[comp.component_id] && st.selections[comp.component_id].selected_alternative.name === 'Baslinje';
     // Look up the Boverket product used for this component's baseline so the
     // baseline row shows the actual material (e.g. "Gipsskiva, standardskiva").
     // Set only for genuine same-material Boverket matches; empty for EPD-typvärde
     // and LLM-uppskattning baselines.
-    const blBaselineComp = (state.baseline && state.baseline.components) ? state.baseline.components.find(b => b.component_id === comp.component_id) : null;
+    const blBaselineComp = (st.baseline && st.baseline.components) ? st.baseline.components.find(b => b.component_id === comp.component_id) : null;
     const blProduct = (blBaselineComp && blBaselineComp.boverket_product) ? blBaselineComp.boverket_product : '';
     const blSource = (blBaselineComp && blBaselineComp.source) ? blBaselineComp.source : 'NollCO2';
     const blMaterialCell = blProduct
@@ -3572,7 +3592,7 @@ function renderAlternativContent() {
         return;
       }
       const saving = comp.baseline_co2e_kg > 0 ? Math.round((1 - alt.co2e_kg / comp.baseline_co2e_kg) * 100) : 0;
-      const isSel = state.selections[comp.component_id] && state.selections[comp.component_id].selected_alternative.name === alt.name;
+      const isSel = st.selections[comp.component_id] && st.selections[comp.component_id].selected_alternative.name === alt.name;
       // Decompose total for reuse alternatives where units match (no trailing *).
       // Lets the user see e.g. "45 st \u00d7 320 kr = 14 400 kr" inline rather than
       // hidden in Visa mer \u2014 answers Johanna's "varf\u00f6r 45 lampor" without exposing
@@ -3623,7 +3643,11 @@ function renderAlternativContent() {
   html += '<div id="summaryArea"></div>';
   html += '<button class="btn" id="reportBtn" onclick="generateReport()" disabled title="V\u00e4lj ett alternativ per komponent">Generera rapport</button>';
   html += '<div id="missingHint" style="font-size:12px;color:var(--kk-gray-500);margin-top:6px;font-style:italic"></div>';
-  document.getElementById('resultContent').innerHTML = html;
+  return html;
+}
+
+function renderAlternativContent() {
+  document.getElementById('resultContent').innerHTML = alternativHtml(state);
   // Bind click handlers
   document.querySelectorAll('.alt-row').forEach(row => {
     row.onclick = function() { selectAlt(this.dataset.comp, this.dataset.alt, this); };
@@ -3631,13 +3655,17 @@ function renderAlternativContent() {
   if (Object.keys(state.selections).length > 0) updateSummary();
 }
 
-function renderRapportContent() {
-  let html = '<div class="report-area">' + renderMd(state.reportMarkdown) + '</div>';
+function rapportHtml(st) {
+  let html = '<div class="report-area">' + renderMd(st.reportMarkdown) + '</div>';
   html += '<div style="margin-top:12px;display:flex;gap:8px">';
   html += '<button class="btn" id="dlDocxBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner Word (.docx)</button>';
   html += '<button class="btn btn-secondary" id="dlBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner (.md)</button>';
   html += '</div>';
-  document.getElementById('resultContent').innerHTML = html;
+  return html;
+}
+
+function renderRapportContent() {
+  document.getElementById('resultContent').innerHTML = rapportHtml(state);
   document.getElementById('dlBtn').onclick = () => {
     const blob = new Blob([state.reportMarkdown], {type:'text/markdown'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aida-rapport.md'; a.click();
