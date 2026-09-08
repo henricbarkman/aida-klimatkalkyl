@@ -1200,6 +1200,33 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .tab.active { color: var(--kk-charcoal); border-bottom-color: var(--kk-dark-red); font-weight: 600; }
 .tab:disabled { opacity: 0.35; cursor: not-allowed; }
 
+/* === Mode switch (orchestration-redesign §12) ===
+   Deliberately NOT styled like .tab. A tab answers "which part am I looking at";
+   the mode answers "what shape is the whole thing". Giving them the same
+   underline language would claim they are the same kind of choice. This is a
+   quiet preference control, so it sits above the tabs and stays small. */
+.mode-switch { display: flex; justify-content: flex-end; gap: 2px; padding: 8px 4px 6px; flex-shrink: 0; }
+.mode-btn { padding: 4px 12px; font-size: 11.5px; font-weight: 500; font-family: inherit; color: var(--kk-gray-500); background: var(--kk-gray-100); border: 1px solid var(--kk-gray-200); cursor: pointer; transition: all 0.15s; }
+.mode-btn:first-child { border-radius: 100px 0 0 100px; }
+.mode-btn:last-child { border-radius: 0 100px 100px 0; }
+.mode-btn:hover:not(.active) { color: var(--kk-charcoal); background: var(--kk-gray-200); }
+.mode-btn.active { background: var(--kk-charcoal); border-color: var(--kk-charcoal); color: white; font-weight: 600; }
+.mode-btn:focus-visible { outline: 2px solid var(--kk-dark-red); outline-offset: 2px; }
+
+/* === Sheet (Arbetsblad) ===
+   One scrolling column. Sections are separated by space and a hairline, not by
+   boxes: the comp-cards inside are already boxes, and nesting them would read as
+   a card kit rather than a document. No numbering anywhere, because the sheet is
+   explicitly not a sequence. That is the whole difference from Stegvis. */
+.sheet { padding: 0 12px 40px; }
+.sheet-section + .sheet-section { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--kk-gray-200); }
+.sheet-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.sheet-head h2 { font-size: 13px; font-weight: 600; color: var(--kk-charcoal); letter-spacing: 0.01em; }
+.sheet-pending { font-size: 11px; color: var(--kk-gray-400); font-weight: 400; }
+.sheet-empty { border: 1px dashed var(--kk-gray-300); border-radius: 8px; padding: 18px 20px; background: white; }
+.sheet-empty p { font-size: 12.5px; color: var(--kk-gray-500); line-height: 1.5; max-width: 60ch; }
+.sheet-empty .btn { margin-top: 14px; }
+
 /* === Confirm actions in chat (legacy, kept for history rendering) === */
 .confirm-actions { display: none; }
 .confirm-hint { display: none; }
@@ -1456,6 +1483,10 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 
   <!-- Results panel -->
   <div class="results-panel" id="results">
+    <div class="mode-switch" id="modeSwitch" role="group" aria-label="Vy">
+      <button class="mode-btn active" id="mode-stepwise" onclick="setMode('stepwise')" title="Sex steg med bekr&#xE4;ftelse mellan varje">Stegvis</button>
+      <button class="mode-btn" id="mode-document" onclick="setMode('document')" title="Allt i ett ark, ingen best&#xE4;md ordning">Arbetsblad</button>
+    </div>
     <div class="results-tabs" id="resultTabs" style="display:none">
       <button class="tab" id="tab-projekt" onclick="switchTab('projekt')" disabled>Projekt</button>
       <button class="tab" id="tab-baslinje" onclick="switchTab('baslinje')" disabled>Baslinje</button>
@@ -1614,6 +1645,12 @@ let state = {
   // 'YYYY-MM-01' in the database.
   propertyRef: '',
   plannedStart: '',
+  // Which shape the analysis is shown in (orchestration-redesign §12). Not a
+  // separate code path: the same state, the same computations, the same chat,
+  // rendered by the same section functions in a different arrangement. Rides in
+  // project_data like directives do, so it is null until intake succeeds; a mode
+  // chosen before the first description lives in memory for that session only.
+  mode: 'stepwise',
   get step() { return _step; },
   set step(v) { _step = v; updatePlaceholder(); },
 };
@@ -1806,7 +1843,9 @@ const CONFIRM_BAR_CONFIG = {
 };
 function updateConfirmBar() {
   const bar = document.getElementById('confirmBar');
-  const cfg = CONFIRM_BAR_CONFIG[state.step];
+  // The sheet has no gates (§12.1): runs start from the section that is missing,
+  // so a bar saying "confirm to continue" would point at a step that isn't there.
+  const cfg = isDoc() ? null : CONFIRM_BAR_CONFIG[state.step];
   if (cfg) {
     document.getElementById('confirmBarText').textContent = cfg.text;
     const btn = document.getElementById('confirmBarBtn');
@@ -1940,14 +1979,21 @@ function intakeSummary(project) {
   return {text, btnLabel: 'Bekräfta och beräkna baslinje →', hint};
 }
 
+// The confirm block is rendered, not stored, per mode. The conversation entry
+// keeps its `confirm` either way, so switching back to Stegvis restores the
+// buttons: the mode changes the view, never the data.
+function confirmBlockHtml(btnLabel, hint) {
+  if (isDoc()) return '';
+  return '<div class="confirm-actions"><button class="btn-confirm" onclick="confirmStep()">' + btnLabel + '</button></div>' +
+         '<div class="confirm-hint">' + hint + '</div>';
+}
+
 function addConfirmMsg(text, btnLabel, hint) {
   state.conversation.push({text, cls: 'bot', confirm: {btnLabel, hint}});
   _saveConversation();
   const d = document.createElement('div');
   d.className = 'msg bot';
-  d.innerHTML = renderMd(text) +
-    '<div class="confirm-actions"><button class="btn-confirm" onclick="confirmStep()">' + btnLabel + '</button></div>' +
-    '<div class="confirm-hint">' + hint + '</div>';
+  d.innerHTML = renderMd(text) + confirmBlockHtml(btnLabel, hint);
   document.getElementById('messages').appendChild(d);
   d.scrollIntoView({behavior:'smooth'});
 }
@@ -2019,23 +2065,124 @@ function setLoading(on) {
   }
 }
 
+// === Modes (orchestration-redesign §12) ===
+//
+// A mode is a configuration of the view, not a branch of the pipeline. Labels
+// live here and nowhere else, so renaming one is a one-line change; the keys are
+// what the rest of the code and the database see. 'followup' arrives in step 5.
+const MODES = ['stepwise', 'document'];
+const MODE_LABELS = {stepwise: 'Stegvis', document: 'Arbetsblad', followup: 'Uppföljning'};
+function isDoc() { return state.mode === 'document'; }
+
+let _anyTabEnabled = false;
+
+// The furthest section that exists, in the order restoreUI already uses. Null
+// means the analysis has not started.
+function defaultTab() {
+  if (state.reportMarkdown) return 'rapport';
+  if (state.alternatives) return 'alternativ';
+  if (state.baseline) return 'baslinje';
+  if (state.project) return 'projekt';
+  return null;
+}
+
+const STEPWISE_EMPTY = '<div class="empty-state"><p>Beskriv ditt projekt i chatten till vänster för att börja.</p></div>';
+
+function setMode(m) {
+  if (MODES.indexOf(m) === -1 || m === state.mode) return;
+  state.mode = m;
+  applyModeChrome();
+  // Leaving the sheet has to go through switchTab, not refreshResults. Two
+  // reasons. With no tab current the tab view draws nothing, and the sheet would
+  // sit there under Stegvis chrome. And in the sheet switchTab returns before it
+  // touches the tab strip, so whichever tab was marked before is still marked -
+  // the pipeline may have moved on twice since. Only switchTab sets both the
+  // content and the mark, so the strip cannot claim a different section than the
+  // one on screen.
+  if (isDoc()) {
+    refreshResults();
+  } else {
+    const t = activeTab || defaultTab();
+    if (t) switchTab(t);
+    else document.getElementById('resultContent').innerHTML = STEPWISE_EMPTY;
+  }
+  updateConfirmBar();
+  scheduleAutoSave();
+}
+
+// The chrome that only Stegvis owns: the six-step rail, the tab strip and the
+// sticky gate. In the sheet they are not hidden decoration but claims that would
+// be false - there is no current step, no current tab, and nothing to confirm.
+function applyModeChrome() {
+  MODES.forEach(m => {
+    const b = document.getElementById('mode-' + m);
+    if (b) b.classList.toggle('active', m === state.mode);
+  });
+  const doc = isDoc();
+  const tabs = document.getElementById('resultTabs');
+  if (tabs) tabs.style.display = (!doc && _anyTabEnabled) ? 'flex' : 'none';
+  const rail = document.querySelector('.progress-bar');
+  if (rail) rail.style.display = doc ? 'none' : '';
+}
+
+function sectionExists(tab) {
+  if (tab === 'projekt') return !!state.project;
+  if (tab === 'baslinje') return !!state.baseline;
+  if (tab === 'alternativ') return !!state.alternatives;
+  if (tab === 'rapport') return !!state.reportMarkdown;
+  return false;
+}
+
+// One place that re-renders whatever is currently on screen. Callers that used
+// to test activeTab themselves now ask for this instead, so adding a mode does
+// not mean finding every re-render site again.
+function refreshResults() {
+  if (isDoc()) { renderSheet(); return; }
+  // A rerun can invalidate the very section being looked at: a full baseline
+  // rerun nulls alternatives, the report, and every selection. Rendering nothing
+  // would leave the old table sitting there with its radio buttons ticked,
+  // describing choices that no longer exist. Fall back to the furthest section
+  // that still does. (The old code called the renderer unguarded here, which
+  // threw on the null and left the same stale table, minus the fallback.)
+  if (!sectionExists(activeTab)) {
+    const t = defaultTab();
+    if (t) switchTab(t);
+    else document.getElementById('resultContent').innerHTML = STEPWISE_EMPTY;
+    return;
+  }
+  if (activeTab === 'projekt') renderProjektContent();
+  else if (activeTab === 'baslinje') renderBaslinjeContent();
+  else if (activeTab === 'alternativ') renderAlternativContent();
+  else if (activeTab === 'rapport') renderRapportContent();
+}
+
 // === Tab system ===
 function enableTab(name) {
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.disabled = false;
-  document.getElementById('resultTabs').style.display = 'flex';
+  _anyTabEnabled = true;
+  if (!isDoc()) document.getElementById('resultTabs').style.display = 'flex';
 }
 
 function switchTab(name) {
   activeTab = name;
+  // In the sheet every section is already on screen, so "switch to baslinje"
+  // means "take me there". The pipeline calls this when a run finishes, which is
+  // exactly when the user wants to be moved to the result.
+  if (isDoc()) { renderSheet(); scrollToSection(name); return; }
   document.querySelectorAll('.results-tabs .tab').forEach(t => t.classList.remove('active'));
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.classList.add('active');
-  // Render from state
-  if (name === 'projekt' && state.project) renderProjektContent();
-  else if (name === 'baslinje' && state.baseline) renderBaslinjeContent();
-  else if (name === 'alternativ' && state.alternatives) renderAlternativContent();
-  else if (name === 'rapport' && state.reportMarkdown) renderRapportContent();
+  refreshResults();
+}
+
+function scrollToSection(key) {
+  const el = document.getElementById('sheet-' + key);
+  if (!el) return;
+  // The move is worth animating: it shows the reader where they were taken. But
+  // it is motion nobody asked for, so it obeys the system setting.
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'start'});
 }
 
 // === Chat input ===
@@ -2814,8 +2961,7 @@ async function runBaselineForComponents(componentIds, reason, orchestrated) {
       invalidateDownstreamFor(new Set(componentIds));
     }
     scheduleAutoSave();
-    if (activeTab === 'baslinje') renderBaslinjeContent();
-    else if (activeTab === 'alternativ') renderAlternativContent();
+    refreshResults();
     addMsg('Baslinje uppdaterad' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
     notifyStepDone('baseline_rerun', true, isFull ? null : componentIds.join(', '));
   } catch (e) {
@@ -2872,7 +3018,7 @@ async function runAlternativesForComponents(componentIds, userFeedback, reason, 
     reportReconcile(reconcileSelections(isFull ? null : componentIds));
     state.reportMarkdown = null;
     scheduleAutoSave();
-    if (activeTab === 'alternativ') renderAlternativContent();
+    refreshResults();
     addMsg('Alternativ uppdaterade' + (isFull ? '' : ' för ' + componentIds.join(', ')) + '.', 'system');
     notifyStepDone('alternatives_rerun', true, isFull ? null : componentIds.join(', '));
   } catch (e) {
@@ -3006,10 +3152,7 @@ function applyAgentStateUpdates(updates) {
   }
 
   if (touched) {
-    // Re-render active tab to reflect changes.
-    if (activeTab === 'projekt' && state.project) renderProjektContent();
-    else if (activeTab === 'baslinje' && state.baseline) renderBaslinjeContent();
-    else if (activeTab === 'alternativ' && state.alternatives) renderAlternativContent();
+    refreshResults();
     scheduleAutoSave();
   }
 
@@ -3336,9 +3479,12 @@ function saveNeedsEdit() {
 // caller can render a snapshot. Event handlers stay in the DOM half and keep
 // reading the global `state`, because they fire later, when it has moved on.
 // `cfg` arrives in step 2, when there is something for it to vary.
-function projektHtml(st) {
+// cfg.hideTitle: the sheet prints the section name in its own header, so the
+// renderer must not print it a second time. Absent cfg means the tab view, which
+// is what every existing caller wants and what the parity test pins.
+function projektHtml(st, cfg) {
   const d = st.project;
-  let html = '<div class="section-title">Projektinformation</div>';
+  let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">Projektinformation</div>';
   html += renderNeedsAnalysis(d.needs_analysis);
   html += '<div class="comp-card"><div class="comp-card-header"><h3>' + esc(d.building_type) + ', ' + esc(d.area_bta) + ' m\u00b2 BTA' + (d.name ? ' (' + esc(d.name) + ')' : '') + '</h3></div>';
   html += '<table class="comp-table"><thead><tr><th>Komponent</th><th>Antal</th><th>Enhet</th><th>Kategori</th><th>K\u00e4lla</th></tr></thead><tbody>';
@@ -3418,11 +3564,11 @@ function basisLine(c) {
   return subLine(esc(b.label || 'EPD-typvärde'), txt + scope);
 }
 
-function baslinjeHtml(st) {
+function baslinjeHtml(st, cfg) {
   const d = st.baseline;
   const total = d.components.reduce((s,c) => s + c.co2e_kg, 0);
   const cost = knownCostRollup(d.components);
-  let html = '<div class="section-title">Baslinje (NollCO2-metoden)</div>';
+  let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">Baslinje (NollCO2-metoden)</div>';
   html += '<div class="method-label">Klimatmetod: GWP-fossil, livscykelskedena A1-A3 (Boverkets klimatdatabas)</div>';
   html += '<div class="source-legend"><span><span class="source-badge source-verified">EPD</span> Verifierad k\u00e4lla</span><span><span class="source-badge source-aggregate">EPD-typvärde</span> Kategori-typvärde (övre halvan)</span><span><span class="source-badge source-estimate">Est.</span> Uppskattning</span></div>';
   html += '<div class="summary">';
@@ -3543,9 +3689,9 @@ function formatValuePerKg(comp, alt) {
   return Math.round(v.value).toLocaleString('sv') + ' kr';
 }
 
-function alternativHtml(st) {
+function alternativHtml(st, cfg) {
   const data = st.alternatives;
-  let html = '<div class="section-title">J\u00e4mf\u00f6relse per komponent</div>';
+  let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">J\u00e4mf\u00f6relse per komponent</div>';
   html += '<div class="method-label">Klimatmetod: GWP-fossil, livscykelskedena A1-A3 (Boverkets klimatdatabas)</div>';
   html += '<div class="source-legend"><span><span class="source-badge source-verified">EPD</span> Verifierad k\u00e4lla</span><span><span class="source-badge source-aggregate">EPD-typvärde</span> Kategori-typvärde (övre halvan)</span><span><span class="source-badge source-estimate">Est.</span> Uppskattning</span></div>';
   const projComps = (st.project && st.project.components) || [];
@@ -3646,13 +3792,19 @@ function alternativHtml(st) {
   return html;
 }
 
-function renderAlternativContent() {
-  document.getElementById('resultContent').innerHTML = alternativHtml(state);
-  // Bind click handlers
+// The bindings live apart from the two callers (tab and sheet) so the markup has
+// one owner and the handlers have one owner. A second copy is how the sheet and
+// the tab would quietly drift apart, which is the thing §12 exists to prevent.
+function bindAltRows() {
   document.querySelectorAll('.alt-row').forEach(row => {
     row.onclick = function() { selectAlt(this.dataset.comp, this.dataset.alt, this); };
   });
-  if (Object.keys(state.selections).length > 0) updateSummary();
+  if (state.alternatives && Object.keys(state.selections).length > 0) updateSummary();
+}
+
+function renderAlternativContent() {
+  document.getElementById('resultContent').innerHTML = alternativHtml(state);
+  bindAltRows();
 }
 
 function rapportHtml(st) {
@@ -3666,6 +3818,11 @@ function rapportHtml(st) {
 
 function renderRapportContent() {
   document.getElementById('resultContent').innerHTML = rapportHtml(state);
+  bindReportDownloads();
+}
+
+function bindReportDownloads() {
+  if (!document.getElementById('dlBtn')) return;
   document.getElementById('dlBtn').onclick = () => {
     const blob = new Blob([state.reportMarkdown], {type:'text/markdown'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aida-rapport.md'; a.click();
@@ -3682,6 +3839,75 @@ function renderRapportContent() {
     } catch(e) { alert('Fel: ' + e.message); }
     finally { btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Ladda ner Word (.docx)'; }
   };
+}
+
+// === The sheet (Arbetsblad, orchestration-redesign §12.2) ===
+//
+// Same four section renderers as the tabs, stacked in one column instead of
+// hidden behind each other. The section list is data, so a fifth section (or the
+// follow-up set in step 5) is a row here rather than a new render function.
+//
+// `ready` is what has to be true before the run can start, and it is the reason
+// the empty state can offer a button at all: an empty section with no way to
+// fill it would just be a scold. `action` is null when the prerequisite is
+// missing, and then the text alone says what is needed.
+const SHEET_SECTIONS = [
+  {key: 'projekt', title: 'Projektinformation', html: projektHtml,
+   has: st => !!st.project,
+   empty: 'Beskriv projektet i chatten, så förs det in här: byggnad, yta, och vad som ska göras.',
+   ready: () => false, action: null},
+  {key: 'baslinje', title: 'Baslinje (NollCO2-metoden)', html: baslinjeHtml,
+   has: st => !!st.baseline,
+   empty: 'Baslinjen räknas fram ur projektets komponenter och visar utsläppen om allt byggs nytt.',
+   ready: st => !!st.project, action: {label: 'Räkna baslinje', fn: 'runBaseline'}},
+  {key: 'alternativ', title: 'Jämförelse per komponent', html: alternativHtml,
+   has: st => !!st.alternatives,
+   empty: 'Aida söker återbruk och lägre nyproduktion per komponent, och jämför mot baslinjen.',
+   ready: st => !!st.baseline, action: {label: 'Sök alternativ', fn: 'runAlternatives'}},
+  {key: 'rapport', title: 'Rapport', html: rapportHtml,
+   has: st => !!st.reportMarkdown,
+   empty: 'Rapporten skrivs när varje komponent har ett val.',
+   ready: st => !!(st.alternatives && st.alternatives.components.length
+                   && st.alternatives.components.every(c => st.selections[c.component_id])),
+   action: {label: 'Generera rapport', fn: 'generateReport'}},
+];
+
+// Stegvis disables its confirm button synchronously, before any await, because
+// the click starts minutes of work. The sheet needs the same: it is not redrawn
+// until the run returns, so a second click would start a second pipeline against
+// the same analysis. The redraw discards this disabled state, which is correct.
+function sheetAction(btn, fn) {
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+  maybeAskForNotifications();
+  window[fn]();
+}
+
+function sheetHtml(st) {
+  let html = '<div class="sheet">';
+  SHEET_SECTIONS.forEach(sec => {
+    const filled = sec.has(st);
+    html += '<section class="sheet-section" id="sheet-' + sec.key + '">';
+    html += '<div class="sheet-head"><h2>' + esc(sec.title) + '</h2>'
+          + (filled ? '' : '<span class="sheet-pending">väntar</span>') + '</div>';
+    if (filled) {
+      html += sec.html(st, {hideTitle: true});
+    } else {
+      const act = sec.ready(st) ? sec.action : null;
+      html += '<div class="sheet-empty"><p>' + esc(sec.empty) + '</p>'
+            + (act ? '<button class="btn" onclick="sheetAction(this, \'' + act.fn + '\')">' + esc(act.label) + '</button>' : '')
+            + '</div>';
+    }
+    html += '</section>';
+  });
+  return html + '</div>';
+}
+
+function renderSheet() {
+  document.getElementById('resultContent').innerHTML = sheetHtml(state);
+  _populateNeedsTextarea();
+  bindAltRows();
+  bindReportDownloads();
 }
 
 // === Selection handling ===
@@ -3846,7 +4072,8 @@ async function autoSave() {
   // Spread so we never mutate the working state.project object.
   const projectDataToSave = state.project
     ? Object.assign({}, state.project, {directives: state.directives,
-                                        selection_intent: state.selectionIntent})
+                                        selection_intent: state.selectionIntent,
+                                        mode: state.mode})
     : null;
   const analysisData = {
     // Falls back to the property before 'Nytt projekt': someone who names the
@@ -3911,6 +4138,11 @@ if (HAS_SUPABASE && SUPABASE_URL && SUPABASE_ANON_KEY) {
 
 // Reflect persisted sound preference in the toggle label on load.
 updateSoundToggle();
+
+// The mode buttons ship with Stegvis marked active in the markup; this keeps
+// that honest if the default ever changes, and hides the step rail when an
+// analysis loads straight into the sheet.
+applyModeChrome();
 
 async function initAuth() {
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -4135,6 +4367,12 @@ async function loadAnalysis(id) {
       ? state.project.selection_intent : {};
     if (state.project && 'selection_intent' in state.project) delete state.project.selection_intent;
     backfillIntent();
+    // Same piggyback for the mode. Anything unrecognised (an older analysis, a
+    // key from a mode that no longer exists) falls back to Stegvis rather than
+    // leaving the view in a shape nothing can render.
+    const savedMode = state.project && state.project.mode;
+    state.mode = MODES.indexOf(savedMode) === -1 ? 'stepwise' : savedMode;
+    if (state.project && 'mode' in state.project) delete state.project.mode;
     document.getElementById('projectName').textContent = data.name || 'Nytt projekt';
     restoreUI();
     await loadAnalysesList();
@@ -4149,6 +4387,8 @@ function restoreUI() {
   document.querySelectorAll('.step-circle').forEach((c, i) => { c.className = 'step-circle'; c.textContent = i + 1; });
   document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
 
+  applyModeChrome();
+
   if (state.project) { enableTab('projekt'); setProgressStep('planering'); }
   if (state.baseline) { enableTab('baslinje'); setProgressStep('baslinje'); }
   if (state.alternatives) { enableTab('alternativ'); setProgressStep('sammanstallning'); }
@@ -4156,6 +4396,10 @@ function restoreUI() {
   else if (state.alternatives) { switchTab('alternativ'); }
   else if (state.baseline) { switchTab('baslinje'); }
   else if (state.project) { switchTab('projekt'); }
+  // An empty analysis has nothing to switch to, but the sheet still has four
+  // sections to show and one of them says how to start. The tab view keeps its
+  // own empty state, which is the same sentence in a different place.
+  else if (isDoc()) { renderSheet(); }
 
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
