@@ -13,9 +13,17 @@ No LLM, no HTTP, no DOM. Every handler takes the four state bags plus a list of
 pending actions, mutates them in place, and returns (message, ok, touched_bags).
 That signature is what lets this module move behind /api/turn (design §3)
 unchanged when the orchestrator arrives.
+
+Overrides (§12.5) are a fifth bag, and they are not like the other four: they are
+not computed, they are claimed. `run_handler` is where that difference is
+enforced - it is the seam both doors pass through, so a manual figure cannot
+survive a change to the component it was a claim about, whichever door made the
+change.
 """
 
 from __future__ import annotations
+
+from aida import overrides as overrides_mod
 
 
 def _find_component(project, component_id):
@@ -369,6 +377,59 @@ def _apply_rerun_alternatives(inp, project, baseline, alternatives, selections, 
     return f"Begärt: kör om alternativen för {scope}. Orsak: {reason}.{feedback_note}", True, set()
 
 
+def _apply_set_override(inp, project, overrides):
+    """Pin a derived figure to one the user has a source for (§12.5)."""
+    cid = inp.get("component_id")
+    comp = _find_component(project, cid)
+    if not comp:
+        return f"Komponent {cid} finns inte i projektet.", False, set()
+
+    field = inp.get("field")
+    one, err = overrides_mod.normalize(field, inp.get("value"), inp.get("note"))
+    if err:
+        return f"Ingen överskrivning: {err}", False, set()
+
+    overrides.setdefault(cid, {})[field] = one
+    label = overrides_mod._FIELD_LABELS[field]
+    return (
+        f"{label} för {comp.get('name')} är satt till {one['value']:,.0f} manuellt. "
+        f"Anteckning: {one['note']}. Det beräknade värdet finns kvar och visas igen "
+        f"om du tar bort överskrivningen.",
+        True,
+        {"overrides"},
+    )
+
+
+def _apply_clear_override(inp, project, overrides):
+    """Lift an override. The computed figure was never overwritten, so it returns."""
+    cid = inp.get("component_id")
+    comp = _find_component(project, cid)
+    name = comp.get("name") if comp else cid
+    field = inp.get("field")
+
+    if field:
+        if field not in overrides_mod.OVERRIDE_FIELDS:
+            return f"Okänt fält: {field}", False, set()
+        entry = overrides.get(cid) or {}
+        if field not in entry:
+            return f"{name} har ingen överskrivning på {field}.", False, set()
+        del entry[field]
+        if not entry:
+            overrides.pop(cid, None)
+        label = overrides_mod._FIELD_LABELS[field]
+        return f"Överskrivningen av {label.lower()} för {name} är borttagen. Aidas beräknade värde gäller igen.", True, {"overrides"}
+
+    dropped = overrides_mod.drop_for_component(overrides, cid)
+    if not dropped:
+        return f"{name} har inga överskrivningar.", False, set()
+    return (
+        f"Överskrivningarna för {name} är borttagna ({', '.join(dropped).lower()}). "
+        f"Aidas beräknade värden gäller igen.",
+        True,
+        {"overrides"},
+    )
+
+
 HANDLERS = {
     "update_component": _apply_update_component,
     "add_component": _apply_add_component,
@@ -378,10 +439,71 @@ HANDLERS = {
     "rerun_alternatives": _apply_rerun_alternatives,
 }
 
+# Kept apart because they take the overrides bag instead of the four computed
+# ones. Everything else about them is the same, and `run_handler` below is what
+# both doors actually call, so the split is not visible to callers.
+OVERRIDE_HANDLERS = {
+    "set_override": _apply_set_override,
+    "clear_override": _apply_clear_override,
+}
+
+# A mutation that changes what a component IS, or removes it, makes any manual
+# figure for it a claim about something that no longer exists. select_alternative
+# is not in the list: it changes what was chosen, not what the baseline is.
+_OVERRIDE_INVALIDATING = ("update_component", "remove_component")
+
+
+def _drop_stale_overrides(tool, inp, overrides) -> str:
+    """Forget overrides whose component just changed underneath them.
+
+    Loud rather than silent, and dropped rather than rescaled. A förvaltare who
+    pinned 213 kg from a supplier EPD pinned it for that material at that
+    quantity; scaling it would put a number they never wrote under their own
+    source, which is worse than asking them to enter it again.
+    """
+    if tool not in _OVERRIDE_INVALIDATING:
+        return ""
+    dropped = overrides_mod.drop_for_component(overrides, inp.get("component_id"))
+    if not dropped:
+        return ""
+    return (
+        f"Överskrivningen av {', '.join(dropped).lower()} togs bort, "
+        f"eftersom den gällde komponenten som den såg ut innan."
+    )
+
+
+def run_handler(tool, inp, project, baseline, alternatives, selections,
+                pending_actions, overrides=None):
+    """The one seam both doors pass through.
+
+    The chat loop needs the per-call touched set and cannot go through
+    `apply_mutation`, so without this the override lifecycle would live on the
+    cell side only and the two doors would disagree about when a manual figure
+    stops being true. That is the exact failure the extraction in step 3 was for.
+    """
+    if tool in OVERRIDE_HANDLERS:
+        if overrides is None:
+            return f"{tool} kräver överskrivningar i anropet.", False, set()
+        return OVERRIDE_HANDLERS[tool](inp, project, overrides)
+
+    handler = HANDLERS.get(tool)
+    if handler is None:
+        return f"Okänt verktyg: {tool}", False, set()
+
+    message, ok, touched = handler(
+        inp, project, baseline, alternatives, selections, pending_actions,
+    )
+    if ok and overrides is not None:
+        note = _drop_stale_overrides(tool, inp, overrides)
+        if note:
+            message = f"{message} {note}"
+            touched = set(touched) | {"overrides"}
+    return message, ok, touched
+
 
 def build_state_updates(
     touched: set[str], project, baseline, alternatives, selections,
-    pending_actions: list[dict] | None = None,
+    pending_actions: list[dict] | None = None, overrides=None,
 ) -> dict:
     updates: dict = {}
     if "project" in touched:
@@ -392,6 +514,8 @@ def build_state_updates(
         updates["alternatives"] = alternatives
     if "selections" in touched:
         updates["selections"] = selections
+    if "overrides" in touched:
+        updates["overrides"] = overrides if overrides is not None else {}
     if pending_actions:
         updates["pending_actions"] = pending_actions
     return updates
@@ -445,15 +569,14 @@ def _queue_reruns(tool, inp, project, before_ids, before_component, pending_acti
 
 
 def apply_mutation(tool, inp, project, baseline, alternatives, selections,
-                   auto_rerun: bool = False) -> dict:
+                   auto_rerun: bool = False, overrides=None) -> dict:
     """Run one mutation and report what changed. The door /api/mutate comes in by.
 
     `auto_rerun` is what separates a cell edit from a chat tool call. The model is
     told to follow a material change with scoped reruns; a cell has nobody to tell,
     so it asks for them here.
     """
-    handler = HANDLERS.get(tool)
-    if handler is None:
+    if tool not in HANDLERS and tool not in OVERRIDE_HANDLERS:
         return {"ok": False, "message": f"Okänt verktyg: {tool}", "state_updates": {}}
 
     before_ids = _component_ids(project)
@@ -463,8 +586,9 @@ def apply_mutation(tool, inp, project, baseline, alternatives, selections,
         before_component = dict(found) if found else None
 
     pending_actions: list[dict] = []
-    message, ok, touched = handler(
-        inp, project, baseline, alternatives, selections, pending_actions,
+    message, ok, touched = run_handler(
+        tool, inp, project, baseline, alternatives, selections, pending_actions,
+        overrides=overrides,
     )
 
     if ok and auto_rerun:
@@ -475,5 +599,6 @@ def apply_mutation(tool, inp, project, baseline, alternatives, selections,
         "message": message,
         "state_updates": build_state_updates(
             touched, project, baseline, alternatives, selections, pending_actions,
+            overrides=overrides,
         ),
     }

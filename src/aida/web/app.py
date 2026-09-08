@@ -528,10 +528,16 @@ def api_alternatives():
 @app.route('/api/aggregate', methods=['POST'])
 @require_auth
 def api_aggregate():
+    from aida.overrides import apply_to_selections_payload
+
     data = request.json or {}
     try:
         project = Project.from_dict(data.get('project', {}))
-        selections = Selections.from_dict(data.get('selections', {}))
+        # Laid on before the model classes are built, because Selections.from_dict
+        # drops keys it does not know and an override that vanished here would
+        # produce a total that quietly disagrees with the sheet on screen.
+        payload = apply_to_selections_payload(data.get('selections', {}), data.get('overrides'))
+        selections = Selections.from_dict(payload)
         result = compute_aggregate(project, selections)
         return jsonify(result.to_dict())
     except Exception as e:
@@ -541,13 +547,23 @@ def api_aggregate():
 @app.route('/api/report', methods=['POST'])
 @require_auth
 def api_report():
+    from aida.overrides import apply_to_selections_payload
+
     data = request.json or {}
     try:
         project = Project.from_dict(data.get('project', {}))
-        selections = Selections.from_dict(data.get('selections', {}))
+        overrides = data.get('overrides') or {}
+        payload = apply_to_selections_payload(data.get('selections', {}), overrides)
+        selections = Selections.from_dict(payload)
         if not selections.components:
             return jsonify({'error': 'Inga komponenter valda'}), 400
-        markdown = generate_report_markdown(project, selections)
+        # The overrides go in twice on purpose: once folded into the figures, so
+        # every total is the one on screen, and once as a list, so the report can
+        # say which numbers are not Aida's own. Word gets nothing but the
+        # markdown, so a marking that is not in the text does not exist.
+        markdown = generate_report_markdown(
+            project, selections, overrides=data.get('overrides'),
+        )
         return jsonify({'markdown': markdown})
     except _TIMEOUT_ERRORS:
         return jsonify({'error': 'Rapportgenereringen tog för lång tid. Försök igen.'}), 504
@@ -680,7 +696,15 @@ def api_report_docx():
                 text = re.sub(r'^\d+\.\s', '', stripped)
                 _add_rich_paragraph(text, style_name='List Number')
             elif stripped.startswith('|') and '|' in stripped[1:]:
-                cells = [c.strip() for c in stripped.split('|')[1:-1]]
+                # Split on unescaped pipes only. A "|" inside a cell is written
+                # as "\|" by report.cell(), because a row that splits into the
+                # wrong number of cells used to be dropped without a word - and
+                # the rows most likely to contain a pipe are the appendix rows
+                # that disclose a figure is not Aida's.
+                cells = [
+                    c.strip().replace('\\|', '|')
+                    for c in re.split(r'(?<!\\)\|', stripped)[1:-1]
+                ]
                 # Skip separator rows (|---|---|)
                 if cells and all(set(c) <= {'-', ':', ' '} for c in cells):
                     continue
@@ -690,7 +714,15 @@ def api_report_docx():
                         active_table.style = 'Table Grid'
                         active_table.alignment = WD_TABLE_ALIGNMENT.CENTER
                         table_is_first_row = True
-                    if len(cells) == len(active_table.columns):
+                    # Fit rather than drop. A row we cannot place is still a row
+                    # the reader was meant to see, so a mismatch loses at most
+                    # the layout, never the disclosure.
+                    ncols = len(active_table.columns)
+                    if len(cells) > ncols:
+                        cells = cells[:ncols - 1] + [' '.join(cells[ncols - 1:])]
+                    elif len(cells) < ncols:
+                        cells = cells + [''] * (ncols - len(cells))
+                    if len(cells) == ncols:
                         row = active_table.add_row()
                         for i, cell_text in enumerate(cells):
                             cell_text = re.sub(r'\*\*(.+?)\*\*', r'\1', cell_text)
@@ -808,6 +840,7 @@ def api_chat():
             baseline=data.get('baseline'),
             alternatives=data.get('alternatives'),
             selections=data.get('selections'),
+            overrides=data.get('overrides'),
         )
         return jsonify(result)
     except _TIMEOUT_ERRORS:
@@ -821,7 +854,8 @@ def api_chat():
 # and rerun_alternatives exist to let the *model* queue work, and exposing them
 # here would let a crafted request ask for a full recompute of everything, which
 # is the one operation that costs every other component its choices.
-_CELL_TOOLS = ('update_component', 'add_component', 'remove_component', 'select_alternative')
+_CELL_TOOLS = ('update_component', 'add_component', 'remove_component', 'select_alternative',
+               'set_override', 'clear_override')
 
 
 @app.route('/api/mutate', methods=['POST'])
@@ -853,7 +887,8 @@ def api_mutate():
     # rest may legitimately be absent on an analysis that has not got that far.
     if not isinstance(data.get('project'), dict):
         return jsonify({'error': 'project måste vara ett objekt.'}), 400
-    for bag, kind in (('baseline', dict), ('alternatives', dict), ('selections', dict)):
+    for bag, kind in (('baseline', dict), ('alternatives', dict), ('selections', dict),
+                      ('overrides', dict)):
         value = data.get(bag)
         if value is not None and not isinstance(value, kind):
             return jsonify({'error': f'{bag} måste vara ett objekt eller saknas.'}), 400
@@ -869,6 +904,7 @@ def api_mutate():
             # A cell has no model to follow the prompt's mandatory rerun pattern,
             # so the module applies it instead.
             auto_rerun=True,
+            overrides=data.get('overrides') or {},
         )
         return jsonify(result)
     except Exception as e:
@@ -1188,6 +1224,27 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .source-verified { background: #F0E0E0; color: var(--kk-burgundy); }
 .source-aggregate { background: #FFE9D6; color: #7A4810; }
 .source-estimate { background: var(--kk-gold-light); color: #8B6914; }
+/* The only outlined badge on the page. Every source badge is a filled warm pill
+   because every source is one of ours; this number is not, and the difference is
+   a category rather than a shade. §12.5. */
+.source-manual { background: transparent; color: var(--kk-charcoal); border: 1px solid var(--kk-charcoal); }
+/* The figure itself is the affordance, so a dense numeric column does not gain
+   an icon per row. */
+.override-open { border-bottom: 1px dotted var(--kk-gray-400); cursor: pointer; }
+.override-open:hover { border-bottom-color: var(--kk-dark-red); }
+.override-row td { background: var(--kk-gray-50); border-top: none; }
+.override-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding: 4px 0 6px; text-align: left; }
+.override-form label { font-size: 10px; font-weight: 500; color: var(--kk-gray-500); letter-spacing: 0.6px; text-transform: uppercase; display: block; margin-bottom: 3px; }
+.override-form input { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--kk-gray-300); border-radius: 4px; background: white; }
+.override-form input:focus { outline: none; border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.12); }
+.override-form .ov-note { flex: 1 1 280px; min-width: 200px; }
+.override-form .ov-value { width: 130px; }
+.override-form .ov-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+/* Lifting an override is neither the primary action nor a sibling of Avbryt, so
+   it reads as a text link rather than a third chip. */
+.override-form .ov-clear { border-color: transparent; text-decoration: underline; padding-left: 4px; }
+.override-hint { flex-basis: 100%; font-size: 11px; color: var(--kk-gray-500); }
+.override-hint.bad { color: var(--kk-red-orange); }
 .source-legend { display: flex; gap: 16px; margin: 4px 0 12px; font-size: 12px; color: var(--kk-gray-500); }
 .method-label { margin: 4px 0 8px; font-size: 11px; color: var(--kk-gray-500); font-style: italic; }
 
@@ -1730,6 +1787,14 @@ let state = {
   // project_data like directives do, so it is null until intake succeeds; a mode
   // chosen before the first description lives in memory for that session only.
   mode: 'stepwise',
+  // Orchestration §12.5: figures the user has a source for, laid on top of the
+  // computed ones. Keyed by component id, then by field:
+  //   overrides.c1.baseline_co2e = {value, note, at}
+  // Never written into baseline/alternatives/selections. Reruns compute their
+  // own figure as usual and this is applied afterwards at read time, which is
+  // why an override survives every rerun and why lifting one shows Aida's number
+  // again without recomputing anything. Rides in project_data beside `mode`.
+  overrides: {},
   get step() { return _step; },
   set step(v) { _step = v; updatePlaceholder(); },
 };
@@ -2490,6 +2555,10 @@ async function runIntake(desc) {
     state.directives.byComponent = {};
     // Same reason, same fix for selection intent: it is keyed on component id.
     state.selectionIntent = {};
+    // And for overrides, which are keyed the same way. A manual figure that
+    // survived a re-intake would attach itself to whatever component happened to
+    // get that id next, which is the one failure this feature must not have.
+    state.overrides = {};
     state.step = 'intake_done';
     notifyStepDone('intake', true);
     if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.name || d.building_type || 'Nytt projekt'; }
@@ -2546,12 +2615,8 @@ async function runBaseline() {
     switchTab('baslinje');
     ['alternativ','rapport'].forEach(t => { const el = document.getElementById('tab-'+t); if(el) el.disabled = true; });
 
-    const total = d.components.reduce((s,c) => s + c.co2e_kg, 0);
-    addConfirmMsg(
-      'Baslinje klar: **' + Math.round(total).toLocaleString('sv') + ' kg CO\u2082e** totalt f\u00f6r ' + d.components.length + ' komponenter.',
-      'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
-      'Skriv i chatten om du vill korrigera n\u00e5got.'
-    );
+    addConfirmMsg(baselineDoneMsg(), 'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
+                  'Skriv i chatten om du vill korrigera n\u00e5got.');
     setLoading(false);
   } catch(e) {
     addMsg('Fel: ' + e.message, 'system');
@@ -2843,7 +2908,11 @@ async function generateReport() {
   setLoading(true);
   try {
     const sels = {components: Object.values(state.selections)};
-    const r = await authFetch('/api/report', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project, selections: sels})});
+    // The raw selections plus the overrides, not the overridden ones: the
+    // server lays them on with the same function the report's appendix is
+    // built from, so the totals and the list of manual figures cannot
+    // disagree about which numbers were replaced.
+    const r = await authFetch('/api/report', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project: state.project, selections: sels, overrides: state.overrides})});
     const d = await r.json();
     if (d.error) {
       addMsg('Fel: ' + d.error, 'system');
@@ -2906,6 +2975,10 @@ async function runChat(text, userEntry) {
       baseline: state.baseline || null,
       alternatives: state.alternatives || null,
       selections: (state.selections && Object.keys(state.selections).length) ? state.selections : null,
+      // So Aida talks about the figures the user is looking at, and so a
+      // material change made in the chat drops a stale manual figure exactly
+      // as the same change made in a cell does.
+      overrides: state.overrides,
     };
     const r = await authFetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body)});
@@ -3233,6 +3306,14 @@ function applyAgentStateUpdates(updates) {
     // The agent writes the bag wholesale; adopt it as intent so a later rerun
     // can carry it (increment 3).
     backfillIntent();
+    touched = true;
+  }
+  // Tested for presence rather than truthiness: clearing the last override
+  // returns {}, and `if (updates.overrides)` would keep the one the user just
+  // removed. The four bags above are never legitimately empty, so the same trap
+  // is not there.
+  if (Object.prototype.hasOwnProperty.call(updates, 'overrides')) {
+    state.overrides = updates.overrides || {};
     touched = true;
   }
 
@@ -3724,7 +3805,8 @@ async function sendMutation(tool, input) {
     const r = await authFetch('/api/mutate', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({tool, input, project: state.project, baseline: state.baseline,
-                            alternatives: state.alternatives, selections: state.selections}),
+                            alternatives: state.alternatives, selections: state.selections,
+                            overrides: state.overrides}),
     });
     const d = await r.json();
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); refreshResults(); return; }
@@ -3762,6 +3844,219 @@ async function sendMutation(tool, input) {
     _mutationInFlight = false;
     setCellsDisabled(cellsLocked());
   }
+}
+
+// === Overrides (orchestration-redesign §12.5) ===
+//
+// Twin of `apply` in src/aida/overrides.py. It exists because the view renders
+// without asking the server, and the report is written without asking the
+// browser; there is no single runtime both read from. The twin is allowed,
+// drifting is not: scripts/test_overrides_agree.js runs the same fixtures
+// through both and requires identical output.
+//
+// The same baseline figure lives in four places at once - the baseline bag, the
+// alternatives bag's baseline row, the selection's baseline field, and the
+// selected alternative itself when the user chose "Baslinje". One override has
+// to reach all four, or the sheet contradicts itself half a screen apart.
+const OVERRIDE_FIELDS = ['baseline_co2e', 'baseline_cost'];
+const OVERRIDE_NOTE_MAX = 120;
+const OVERRIDE_LABELS = {baseline_co2e: 'Baslinje CO₂e', baseline_cost: 'Baslinje kostnad'};
+
+function overrideOf(cid, field) {
+  const entry = state.overrides && state.overrides[cid];
+  const one = entry && entry[field];
+  return (one && one.value !== undefined && one.value !== null) ? one : null;
+}
+
+function hasOverrides(ov) {
+  if (!ov) return false;
+  return Object.keys(ov).some(cid => OVERRIDE_FIELDS.some(f => {
+    const one = ov[cid] && ov[cid][f];
+    return one && one.value !== undefined && one.value !== null;
+  }));
+}
+
+// Returns a state-shaped object with the overrides laid on. Never mutates the
+// argument: the stored bags stay exactly what the pipeline produced, which is
+// what makes "what would Aida have said?" answerable at any point.
+function effectiveState(st) {
+  const ov = st.overrides;
+  if (!hasOverrides(ov)) return st;
+  const out = Object.assign({}, st);
+  out.baseline = st.baseline ? JSON.parse(JSON.stringify(st.baseline)) : st.baseline;
+  out.alternatives = st.alternatives ? JSON.parse(JSON.stringify(st.alternatives)) : st.alternatives;
+  out.selections = st.selections ? JSON.parse(JSON.stringify(st.selections)) : st.selections;
+
+  Object.keys(ov).forEach(cid => {
+    const co2e = (ov[cid] && ov[cid].baseline_co2e) || null;
+    const cost = (ov[cid] && ov[cid].baseline_cost) || null;
+    if (!co2e && !cost) return;
+
+    if (out.baseline && out.baseline.components) {
+      out.baseline.components.forEach(c => {
+        if (c.component_id !== cid) return;
+        if (co2e) { c.co2e_kg = co2e.value; c.co2e_override = co2e.note; }
+        if (cost) { c.cost_sek = cost.value; c.cost_override = cost.note; }
+      });
+    }
+    if (out.alternatives && out.alternatives.components) {
+      out.alternatives.components.forEach(c => {
+        if (c.component_id !== cid) return;
+        if (co2e) { c.baseline_co2e_kg = co2e.value; c.baseline_co2e_override = co2e.note; }
+        if (cost) { c.baseline_cost_sek = cost.value; c.baseline_cost_override = cost.note; }
+      });
+    }
+    // hasOwnProperty, not out.selections[cid]. A key named "__proto__" survives
+    // JSON.parse as a real own key, and indexing a plain object with it hands
+    // out Object.prototype to write on - so one such key in a saved analysis
+    // would corrupt every object in the tab on load. It cannot come through the
+    // handlers, which check the id against the project, but it can come through
+    // a hand-edited analysis, and then it is re-applied on every load. Python's
+    // dict.get is inert here, which is exactly why the JS side has to say so.
+    const sel = (out.selections && Object.prototype.hasOwnProperty.call(out.selections, cid))
+      ? out.selections[cid] : null;
+    if (sel) {
+      const chosen = sel.selected_alternative;
+      // "Baslinje" as a choice means the selected figure IS the baseline figure.
+      // Overriding one and not the other would put two different numbers for the
+      // same decision in the same report.
+      const pickedBaseline = chosen && chosen.name === 'Baslinje';
+      if (co2e) {
+        sel.baseline_co2e_kg = co2e.value;
+        sel.baseline_co2e_override = co2e.note;
+        if (pickedBaseline) { chosen.co2e_kg = co2e.value; chosen.co2e_override = co2e.note; }
+      }
+      if (cost) {
+        sel.baseline_cost_sek = cost.value;
+        sel.baseline_cost_override = cost.note;
+        if (pickedBaseline) { chosen.cost_sek = cost.value; chosen.cost_override = cost.note; }
+      }
+    }
+  });
+  return out;
+}
+
+// The line the chat writes when a baseline is done, and the one restoreUI
+// reconstructs when an analysis is reopened without its chat log. One function
+// because it is one sentence: two copies drifted apart is how the same screen
+// ended up able to show two different totals. It sums the effective state for
+// the same reason the tab beside it renders the effective state - a manually set
+// figure survives a rerun, so the raw response is no longer what anyone sees.
+function baselineDoneMsg() {
+  const shown = effectiveState(state).baseline.components;
+  const total = shown.reduce((s,c) => s + c.co2e_kg, 0);
+  return 'Baslinje klar: **' + Math.round(total).toLocaleString('sv')
+    + ' kg CO₂e** totalt för ' + shown.length + ' komponenter.';
+}
+
+// Same shape as gwpBasisBadge (#550): a number with a different origin than the
+// rest must never look like the rest. The note is the whole point, so it is in
+// the title where a hover reaches it and in the report where a reader does.
+// "Manuellt" is the same word the report's appendix uses, deliberately: one name
+// for one thing across the sheet, the document and the chat.
+function overrideBadge(note) {
+  if (!note) return '';
+  return ' <span class="source-badge source-manual" title="' + esc(note) + '">Manuellt</span>';
+}
+
+// Which cell has its editor open. One at a time: two open forms in one table
+// would let someone start a figure in one and save it from the other.
+let _overrideOpen = null;
+
+function openOverride(cid, field) {
+  if (cellsLocked()) return;
+  _overrideOpen = {cid: cid, field: field};
+  refreshResults();
+  const el = document.getElementById('ovValue');
+  if (el) { el.focus(); el.select(); }
+}
+
+function closeOverride() {
+  _overrideOpen = null;
+  refreshResults();
+}
+
+// The number itself is the affordance, so a dense numeric column gains no icon
+// per row. It wraps rather than appends: an empty span next to the figure is a
+// zero-width target, which is the same as no target at all. Outside an editable
+// configuration it returns the html untouched, so the pinned renderer output
+// stays byte-identical.
+function overrideEdit(html, cid, field, note, cfg) {
+  if (!(cfg && cfg.editable) || !cid) return html;
+  return '<span class="override-open" onclick="openOverride(\'' + esc(cid) + '\',\'' + field
+    + '\')" title="' + (note ? 'Ändra det manuella värdet' : 'Ange ett eget värde')
+    + '">' + html + '</span>';
+}
+
+// Aida's own figure, read from the stored bag rather than from the row we were
+// handed. The row comes from effectiveState, so on an overridden cell it already
+// carries the user's number - and the form was promising to restore "Aidas
+// beräknade värde (213)" when 213 was the very number they had typed.
+function computedOf(cid, field) {
+  const src = ((state.baseline || {}).components || []).filter(c => c.component_id === cid)[0];
+  if (!src) return 0;
+  return (field === 'baseline_co2e' ? src.co2e_kg : src.cost_sek) || 0;
+}
+
+// A full-width row under the component's own, because a note field cannot live
+// in a right-aligned numeric cell and shrinking it to fit would say the note is
+// an afterthought. It is the part that makes the number legitimate.
+function overrideFormRow(c, cfg) {
+  if (!(cfg && cfg.editable) || !_overrideOpen || _overrideOpen.cid !== c.component_id) return '';
+  const field = _overrideOpen.field;
+  const current = overrideOf(c.component_id, field);
+  const computed = computedOf(c.component_id, field);
+  const unit = field === 'baseline_co2e' ? 'kg CO₂e' : 'SEK';
+  const value = current ? current.value : (computed > 0 ? Math.round(computed) : '');
+  return '<tr class="override-row"><td colspan="5">'
+    + '<div class="override-form">'
+    + '<div><label for="ovValue">' + OVERRIDE_LABELS[field] + ' (' + unit + ')</label>'
+    + '<input class="ov-value" id="ovValue" type="number" min="0" step="any" value="' + esc(String(value)) + '"></div>'
+    + '<div class="ov-note"><label for="ovNote">Var kommer siffran ifrån?</label>'
+    + '<input id="ovNote" type="text" maxlength="' + OVERRIDE_NOTE_MAX + '" value="'
+    + esc(current ? current.note : '') + '" placeholder="Till exempel EPD S-P-01234 eller ramavtal 2025-114"></div>'
+    // The buttons live in their own box so a narrow results panel wraps them as
+    // a group. Loose in the flex row, Avbryt kept the line and Spara dropped
+    // below it, which puts the primary action where nothing else is.
+    + '<div class="ov-actions">'
+    + '<button type="button" class="btn-na-cancel" onclick="closeOverride()">Avbryt</button>'
+    + '<button type="button" class="btn-na-save" onclick="saveOverride()">Spara värdet</button>'
+    + (current ? '<button type="button" class="btn-na-cancel ov-clear" onclick="clearOverride()">Använd Aidas värde igen</button>' : '')
+    + '</div>'
+    + '<div class="override-hint" id="ovHint">Aidas beräknade värde ('
+    + (computed > 0 ? fmtNum(computed) + ' ' + unit : 'saknas') + ') sparas kvar och visas igen om du tar bort ditt.</div>'
+    + '</div></td></tr>';
+}
+
+function saveOverride() {
+  if (!_overrideOpen) return;
+  const value = (document.getElementById('ovValue') || {}).value;
+  const note = ((document.getElementById('ovNote') || {}).value || '').trim();
+  const hint = document.getElementById('ovHint');
+  // Said as direction, not as a complaint: the note is what lets a reader of the
+  // report judge the number, so the form explains what to write rather than
+  // reporting that a field is empty.
+  if (!note) {
+    if (hint) { hint.className = 'override-hint bad'; hint.textContent = 'Skriv var siffran kommer ifrån, till exempel ett EPD-nummer eller ett ramavtal. Det följer med till rapporten.'; }
+    const el = document.getElementById('ovNote'); if (el) el.focus();
+    return;
+  }
+  if (!(Number(value) >= 0) || value === '') {
+    if (hint) { hint.className = 'override-hint bad'; hint.textContent = 'Värdet måste vara ett tal, noll eller större.'; }
+    const el = document.getElementById('ovValue'); if (el) el.focus();
+    return;
+  }
+  const target = _overrideOpen;
+  _overrideOpen = null;
+  return sendMutation('set_override', {component_id: target.cid, field: target.field,
+                                       value: Number(value), note: note});
+}
+
+function clearOverride() {
+  if (!_overrideOpen) return;
+  const target = _overrideOpen;
+  _overrideOpen = null;
+  return sendMutation('clear_override', {component_id: target.cid, field: target.field});
 }
 
 // Baseline costs come from the LLM and can be absent. Same rule as everywhere
@@ -3847,18 +4142,34 @@ function baslinjeHtml(st, cfg) {
     // one a förvaltare is most likely to disagree with.
     const materialLine = c.assumed_material ? subLine('Antaget standardmaterial', esc(c.assumed_material)) : '';
     // Per-unit figure with the multiplication spelled out, so the total is
-    // checkable by hand rather than something to take on faith.
-    const perUnit = (c.co2e_per_unit > 0 && c.unit)
+    // checkable by hand rather than something to take on faith. Suppressed when
+    // the total is overridden: the stored per-unit figure is Aida's and no
+    // longer multiplies out to what the column shows, and a multiplication that
+    // does not add up is worse than none.
+    const perUnit = (c.co2e_per_unit > 0 && c.unit && !c.co2e_override)
       ? '<div style="font-size:10.5px;color:var(--kk-gray-500);margin-top:2px">' + fmtNum(c.co2e_per_unit) + ' kg CO₂e/' + esc(c.unit) + ' × ' + fmtNum(c.quantity) + ' ' + esc(c.unit) + '</div>'
       : '';
-    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + materialLine + '</td><td style="text-align:right">' + Math.round(c.co2e_kg).toLocaleString('sv') + perUnit + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + basisLine(c) + '</td><td style="text-align:right">' + (c.cost_sek > 0 ? Math.round(c.cost_sek).toLocaleString('sv') : '<span style="color:var(--kk-gray-500)">Pris saknas</span>') + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
+    // An overridden figure is marked in the cell it replaced, not only in the
+    // report. Someone reading the sheet has to be able to see which numbers are
+    // theirs without opening the document.
+    const co2eCell = overrideEdit(Math.round(c.co2e_kg).toLocaleString('sv'),
+                                  c.component_id, 'baseline_co2e', c.co2e_override, cfg)
+      + overrideBadge(c.co2e_override) + perUnit;
+    const costCell = overrideEdit(
+        (c.cost_sek > 0
+          ? Math.round(c.cost_sek).toLocaleString('sv')
+          : '<span style="color:var(--kk-gray-500)">Pris saknas</span>'),
+        c.component_id, 'baseline_cost', c.cost_override, cfg)
+      + overrideBadge(c.cost_override);
+    html += '<tr><td style="font-weight:500">' + esc(c.component_name) + materialLine + '</td><td style="text-align:right">' + co2eCell + '</td><td style="font-size:11px">' + formatSource(c.source) + productLine + basisLine(c) + '</td><td style="text-align:right">' + costCell + '</td><td style="font-size:11px">' + esc(c.cost_source || '') + '</td></tr>';
+    html += overrideFormRow(c, cfg);
   });
   html += '</tbody></table></div>';
   return html;
 }
 
 function renderBaslinjeContent() {
-  document.getElementById('resultContent').innerHTML = baslinjeHtml(state);
+  document.getElementById('resultContent').innerHTML = baslinjeHtml(effectiveState(state), {editable: true});
 }
 
 // Climate benefit per krona. Johanna, juni 2026: "Alternativen ska visas med
@@ -3973,8 +4284,8 @@ function alternativHtml(st, cfg) {
       '<td><input type="radio" name="' + cid + '"' + (blSel ? ' checked' : '') + '></td>' +
       '<td><span class="type-badge type-baseline">Baslinje</span></td>' +
       '<td>' + blMaterialCell + '</td><td style="font-size:11px">' + (blSource.includes('Boverket') ? '<span class="source-badge source-verified">BVK</span>' : (blSource.includes('typvärde') ? '<span class="source-badge source-aggregate">EPD-typvärde</span>' : '<span class="source-badge source-estimate">Est.</span>')) + ' NollCO2</td>' +
-      '<td style="text-align:right">' + Math.round(comp.baseline_co2e_kg) + '</td>' +
-      '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr</td>' +
+      '<td style="text-align:right">' + Math.round(comp.baseline_co2e_kg) + overrideBadge(comp.baseline_co2e_override) + '</td>' +
+      '<td style="text-align:right">' + Math.round(comp.baseline_cost_sek).toLocaleString('sv') + ' kr' + overrideBadge(comp.baseline_cost_override) + '</td>' +
       '<td style="text-align:right;color:var(--kk-gray-500)">referens</td><td></td></tr>';
     rankedAlternatives(comp).forEach(entry => {
       const alt = entry.alt, i = entry.i;
@@ -4056,7 +4367,7 @@ function bindAltRows() {
 }
 
 function renderAlternativContent() {
-  document.getElementById('resultContent').innerHTML = alternativHtml(state);
+  document.getElementById('resultContent').innerHTML = alternativHtml(effectiveState(state));
   bindAltRows();
 }
 
@@ -4157,7 +4468,7 @@ function sheetHtml(st) {
 }
 
 function renderSheet() {
-  document.getElementById('resultContent').innerHTML = sheetHtml(state);
+  document.getElementById('resultContent').innerHTML = sheetHtml(effectiveState(state));
   _populateNeedsTextarea();
   bindCells();
   bindAltRows();
@@ -4224,7 +4535,9 @@ function summaryTotals(sels) {
 }
 
 function updateSummary() {
-  const sels = Object.values(state.selections);
+  // Effective, not stored: the cards sit a screen away from the table and
+  // would otherwise show a total that no row on the page adds up to.
+  const sels = Object.values(effectiveState(state).selections || {});
   const t = summaryTotals(sels);
   const co2Diff = t.totalCo2 - t.blCo2;
   const co2Pct = t.blCo2 > 0 ? Math.round(Math.abs(co2Diff) / t.blCo2 * 100) : 0;
@@ -4327,7 +4640,8 @@ async function autoSave() {
   const projectDataToSave = state.project
     ? Object.assign({}, state.project, {directives: state.directives,
                                         selection_intent: state.selectionIntent,
-                                        mode: state.mode})
+                                        mode: state.mode,
+                                        overrides: state.overrides})
     : null;
   const analysisData = {
     // Falls back to the property before 'Nytt projekt': someone who names the
@@ -4627,6 +4941,10 @@ async function loadAnalysis(id) {
     const savedMode = state.project && state.project.mode;
     state.mode = MODES.indexOf(savedMode) === -1 ? 'stepwise' : savedMode;
     if (state.project && 'mode' in state.project) delete state.project.mode;
+    // And the overrides. An analysis saved before §12.5 has none, which loads as
+    // {} and renders exactly as it always did.
+    state.overrides = (state.project && state.project.overrides) || {};
+    if (state.project && 'overrides' in state.project) delete state.project.overrides;
     document.getElementById('projectName').textContent = data.name || 'Nytt projekt';
     restoreUI();
     await loadAnalysesList();
@@ -4694,12 +5012,8 @@ function restoreUI() {
         const summary = intakeSummary(state.project);
         addConfirmMsg(summary.text, summary.btnLabel, summary.hint);
       } else if (state.step === 'baseline_done') {
-        const total = state.baseline.components.reduce((s,c) => s + c.co2e_kg, 0);
-        addConfirmMsg(
-          'Baslinje klar: **' + Math.round(total).toLocaleString('sv') + ' kg CO\u2082e** totalt f\u00f6r ' + state.baseline.components.length + ' komponenter.',
-          'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
-          'Skriv i chatten om du vill korrigera n\u00e5got.'
-        );
+        addConfirmMsg(baselineDoneMsg(), 'Bekr\u00e4fta och s\u00f6k alternativ \u2192',
+                      'Skriv i chatten om du vill korrigera n\u00e5got.');
       } else if (state.step === 'alternatives_done') addMsg('V\u00e4lj alternativ per komponent i resultatpanelen.', 'bot');
       else if (state.step === 'report_done') addMsg('Rapporten \u00e4r klar.', 'bot');
     }
@@ -4719,6 +5033,7 @@ function createNewProject() {
   state.step = 'idle';
   state.directives = {global: [], byComponent: {}};
   state.selectionIntent = {};
+  state.overrides = {};
   state.propertyRef = '';
   state.plannedStart = '';
   document.getElementById('projectName').textContent = 'Nytt projekt';

@@ -301,7 +301,8 @@ def _format_state(project, baseline, alternatives, selections) -> str:
 
 from aida.mutations import (  # noqa: F401  (re-exported for existing importers)
     HANDLERS as _HANDLERS,
-    build_state_updates as _build_state_updates,
+)
+from aida.mutations import (
     _already_requested,
     _apply_add_component,
     _apply_remove_component,
@@ -314,6 +315,12 @@ from aida.mutations import (  # noqa: F401  (re-exported for existing importers)
     _next_component_id,
     _scale_component_values,
     _validate_component_ids,
+)
+from aida.mutations import (
+    build_state_updates as _build_state_updates,
+)
+from aida.mutations import (
+    run_handler as _run_handler,
 )
 
 
@@ -347,6 +354,7 @@ def run_chat_agent(
     alternatives: dict | None = None,
     selections: dict | None = None,
     max_turns: int = 5,
+    overrides: dict | None = None,
 ) -> dict:
     """Run chat with tool-use loop.
 
@@ -363,6 +371,7 @@ def run_chat_agent(
     baseline = copy.deepcopy(baseline) if baseline else None
     alternatives = copy.deepcopy(alternatives) if alternatives else None
     selections = copy.deepcopy(selections) if selections else {}
+    overrides = copy.deepcopy(overrides) if overrides else {}
 
     touched_bags: set[str] = set()
     tool_calls: list[dict] = []
@@ -397,7 +406,7 @@ def run_chat_agent(
                 "reply": reply.strip(),
                 "state_updates": _build_state_updates(
                     touched_bags, project, baseline, alternatives, selections,
-                    pending_actions,
+                    pending_actions, overrides=overrides,
                 ),
                 "tool_calls": tool_calls,
             }
@@ -421,8 +430,13 @@ def run_chat_agent(
                 continue
 
             try:
-                result_text, ok, handler_touched = handler(
-                    block.input, project, baseline, alternatives, selections, pending_actions,
+                # Through the shared seam, not straight to the handler: the
+                # override lifecycle lives there, and a material change made by
+                # the chat has to drop a stale manual figure exactly as a cell
+                # edit does.
+                result_text, ok, handler_touched = _run_handler(
+                    block.name, block.input, project, baseline, alternatives,
+                    selections, pending_actions, overrides=overrides,
                 )
             except Exception as e:
                 logger.exception("Tool %s failed", block.name)
@@ -454,7 +468,7 @@ def run_chat_agent(
         "reply": "Jag fastnade i en loop. Försök formulera om, eller använd knapparna för att köra om stegen.",
         "state_updates": _build_state_updates(
             touched_bags, project, baseline, alternatives, selections,
-            pending_actions,
+            pending_actions, overrides=overrides,
         ),
         "tool_calls": tool_calls,
     }

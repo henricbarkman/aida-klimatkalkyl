@@ -6,6 +6,7 @@ import json
 import sys
 from datetime import date
 
+from aida import overrides as overrides_mod
 from aida.agents.aggregate import compute_aggregate
 from aida.api_client import (
     DEFAULT_MODEL,
@@ -16,6 +17,23 @@ from aida.api_client import (
     get_client,
 )
 from aida.models import Project, Selections
+
+
+def cell(text) -> str:
+    """A markdown table cell that cannot break its own row.
+
+    Every appendix here is deterministic precisely so a marking cannot go
+    missing, and an unescaped "|" would undo that: it splits the row into more
+    cells than the table has columns, and the docx exporter drops a row it
+    cannot fit. The line saying a figure is not Aida's would vanish from the one
+    artifact that leaves the tool, with no error anywhere.
+
+    Component names come from the project and override notes are typed by hand,
+    so a pipe is not exotic ("Ramavtal 2024 | pos 14"). GFM and `marked` both
+    render the escaped form as a plain pipe.
+    """
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
 
 REPORT_SYSTEM_PROMPT = """Du är Aidas rapportgenerator — en byggnadsexpert som skapar strukturerade beslutsunderlag för ombyggnadsprojekt.
 
@@ -56,7 +74,9 @@ REGLER:
 - Markdown-format"""
 
 
-def generate_report_markdown(project: Project, selections: Selections) -> str:
+def generate_report_markdown(
+    project: Project, selections: Selections, overrides: dict | None = None,
+) -> str:
     """Generate a markdown report from project and selections.
 
     Reuse figures cover the full component quantity even when Palats holds
@@ -86,6 +106,7 @@ def generate_report_markdown(project: Project, selections: Selections) -> str:
     gwp_caveats = build_gwp_basis_caveats(aggregate.components)
     price_gap = build_missing_price_caveat(aggregate)
     estimated_prices = build_estimated_price_caveats(aggregate.components)
+    override_rows = overrides_mod.listing(project.to_dict(), overrides)
 
     saving_pct_total = (
         aggregate.co2e_savings_kg / aggregate.baseline_total_co2e_kg * 100
@@ -116,7 +137,7 @@ Komponenttabell:
 | Komponent | Valt alternativ | CO2e (kg) | Baslinje (kg) | Besparing | Kostnad (SEK) | Källa |
 |-----------|----------------|-----------|---------------|-----------|---------------|-------|
 {component_table}
-{_caveat_prompt_block(stock_caveats)}{_price_gap_prompt_block(price_gap)}{_estimated_price_prompt_block(estimated_prices)}
+{_caveat_prompt_block(stock_caveats)}{_price_gap_prompt_block(price_gap)}{_estimated_price_prompt_block(estimated_prices)}{_override_prompt_block(override_rows)}
 Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är uppskattningar för beslutsstöd."""
         }],
     )
@@ -130,6 +151,8 @@ Skriv en komplett rapport i markdown. Inkludera disclaimer om att detta är upps
         markdown = markdown.rstrip() + "\n\n" + render_missing_price_caveat(price_gap)
     if estimated_prices:
         markdown = markdown.rstrip() + "\n\n" + render_estimated_price_caveats(estimated_prices)
+    if override_rows:
+        markdown = markdown.rstrip() + "\n\n" + render_override_caveats(override_rows)
     return markdown
 
 
@@ -225,7 +248,7 @@ def _price_gap_prompt_block(gap: dict | None) -> str:
 
 def render_missing_price_caveat(gap: dict) -> str:
     """The appendix that always lands, regardless of what the model wrote."""
-    rows = "\n".join(f"| {name} |" for name in gap["utan_pris"])
+    rows = "\n".join(f"| {cell(name)} |" for name in gap["utan_pris"])
     diff = gap["jamforbar_kostnad"] - gap["jamforbar_baslinje"]
     return (
         "## Komponenter utan prisuppgift\n\n"
@@ -278,7 +301,7 @@ def _estimated_price_prompt_block(caveats: list[dict]) -> str:
 def render_estimated_price_caveats(caveats: list[dict]) -> str:
     """The appendix that always lands, regardless of what the model wrote."""
     rows = "\n".join(
-        f"| {c['komponent']} | {c['alternativ']} | {c['kostnad']:,.0f} |"
+        f"| {cell(c['komponent'])} | {cell(c['alternativ'])} | {c['kostnad']:,.0f} |"
         for c in caveats
     )
     return (
@@ -310,7 +333,9 @@ def build_gwp_basis_caveats(components: list[dict]) -> list[dict]:
 
 
 def render_gwp_basis_caveats(caveats: list[dict]) -> str:
-    rows = "\n".join(f"| {c['komponent']} | {c['alternativ']} |" for c in caveats)
+    rows = "\n".join(
+        f"| {cell(c['komponent'])} | {cell(c['alternativ'])} |" for c in caveats
+    )
     return (
         "## Avvikande klimatunderlag\n\n"
         "Klimatsiffrorna bygger på GWP-fossil för skedena A1-A3, enligt "
@@ -322,6 +347,50 @@ def render_gwp_basis_caveats(caveats: list[dict]) -> str:
         "samma indikator, och skillnaden bör nämnas om siffran förs vidare.\n\n"
         "| Komponent | Valt alternativ |\n|---|---|\n"
         f"{rows}\n"
+    )
+
+
+def render_override_caveats(rows: list[dict]) -> str:
+    """The figures in this report that are the user's, not Aida's.
+
+    Deterministic and appended after the model's text, like every other caveat
+    here, for the reason PR #550 set out: the marking is the condition, not a
+    nicety, so it must not depend on whether the model chose to repeat it. This
+    one matters more than the others, because an overridden figure is the only
+    number in the document that no calculation of ours stands behind.
+    """
+    body = "\n".join(
+        f"| {cell(r['komponent'])} | {cell(r['fält'])} | {r['värde']:,.0f} "
+        f"| {cell(r['anteckning'])} |"
+        for r in rows
+    )
+    return (
+        "## Manuellt angivna värden\n\n"
+        "Posterna nedan har skrivits över av den som gjort analysen, och siffran "
+        "kommer alltså inte från Aidas beräkning utan från underlaget i "
+        "anteckningen. Aidas eget värde finns kvar i verktyget och visas igen om "
+        "överskrivningen tas bort. Övriga siffror i rapporten är beräknade enligt "
+        "metoden ovan.\n\n"
+        "| Komponent | Fält | Angivet värde | Anteckning |\n|---|---|---|---|\n"
+        f"{body}\n"
+    )
+
+
+def _override_prompt_block(rows: list[dict]) -> str:
+    """Tell the model the same facts, so its own text is not written in ignorance
+    of what the appendix will say."""
+    if not rows:
+        return ""
+    lines = "\n".join(
+        f"- {r['komponent']}, {r['fält']}: {r['värde']:,.0f} ({r['anteckning']})"
+        for r in rows
+    )
+    return (
+        "\nManuellt angivna värden (satta av användaren, inte beräknade av dig):\n"
+        f"{lines}\n"
+        "Dessa siffror ingår redan i summorna ovan. Nämn i texten att de är "
+        "manuellt angivna om du refererar till dem. Hitta inte på egna värden "
+        "för dem.\n"
     )
 
 
@@ -346,7 +415,8 @@ def _caveat_prompt_block(caveats: list[dict]) -> str:
 def render_stock_caveats(caveats: list[dict]) -> str:
     """The appendix that always lands, regardless of what the model wrote."""
     rows = "\n".join(
-        f"| {c['komponent']} | {c['alternativ']} | {c['tillgangligt']} | {c['behov']:.0f} |"
+        f"| {cell(c['komponent'])} | {cell(c['alternativ'])} "
+        f"| {cell(c['tillgangligt'])} | {c['behov']:.0f} |"
         for c in caveats
     )
     return (
