@@ -1614,12 +1614,16 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .user-btn { background: none; border: none; color: var(--kk-gray-400); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; }
 .user-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
 /* Starting a new run is the one action the top bar exists for, so it is the
-   only filled control up there. Same charcoal-to-red language as the login
-   button: both are "begin" moments. Everything else in the cluster stays as
-   quiet gray text so this one reads first. */
-.topbar-new-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px 0 10px; background: var(--kk-charcoal); color: white; border: none; border-radius: 100px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
-.topbar-new-btn:hover { background: var(--kk-dark-red); }
-.topbar-new-btn:focus-visible { outline: 2px solid var(--kk-dark-red); outline-offset: 2px; }
+   only filled control up there. It wears the same dark red as every primary
+   button inside the app (.btn), which makes red this interface's "act" colour
+   rather than a warning. Charcoal is spoken for: step circles, mode switch and
+   the send button all use it, so a charcoal pill up here read as one more piece
+   of progress chrome instead of a thing to press. White on #B5201F is 6.6:1,
+   and the fill itself clears 3:1 against the white bar, so the pill's edge is
+   visible without a border. */
+.topbar-new-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px 0 10px; background: var(--kk-dark-red); color: white; border: none; border-radius: 100px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
+.topbar-new-btn:hover { background: var(--kk-burgundy); }
+.topbar-new-btn:focus-visible { outline: 2px solid var(--kk-charcoal); outline-offset: 2px; }
 .topbar-new-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
 .dropdown-menu { position: absolute; top: calc(100% + 4px); background: white; border: 1px solid var(--kk-gray-200); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 220px; z-index: 100; padding: 4px 0; }
 .dropdown-right { right: 0; }
