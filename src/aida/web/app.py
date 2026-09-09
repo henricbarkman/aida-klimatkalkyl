@@ -368,18 +368,18 @@ LOGIN_TEMPLATE = r"""<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-:root { --kk-gold: #FFCC01; --kk-dark-red: #B5201F; --kk-burgundy: #890200; --kk-charcoal: #444; --kk-cream: #FFF9DE; --kk-warm-bg: #FFFBF5; --kk-gray-200: #e5e5e5; --kk-gray-400: #a3a3a3; --kk-gold-light: #FFF1B6; }
+:root { --kk-gold: #FFCC01; --kk-dark-red: #B5201F; --kk-burgundy: #890200; --kk-charcoal: #444; --kk-cream: #FFF9DE; --kk-warm-bg: #FAF9F6; --kk-gray-200: #e6e4e0; --kk-gray-400: #8a8883; --kk-gray-500: #6a6864; --kk-gold-light: #FFF1B6; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Roboto', sans-serif; height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--kk-warm-bg); }
 .login-box { background: white; border-radius: 12px; padding: 40px; width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border-top: 3px solid var(--kk-gold-light); }
 .login-box h1 { font-size: 24px; color: var(--kk-charcoal); margin-bottom: 8px; }
-.login-box p { font-size: 13px; color: var(--kk-gray-400); margin-bottom: 24px; }
+.login-box p { font-size: 13px; color: var(--kk-gray-500); margin-bottom: 24px; }
 .login-box input { width: 100%; padding: 12px 16px; border: 1px solid var(--kk-gray-200); border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; }
 .login-box input:focus { border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.15); }
 .login-box button { width: 100%; padding: 12px; background: var(--kk-charcoal); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 12px; font-family: inherit; }
 .login-box button:hover { background: var(--kk-dark-red); }
 .error { color: var(--kk-dark-red); font-size: 12px; margin-top: 8px; }
-.footer { position: fixed; bottom: 16px; font-size: 11px; color: var(--kk-gray-400); }
+.footer { position: fixed; bottom: 16px; font-size: 11px; color: var(--kk-gray-500); }
 </style>
 </head>
 <body>
@@ -1472,20 +1472,41 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   --kk-dark-red: #B5201F;
   --kk-burgundy: #890200;
   --kk-cream: #FFF9DE;
-  --kk-warm-bg: #FFFBF5;
+  --kk-warm-bg: #FAF9F6;
   --kk-charcoal: #444444;
-  --kk-text: #444444;
-  --kk-gray-50: #fafafa;
-  --kk-gray-100: #f5f5f5;
-  --kk-gray-200: #e5e5e5;
-  --kk-gray-300: #d4d4d4;
-  --kk-gray-400: #a3a3a3;
-  --kk-gray-500: #737373;
+  --kk-text: #2f2e2c;
+  /* Warm ramp, same one Zaid uses. The old ramp was Tailwind's neutral greys,
+     which are dead flat next to gold and orange - the two panels read as two
+     kits because one was warm and the other was not.
+     The two darkest steps swapped jobs. --kk-gray-400 measured 2.5:1 on white
+     and carried 24 pieces of secondary text, so it never passed AA for any of
+     them; it is now the non-text grey (dots, hairlines, disabled) at 3.2:1 on
+     --kk-gray-100, and that text moved to --kk-gray-500, which measures 5.5 on
+     white and 5.3 on --kk-warm-bg. */
+  --kk-gray-50: #fafaf9;
+  --kk-gray-100: #f4f3f1;
+  --kk-gray-200: #e6e4e0;
+  --kk-gray-300: #cfccc7;
+  --kk-gray-400: #8a8883;
+  --kk-gray-500: #6a6864;
+  --kk-gray-600: #555350;
   --green-saving: #4a7c59;
+  /* State tints for the pipeline rail. The pale pair are backgrounds, the ink
+     pair are the only colours small text sits in on them. Both inks are the
+     brand hue darkened until 11.5px clears 4.5:1 on its own tint: #E84E0D
+     measures 3.5 there and #4a7c59 measures 4.4, so neither could be used as
+     written. --kk-step-idle is the same story for grey on --kk-gray-100, where
+     --kk-gray-500 lands at 4.35. */
+  --kk-orange-pale: #FEF4EF;
+  --kk-orange-soft: #FDE7DC;
+  --kk-orange-ink: #A33A08;
+  --kk-green-pale: #EEF5F0;
+  --kk-green-ink: #3D6A4A;
+  --kk-step-idle: #666666;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; height: 100vh; display: flex; flex-direction: column; background: white; color: var(--kk-text); }
+body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; height: 100vh; display: flex; flex-direction: column; background: var(--kk-warm-bg); color: var(--kk-text); }
 
 /* === Top bar (karlstad.se: white with warm accent line) === */
 .topbar { background: white; color: var(--kk-charcoal); height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; border-bottom: 3px solid var(--kk-gold-light); }
@@ -1498,37 +1519,62 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .topbar-logo svg { width: 28px; height: 28px; color: var(--kk-red-orange); }
 .topbar-logo span { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: var(--kk-charcoal); }
 .topbar-center { font-size: 14px; color: var(--kk-gray-500); }
-.topbar-right { flex: 1 0 0; justify-content: flex-end; font-size: 12px; color: var(--kk-gray-400); }
+/* One control family across the whole chrome: everything you can press is a
+   pill. Filled means it starts something (Nytt projekt), outlined means it is a
+   setting or a side door, and the mode switch is the same outline joined into a
+   group. The two top-bar items were bare underlined-blue-adjacent links wearing
+   inline styles, which read as prose rather than as controls. */
+.btn-pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; background: none; border: 1px solid var(--kk-gray-200); border-radius: 100px; font-family: inherit; font-size: 11.5px; font-weight: 500; color: var(--kk-gray-500); text-decoration: none; white-space: nowrap; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.btn-pill:hover { background: var(--kk-gray-100); border-color: var(--kk-gray-300); color: var(--kk-charcoal); }
+.btn-pill:focus-visible { outline: 2px solid var(--kk-dark-red); outline-offset: 2px; }
+.topbar-right { flex: 1 0 0; justify-content: flex-end; font-size: 12px; color: var(--kk-gray-500); }
 
-/* === Progress tracker (mockup: numbered circles with line) === */
-/* No bottom padding here. The gap under the step rail belongs to .main, which
-   is the only element present in every mode: applyModeChrome hides this rail in
-   Arbetsblad and Uppföljning, and the gap went with it, so the chat panel sat
-   flush against the gold line under the top bar. */
-.progress-bar { padding: 24px 48px 0; flex-shrink: 0; }
-.progress-track { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
-.progress-line { position: absolute; top: 16px; left: 40px; right: 40px; height: 2px; background: var(--kk-gray-200); }
-.progress-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--kk-charcoal); transition: width 0.5s ease; }
-.step-item { display: flex; flex-direction: column; align-items: center; z-index: 1; min-width: 80px; }
-.step-circle { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; transition: all 0.3s; background: white; color: var(--kk-gray-400); border: 2px solid var(--kk-gray-200); }
-.step-circle.active { background: var(--kk-charcoal); color: white; border-color: var(--kk-charcoal); box-shadow: 0 2px 8px rgba(68,68,68,0.4); transform: scale(1.1); }
-.step-circle.done { background: var(--kk-charcoal); color: white; border-color: var(--kk-charcoal); }
-.step-label { margin-top: 6px; font-size: 11px; font-weight: 500; color: var(--kk-gray-500); text-align: center; }
-.step-label.active { color: var(--kk-charcoal); font-weight: 700; }
-.step-label.done { color: var(--kk-charcoal); }
+/* === Pipeline rail ===
+   Was six numbered circles on a connecting line, spread edge to edge. That
+   spread is why nothing could share the row, and it cost 75px. Pills pack left,
+   cost about 45, and leave the right end to the mode switch — which belongs on
+   this row rather than in the results panel, because the mode decides what
+   shape the process takes.
+
+   Active and done are now different hues. The old rail painted both charcoal
+   and told them apart by scale, so "where am I" and "what is finished" were the
+   same colour. The numbers are gone with the circles: the labels name the steps
+   and the chevrons carry the order, so a number was a third way of saying the
+   same thing.
+
+   The two ink colours are the brand orange and green darkened until 11.5px text
+   on their own pale tint clears 4.5:1. Zaid's #E84E0D on #FEF4EF measures 3.5,
+   which is fine for his larger type and not for this. */
+.progress-bar { display: flex; align-items: center; gap: 10px; padding: 9px 24px; flex-shrink: 0; background: white; border-bottom: 1px solid var(--kk-gray-200); }
+.progress-bar.steps-hidden .progress-track { display: none; }
+.progress-track { display: flex; align-items: center; gap: 3px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.progress-track::-webkit-scrollbar { display: none; }
+.step-item { display: flex; align-items: center; gap: 6px; padding: 4px 11px; border: none; border-radius: 100px; font-family: inherit; font-size: 11.5px; font-weight: 500; white-space: nowrap; color: var(--kk-step-idle); background: var(--kk-gray-100); transition: background 0.2s, color 0.2s; }
+.step-item:disabled { cursor: default; }
+.step-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--kk-gray-400); flex-shrink: 0; }
+.step-item.active { color: var(--kk-orange-ink); background: var(--kk-orange-pale); box-shadow: inset 0 0 0 1px var(--kk-orange-soft); font-weight: 600; }
+.step-item.active .step-dot { background: var(--kk-red-orange); }
+.step-item.done { color: var(--kk-green-ink); background: var(--kk-green-pale); }
+.step-item.done .step-dot { background: var(--kk-green-ink); }
+.step-sep { color: var(--kk-gray-400); font-size: 12px; flex-shrink: 0; user-select: none; }
 
 /* === Main layout === */
 .main { display: flex; flex: 1; overflow: hidden; padding: 16px 24px 0; gap: 24px; }
 
 /* === Chat panel (mockup: rounded, warm bg) === */
 .chat-panel { width: 40%; display: flex; flex-direction: column; flex-shrink: 0; }
-.chat-container { flex: 1; display: flex; flex-direction: column; background: var(--kk-warm-bg); border-radius: 12px; border: 1px solid var(--kk-gray-200); overflow: hidden; min-height: 0; }
-.chat-header { padding: 10px 16px; border-bottom: 1px solid var(--kk-gray-200); background: var(--kk-cream); display: flex; justify-content: space-between; align-items: center; }
+/* The chat used to be gold: cream header, cream input row, pale yellow body.
+   The results panel next to it was neutral grey, so the two halves of the same
+   screen were two kits. Both are now the same warm off-white with white cards
+   on top, and the gold is back to being an accent - the top bar's line, the
+   user's own bubbles, the system notes. */
+.chat-container { flex: 1; display: flex; flex-direction: column; background: var(--kk-gray-50); border-radius: 12px; border: 1px solid var(--kk-gray-200); overflow: hidden; min-height: 0; }
+.chat-header { padding: 10px 16px; border-bottom: 1px solid var(--kk-gray-200); background: white; display: flex; justify-content: space-between; align-items: center; }
 .chat-header h2 { font-size: 15px; font-weight: 600; color: var(--kk-charcoal); }
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .msg { padding: 10px 14px; border-radius: 16px; max-width: 85%; font-size: 13px; line-height: 1.5; }
-.msg.user { background: #FFF0D4; color: var(--kk-text); align-self: flex-end; border-bottom-right-radius: 4px; }
-.msg.bot { background: white; color: var(--kk-text); align-self: flex-start; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.msg.user { background: var(--kk-cream); color: var(--kk-text); align-self: flex-end; border-bottom-right-radius: 4px; }
+.msg.bot { background: white; color: var(--kk-text); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--kk-gray-200); }
 @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .msg { animation: msgIn 0.25s ease-out; }
 .msg.system { background: var(--kk-cream); font-size: 12px; text-align: center; align-self: center; max-width: 100%; color: var(--kk-gray-500); border: 1px solid var(--kk-gray-200); }
@@ -1545,17 +1591,20 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .msg table th, .msg table td { padding: 4px 8px; border: 1px solid var(--kk-gray-200); text-align: left; }
 .msg table th { background: var(--kk-gray-50); font-weight: 600; }
 .msg blockquote { border-left: 3px solid var(--kk-gray-300); margin: 6px 0; padding: 2px 10px; color: var(--kk-gray-500); }
-.chat-input { padding: 12px 16px; border-top: 1px solid var(--kk-gray-200); background: var(--kk-cream); display: flex; align-items: center; gap: 8px; }
+.chat-input { padding: 12px 16px; border-top: 1px solid var(--kk-gray-200); background: white; display: flex; align-items: center; gap: 8px; }
 .chat-input input { flex: 1; padding: 10px 16px; border: 1px solid var(--kk-gray-200); border-radius: 24px; font-size: 13px; font-family: inherit; background: white; outline: none; }
 .chat-input input:focus { border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.15); }
 .chat-input button { width: 40px; height: 40px; border-radius: 50%; background: var(--kk-charcoal); color: white; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; flex-shrink: 0; }
 .chat-input button:hover:not(:disabled) { background: var(--kk-dark-red); }
 .chat-input button:disabled { opacity: 0.4; cursor: not-allowed; }
-.chat-disclaimer { text-align: center; font-size: 11px; color: var(--kk-gray-400); padding: 6px 0 12px; }
+.chat-disclaimer { text-align: center; font-size: 11px; color: var(--kk-gray-500); padding: 6px 0 12px; }
 
 /* === Results panel (mockup: tabs + white bg) === */
-.results-panel { width: 60%; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-.results-content { flex: 1; overflow-y: auto; padding: 20px 8px; background: var(--kk-gray-50); border-radius: 0 0 8px 8px; }
+/* Same card as the chat: one border, one radius, the same warm surface. It used
+   to be a bare grey column, which is what made the two panels look like they
+   came from different products. */
+.results-panel { width: 60%; display: flex; flex-direction: column; overflow: hidden; min-height: 0; background: var(--kk-gray-50); border: 1px solid var(--kk-gray-200); border-radius: 12px; }
+.results-content { flex: 1; overflow-y: auto; padding: 20px 8px; background: var(--kk-gray-50); }
 
 /* === Component cards (mockup style) === */
 .comp-card { background: white; border: 1px solid var(--kk-gray-200); border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
@@ -1571,7 +1620,7 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .alt-row input[type=radio] { accent-color: var(--kk-charcoal); }
 /* Per-component usage_context — subtle callout under component name in tables */
 .usage-context { margin-top: 6px; padding: 8px 12px 8px 14px; background: var(--kk-gray-50); border-left: 2px solid var(--kk-gray-300); border-radius: 0 3px 3px 0; font-size: 12.5px; line-height: 1.5; color: var(--kk-gray-500); font-style: normal; }
-.usage-context-label { display: block; font-size: 9.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-400); margin: 0 0 3px; }
+.usage-context-label { display: block; font-size: 9.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-500); margin: 0 0 3px; }
 
 /* === Needs analysis card (editorial pairing) === */
 .needs-card { background: white; border: 1px solid var(--kk-gray-200); border-radius: 6px; overflow: hidden; margin-bottom: 16px; }
@@ -1593,10 +1642,10 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .voice-label .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.7; }
 .voice-text { font-size: 14.5px; line-height: 1.6; color: var(--kk-charcoal); }
 .voice-user .voice-text { color: #5a5854; }
-.voice-text em.empty { color: var(--kk-gray-400); }
+.voice-text em.empty { color: var(--kk-gray-500); }
 
 /* Transition between user and aida */
-.voice-transition { margin: 12px 0 12px 22px; font-size: 11.5px; color: var(--kk-gray-400); display: flex; align-items: center; gap: 8px; letter-spacing: 0.3px; }
+.voice-transition { margin: 12px 0 12px 22px; font-size: 11.5px; color: var(--kk-gray-500); display: flex; align-items: center; gap: 8px; letter-spacing: 0.3px; }
 .voice-transition::before { content: ''; height: 16px; border-left: 1.5px dashed var(--kk-gray-300); margin-left: -22px; width: 22px; }
 
 /* Inferens edit affordance */
@@ -1618,7 +1667,7 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 
 /* Meta blocks (assumptions + would_clarify) */
 .needs-meta-row { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--kk-gray-100); display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.needs-meta-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-400); margin-bottom: 6px; }
+.needs-meta-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-500); margin-bottom: 6px; }
 .needs-meta-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; line-height: 1.55; color: var(--kk-gray-500); }
 .needs-meta-list li { position: relative; padding: 3px 0 3px 18px; }
 .needs-meta-list li::before { position: absolute; left: 0; top: 3px; }
@@ -1708,7 +1757,11 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .report-area hr { border: none; border-top: 1px solid var(--kk-gray-200); margin: 16px 0; }
 
 /* === Footer (karlstad.se: warm cream) === */
-.footer { background: var(--kk-cream); color: var(--kk-gray-500); height: 36px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; border-top: 1px solid var(--kk-gray-200); }
+/* Was a full-width gold band. That made the least important sentence on the
+   page the loudest thing on it, and it was the last surface still shouting after
+   the panels went warm-neutral. Gold stays where it marks something: the top
+   bar's line, the confirm bar, callouts. */
+.footer { background: white; color: var(--kk-gray-500); height: 36px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; border-top: 1px solid var(--kk-gray-200); }
 
 /* === Scrollbar === */
 ::-webkit-scrollbar { width: 8px; }
@@ -1717,14 +1770,14 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 ::-webkit-scrollbar-thumb:hover { background: var(--kk-gray-400); }
 html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 
-.empty-state { color: var(--kk-gray-400); text-align: center; margin-top: 80px; }
+.empty-state { color: var(--kk-gray-500); text-align: center; margin-top: 80px; }
 .empty-state p { font-size: 14px; }
 
 /* === Auth overlay === */
 #authOverlay { display: flex; align-items: center; justify-content: center; flex: 1; background: var(--kk-warm-bg); }
 #authOverlay .login-box { background: white; border-radius: 12px; padding: 40px; width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border-top: 3px solid var(--kk-gold-light); }
 #authOverlay .login-box h1 { font-size: 24px; color: var(--kk-charcoal); margin-bottom: 8px; }
-#authOverlay .login-box p { font-size: 13px; color: var(--kk-gray-400); margin-bottom: 24px; }
+#authOverlay .login-box p { font-size: 13px; color: var(--kk-gray-500); margin-bottom: 24px; }
 #authOverlay .login-box input { width: 100%; padding: 12px 16px; border: 1px solid var(--kk-gray-200); border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 8px; }
 #authOverlay .login-box input:focus { border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.15); }
 #authOverlay .login-box button { width: 100%; padding: 12px; background: var(--kk-charcoal); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 4px; font-family: inherit; }
@@ -1736,7 +1789,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 /* === Dropdown menus === */
 .project-btn { background: none; border: none; color: var(--kk-gray-500); font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-family: inherit; }
 .project-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
-.user-btn { background: none; border: none; color: var(--kk-gray-400); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; }
+.user-btn { background: none; border: none; color: var(--kk-gray-500); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; }
 .user-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
 /* Starting a new run is the one action the top bar exists for, so it is the
    only filled control up there. It wears the same dark red as every primary
@@ -1752,22 +1805,18 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .topbar-new-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
 .dropdown-menu { position: absolute; top: calc(100% + 4px); background: white; border: 1px solid var(--kk-gray-200); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 220px; z-index: 100; padding: 4px 0; }
 .dropdown-right { right: 0; }
-.dropdown-header { padding: 8px 16px; font-size: 11px; font-weight: 600; color: var(--kk-gray-400); text-transform: uppercase; }
+.dropdown-header { padding: 8px 16px; font-size: 11px; font-weight: 600; color: var(--kk-gray-500); text-transform: uppercase; }
 .dropdown-divider { border-top: 1px solid var(--kk-gray-200); margin: 4px 0; }
 .dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 16px; border: none; background: none; font-size: 13px; color: var(--kk-charcoal); cursor: pointer; font-family: inherit; text-align: left; }
 .dropdown-item:hover { background: var(--kk-gray-50); }
 .dropdown-item.active { background: var(--kk-gold-light); }
 
-/* === Results tabs === */
-/* The strip carries two different kinds of control, so it is always on screen:
-   the tabs (which section) on the left, the mode switch (what shape) at the
-   quiet right end. flex-wrap lets the switch drop to its own line by itself
-   when the tabs leave it too little room, which happens between roughly 770 and
-   1100px, so no breakpoint has to guess where that is. min-height keeps the
-   chrome from jumping when the tabs hide. */
-.results-tabs { display: flex; align-items: center; flex-wrap: wrap; min-height: 37px; padding-right: 6px; border-bottom: 2px solid var(--kk-gray-200); flex-shrink: 0; background: white; border-radius: 8px 8px 0 0; }
-.results-tabs.tabs-hidden .tab { display: none; }
-.tab { padding: 10px 20px; background: none; border: none; font-size: 13px; font-weight: 500; color: var(--kk-gray-400); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-family: inherit; transition: all 0.2s; }
+/* === Results tabs ===
+   Holds tabs and nothing else again. The mode switch spent a few hours here
+   between its own row and the pipeline rail; the rail is the right home,
+   because the mode is a fact about the process rather than about this panel. */
+.results-tabs { display: flex; border-bottom: 2px solid var(--kk-gray-200); flex-shrink: 0; background: white; border-radius: 12px 12px 0 0; }
+.tab { padding: 10px 20px; background: none; border: none; font-size: 13px; font-weight: 500; color: var(--kk-gray-500); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-family: inherit; transition: all 0.2s; }
 .tab:hover:not(:disabled) { color: var(--kk-charcoal); }
 .tab.active { color: var(--kk-charcoal); border-bottom-color: var(--kk-dark-red); font-weight: 600; }
 .tab:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -1775,14 +1824,14 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 /* === Mode switch (orchestration-redesign §12) ===
    Deliberately NOT styled like .tab. A tab answers "which part am I looking at";
    the mode answers "what shape is the whole thing". Giving them the same
-   underline language would claim they are the same kind of choice. Sharing the
-   tabs' row does not: the row says "here you steer the view", and the two forms
-   (underlined text, filled pill group) keep saying that they are different
-   questions. It sits at the right end because tabs are navigated constantly and
-   deserve the left edge, while the mode is set rarely.
-   Moved into the strip 2026-09-09; it used to own a 38px row of its own, which
-   was 7% of the results panel spent on a preference. */
-.mode-switch { display: flex; gap: 2px; margin-left: auto; padding: 6px 0; flex-shrink: 0; }
+   underline language would claim they are the same kind of choice.
+   It lives at the right end of the pipeline rail. That row already answers
+   "where is this process", and the mode answers "what shape does it take", so
+   the two belong together; the steps pack left, so the right end was free.
+   Same-row adjacency does not claim equivalence the way shared styling would.
+   It owned a 38px row of its own until 2026-09-09, which was 7% of the results
+   panel spent on a preference. */
+.mode-switch { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
 .mode-btn { padding: 4px 12px; font-size: 11.5px; font-weight: 500; font-family: inherit; color: var(--kk-gray-500); background: var(--kk-gray-100); border: 1px solid var(--kk-gray-200); cursor: pointer; transition: all 0.15s; }
 .mode-btn:first-child { border-radius: 100px 0 0 100px; }
 .mode-btn:last-child { border-radius: 0 100px 100px 0; }
@@ -1799,7 +1848,7 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .sheet-section + .sheet-section { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--kk-gray-200); }
 .sheet-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .sheet-head h2 { font-size: 13px; font-weight: 600; color: var(--kk-charcoal); letter-spacing: 0.01em; }
-.sheet-pending { font-size: 11px; color: var(--kk-gray-400); font-weight: 400; }
+.sheet-pending { font-size: 11px; color: var(--kk-gray-500); font-weight: 400; }
 .sheet-empty { border: 1px dashed var(--kk-gray-300); border-radius: 8px; padding: 18px 20px; background: white; }
 .sheet-empty p { font-size: 12.5px; color: var(--kk-gray-500); line-height: 1.5; max-width: 60ch; }
 .sheet-empty .btn { margin-top: 14px; }
@@ -1812,11 +1861,11 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .cell-input { width: 100%; font: inherit; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 3px 6px; margin: -3px -6px; font-family: inherit; }
 .cell-input:hover:not(:disabled) { border-color: var(--kk-gray-200); background: white; }
 .cell-input:focus { outline: none; border-color: var(--kk-dark-red); background: white; box-shadow: 0 0 0 2px rgba(181,32,31,0.12); }
-.cell-input:disabled { color: var(--kk-gray-400); cursor: not-allowed; }
+.cell-input:disabled { color: var(--kk-gray-500); cursor: not-allowed; }
 .cell-input.saving { border-color: var(--kk-gold); background: var(--kk-cream); }
 td.cell-num .cell-input { text-align: right; }
 select.cell-input { cursor: pointer; }
-.cell-remove { background: none; border: none; color: var(--kk-gray-400); cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 6px; border-radius: 4px; font-family: inherit; }
+.cell-remove { background: none; border: none; color: var(--kk-gray-500); cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 6px; border-radius: 4px; font-family: inherit; }
 .cell-remove:hover:not(:disabled) { color: var(--kk-dark-red); background: var(--kk-gray-100); }
 .cell-remove:disabled { opacity: 0.3; cursor: not-allowed; }
 .cell-add { padding: 10px 16px; border-top: 1px solid var(--kk-gray-200); }
@@ -1842,7 +1891,7 @@ select.cell-input { cursor: pointer; }
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-6px); opacity: 1; } }
-.elapsed-time { font-size: 11px; color: var(--kk-gray-400); margin-left: 4px; }
+.elapsed-time { font-size: 11px; color: var(--kk-gray-500); margin-left: 4px; }
 .typing-text { font-size: 12px; color: var(--kk-gray-500); margin-left: 8px; font-style: italic; }
 .action-btn { padding: 6px 14px; background: var(--kk-charcoal); color: white; border: none; border-radius: 16px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.2s; }
 .action-btn:hover:not(:disabled) { background: var(--kk-dark-red); }
@@ -1852,12 +1901,12 @@ select.cell-input { cursor: pointer; }
 .meta-label { display: block; font-size: 13px; font-weight: 600; color: var(--kk-charcoal); margin-bottom: 5px; }
 .meta-input { width: 100%; padding: 10px 12px; border: 1px solid var(--kk-gray-200); border-radius: 8px; font-size: 14px; font-family: inherit; color: var(--kk-charcoal); outline: none; }
 .meta-input:focus { border-color: var(--kk-dark-red); box-shadow: 0 0 0 2px rgba(181,32,31,0.15); }
-.meta-hint { font-size: 12px; color: var(--kk-gray-400); margin: 6px 0 18px; }
+.meta-hint { font-size: 12px; color: var(--kk-gray-500); margin: 6px 0 18px; }
 .meta-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.project-meta-line { font-size: 11px; color: var(--kk-gray-400); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-meta-line { font-size: 11px; color: var(--kk-gray-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* === Reasoning expander (Feature 2) === */
-.reasoning-toggle { background: none; border: none; color: var(--kk-gray-400); font-size: 11px; cursor: pointer; padding: 0; font-family: inherit; text-decoration: underline; white-space: nowrap; }
+.reasoning-toggle { background: none; border: none; color: var(--kk-gray-500); font-size: 11px; cursor: pointer; padding: 0; font-family: inherit; text-decoration: underline; white-space: nowrap; }
 .reasoning-toggle:hover { color: var(--kk-charcoal); }
 .reasoning-row td { padding: 4px 12px 8px 44px; font-size: 12px; color: var(--kk-gray-500); line-height: 1.5; background: var(--kk-gray-50); border-bottom: 1px solid var(--kk-gray-100); }
 
@@ -1869,7 +1918,7 @@ select.cell-input { cursor: pointer; }
 .modal-box ul { padding-left: 20px; margin: 8px 0; }
 .modal-box section { margin-bottom: 20px; }
 .modal-box h3 { font-size: 14px; font-weight: 600; color: var(--kk-charcoal); margin-bottom: 6px; }
-.modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; color: var(--kk-gray-400); font-size: 20px; }
+.modal-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; color: var(--kk-gray-500); font-size: 20px; }
 .modal-close:hover { color: var(--kk-charcoal); }
 
 /* === Välkomstdialog ===
@@ -1877,11 +1926,11 @@ select.cell-input { cursor: pointer; }
    nybyggnation. Approximationen sitter i glyfen, inte i påhittade staplar. */
 #welcomeModal { background: rgba(68,68,68,0.45); padding: 20px; }
 .welcome-box { background: white; border-radius: 12px; width: 100%; max-width: 620px; max-height: calc(100vh - 40px); overflow-y: auto; position: relative; box-shadow: 0 18px 48px rgba(68,68,68,0.22); }
-.welcome-close { position: absolute; top: 14px; right: 14px; background: none; border: none; cursor: pointer; color: var(--kk-gray-400); font-size: 18px; line-height: 1; padding: 6px; border-radius: 50%; }
+.welcome-close { position: absolute; top: 14px; right: 14px; background: none; border: none; cursor: pointer; color: var(--kk-gray-500); font-size: 18px; line-height: 1; padding: 6px; border-radius: 50%; }
 .welcome-close:hover { color: var(--kk-charcoal); background: rgba(0,0,0,0.04); }
 
 .welcome-intro { padding: 34px 40px 26px; }
-.welcome-eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--kk-gray-400); margin-bottom: 14px; padding-right: 34px; }
+.welcome-eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--kk-gray-500); margin-bottom: 14px; padding-right: 34px; }
 .welcome-box h2 { font-size: 27px; font-weight: 700; letter-spacing: -0.5px; line-height: 1.15; color: var(--kk-charcoal); margin: 0 0 12px; }
 .welcome-lead { font-size: 16.5px; font-weight: 300; line-height: 1.55; color: var(--kk-charcoal); margin: 0; }
 
@@ -1891,7 +1940,7 @@ select.cell-input { cursor: pointer; }
 .welcome-why strong { color: var(--kk-charcoal); font-weight: 700; }
 
 .welcome-body { padding: 24px 40px 8px; }
-.welcome-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-400); margin-bottom: 10px; }
+.welcome-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--kk-gray-500); margin-bottom: 10px; }
 .welcome-body p { font-size: 13.5px; line-height: 1.65; color: var(--kk-charcoal); margin: 0 0 24px; }
 
 .welcome-tips { list-style: none; margin: 0 0 4px; padding: 0; }
@@ -1931,18 +1980,20 @@ select.cell-input { cursor: pointer; }
 }
 
 /* === Step-back navigation (Feature 10) === */
-.step-circle.done { cursor: pointer; }
-.step-circle.done:hover { background: var(--kk-dark-red); border-color: var(--kk-dark-red); transform: scale(1.1); transition: all 0.2s; }
+.step-item.done { cursor: pointer; }
+.step-item.done:hover { background: #E3EDE6; }
+.step-item:focus-visible { outline: 2px solid var(--kk-dark-red); outline-offset: 2px; }
 
 /* === Responsive (Feature 9) === */
 @media (max-width: 768px) {
   .main { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 8px 12px 0; gap: 12px; }
   .chat-panel { width: 100%; min-height: 300px; max-height: 50vh; }
   .results-panel { width: 100%; }
-  .progress-bar { padding: 12px 16px 0; }
-  .step-label { display: none; }
-  .progress-track { gap: 0; }
-  .step-circle { width: 26px; height: 26px; font-size: 12px; }
+  /* The pills keep their names here. Six of them do not fit, so the track
+     scrolls sideways, which is why it owns the overflow rather than the bar:
+     the mode switch has to stay put at the right while the steps slide. */
+  .progress-bar { padding: 8px 12px; gap: 8px; }
+  .step-item { padding: 4px 9px; }
   .topbar { padding: 0 12px; }
   .topbar-center { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .summary { grid-template-columns: repeat(2, 1fr); }
@@ -1980,7 +2031,7 @@ select.cell-input { cursor: pointer; }
     <input type="password" id="authPassword" placeholder="Lösenord" onkeydown="if(event.key==='Enter')handleAuth()">
     <div id="authError" class="error" style="display:none"></div>
     <button onclick="handleAuth()" id="authSubmitBtn">Logga in</button>
-    <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--kk-gray-400)">
+    <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--kk-gray-500)">
       <span id="authToggleText">Inget konto?</span>
       <a href="#" onclick="toggleAuthMode(event)" id="authToggleLink" style="color:var(--kk-dark-red)">Skapa konto</a>
     </div>
@@ -2011,9 +2062,9 @@ select.cell-input { cursor: pointer; }
   </div>
   <div class="topbar-right" id="userDropdown" style="position:relative;display:flex;align-items:center;gap:12px">
     <button class="topbar-new-btn" onclick="createNewProject()" title="Skapa nytt projekt" aria-label="Skapa nytt projekt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Nytt projekt</span></button>
-    <a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a>
-    <a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a>
-    <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span>
+    <a href="#" class="btn-pill" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik">🔔 Pling på</a>
+    <a href="#" class="btn-pill" onclick="openAbout();return false">Om verktyget</a>
+    <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-500);display:none"></span>
     <button class="user-btn" onclick="toggleUserMenu()">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </button>
@@ -2025,38 +2076,29 @@ select.cell-input { cursor: pointer; }
   </div>
   {% else %}
   <div class="topbar-center"></div>
-  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><button class="topbar-new-btn" onclick="createNewProject()" title="Skapa nytt projekt" aria-label="Skapa nytt projekt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Nytt projekt</span></button><a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
+  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><button class="topbar-new-btn" onclick="createNewProject()" title="Skapa nytt projekt" aria-label="Skapa nytt projekt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Nytt projekt</span></button><a href="#" class="btn-pill" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik">🔔 Pling på</a><a href="#" class="btn-pill" onclick="openAbout();return false">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-500);display:none"></span><span style="font-size:12px;color:var(--kk-gray-500)">Prototyp</span></div>
   {% endif %}
 </div>
 
 <!-- Progress tracker -->
 <div class="progress-bar">
   <div class="progress-track">
-    <div class="progress-line"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-    <div class="step-item" data-step="planering">
-      <div class="step-circle" id="sc-planering">1</div>
-      <div class="step-label" id="sl-planering">Projektbeskrivning</div>
-    </div>
-    <div class="step-item" data-step="baslinje">
-      <div class="step-circle" id="sc-baslinje">2</div>
-      <div class="step-label" id="sl-baslinje">Baslinje</div>
-    </div>
-    <div class="step-item" data-step="aterbruk">
-      <div class="step-circle" id="sc-aterbruk">3</div>
-      <div class="step-label" id="sl-aterbruk">&#xC5;terbruk</div>
-    </div>
-    <div class="step-item" data-step="nyproduktion">
-      <div class="step-circle" id="sc-nyproduktion">4</div>
-      <div class="step-label" id="sl-nyproduktion">Nyproduktion</div>
-    </div>
-    <div class="step-item" data-step="sammanstallning">
-      <div class="step-circle" id="sc-sammanstallning">5</div>
-      <div class="step-label" id="sl-sammanstallning">Sammanst&#xE4;llning</div>
-    </div>
-    <div class="step-item" data-step="uppfoljning">
-      <div class="step-circle" id="sc-uppfoljning">6</div>
-      <div class="step-label" id="sl-uppfoljning">Uppf&#xF6;ljning</div>
-    </div>
+    <button type="button" class="step-item" id="st-planering" disabled><span class="step-dot"></span>Projektbeskrivning</button>
+    <span class="step-sep" aria-hidden="true">&#x203A;</span>
+    <button type="button" class="step-item" id="st-baslinje" disabled><span class="step-dot"></span>Baslinje</button>
+    <span class="step-sep" aria-hidden="true">&#x203A;</span>
+    <button type="button" class="step-item" id="st-aterbruk" disabled><span class="step-dot"></span>&#xC5;terbruk</button>
+    <span class="step-sep" aria-hidden="true">&#x203A;</span>
+    <button type="button" class="step-item" id="st-nyproduktion" disabled><span class="step-dot"></span>Nyproduktion</button>
+    <span class="step-sep" aria-hidden="true">&#x203A;</span>
+    <button type="button" class="step-item" id="st-sammanstallning" disabled><span class="step-dot"></span>Sammanst&#xE4;llning</button>
+    <span class="step-sep" aria-hidden="true">&#x203A;</span>
+    <button type="button" class="step-item" id="st-uppfoljning" disabled><span class="step-dot"></span>Uppf&#xF6;ljning</button>
+  </div>
+  <div class="mode-switch" id="modeSwitch" role="group" aria-label="Vy">
+    <button class="mode-btn active" id="mode-stepwise" onclick="setMode('stepwise')" title="Sex steg med bekr&#xE4;ftelse mellan varje">Stegvis</button>
+    <button class="mode-btn" id="mode-document" onclick="setMode('document')" title="Allt i ett ark, ingen best&#xE4;md ordning">Arbetsblad</button>
+    <button class="mode-btn" id="mode-followup" onclick="setMode('followup')" title="Vad som faktiskt installerades, mot baslinje och plan">Uppf&#xF6;ljning</button>
   </div>
 </div>
 
@@ -2087,16 +2129,11 @@ select.cell-input { cursor: pointer; }
 
   <!-- Results panel -->
   <div class="results-panel" id="results">
-    <div class="results-tabs tabs-hidden" id="resultTabs">
+    <div class="results-tabs" id="resultTabs" style="display:none">
       <button class="tab" id="tab-projekt" onclick="switchTab('projekt')" disabled>Projekt</button>
       <button class="tab" id="tab-baslinje" onclick="switchTab('baslinje')" disabled>Baslinje</button>
       <button class="tab" id="tab-alternativ" onclick="switchTab('alternativ')" disabled>Alternativ</button>
       <button class="tab" id="tab-rapport" onclick="switchTab('rapport')" disabled>Rapport</button>
-      <div class="mode-switch" id="modeSwitch" role="group" aria-label="Vy">
-        <button class="mode-btn active" id="mode-stepwise" onclick="setMode('stepwise')" title="Sex steg med bekr&#xE4;ftelse mellan varje">Stegvis</button>
-        <button class="mode-btn" id="mode-document" onclick="setMode('document')" title="Allt i ett ark, ingen best&#xE4;md ordning">Arbetsblad</button>
-        <button class="mode-btn" id="mode-followup" onclick="setMode('followup')" title="Vad som faktiskt installerades, mot baslinje och plan">Uppf&#xF6;ljning</button>
-      </div>
     </div>
     <div class="results-content" id="resultContent">
       <div class="empty-state">
@@ -2108,7 +2145,7 @@ select.cell-input { cursor: pointer; }
 
 <!-- Footer -->
 <div class="footer" style="display:flex;justify-content:center;align-items:center;gap:8px">
-  <span style="font-size:11px;color:var(--kk-gray-400)">Aida kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
+  <span style="font-size:11px;color:var(--kk-gray-500)">Aida kan g&#xF6;ra misstag. Kontrollera viktig information.</span>
 </div>
 
 <!-- Välkomstdialog: visas första besöket, går att kalla tillbaka från Om Aida -->
@@ -2639,23 +2676,35 @@ function setProgressStep(name) {
   const order = ['planering','baslinje','aterbruk','nyproduktion','sammanstallning','uppfoljning'];
   const STEP_TAB = {planering:'projekt',baslinje:'baslinje',aterbruk:'alternativ',nyproduktion:'alternativ',sammanstallning:'alternativ',uppfoljning:'rapport'};
   const ni = order.indexOf(name);
-  const pct = order.length > 1 ? (ni / (order.length - 1)) * 100 : 0;
-  document.getElementById('progressFill').style.width = pct + '%';
   order.forEach((s, i) => {
-    const circle = document.getElementById('sc-' + s);
-    const label = document.getElementById('sl-' + s);
+    const pill = document.getElementById('st-' + s);
+    if (!pill) return;
     const isDone = i < ni;
-    circle.className = 'step-circle' + (isDone ? ' done' : i === ni ? ' active' : '');
-    label.className = 'step-label' + (isDone ? ' done' : i === ni ? ' active' : '');
-    if (isDone) {
-      circle.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-      const tab = STEP_TAB[s];
-      circle.onclick = () => { if (tab) switchTab(tab); };
-      circle.title = 'G\u00e5 till ' + label.textContent;
-    } else {
-      circle.textContent = i + 1;
-      circle.onclick = null; circle.title = '';
-    }
+    pill.className = 'step-item' + (isDone ? ' done' : i === ni ? ' active' : '');
+    // Only a finished step is somewhere you can go back to, and a disabled
+    // button drops out of the tab order, so the rail never offers a keyboard
+    // stop that does nothing.
+    const tab = STEP_TAB[s];
+    pill.disabled = !(isDone && tab);
+    pill.onclick = isDone && tab ? () => switchTab(tab) : null;
+    pill.title = isDone ? 'G\u00e5 till ' + pill.textContent.trim() : '';
+  });
+  // Below roughly 900px the six pills are wider than the rail and the track
+  // scrolls, with its scrollbar hidden. Nothing would bring the step you are
+  // standing on back into view, so on a phone the rail could sit on
+  // "Projektbeskrivning" while the run is three steps further on.
+  const here = document.getElementById('st-' + name);
+  if (here) here.scrollIntoView({block: 'nearest', inline: 'nearest'});
+}
+
+// One place resets the rail, called from both the new-project path and the
+// analysis-load path. They used to carry their own copies of this loop.
+function resetProgressRail() {
+  document.querySelectorAll('.step-item').forEach(pill => {
+    pill.className = 'step-item';
+    pill.disabled = true;
+    pill.onclick = null;
+    pill.title = '';
   });
 }
 
@@ -2711,14 +2760,14 @@ function isSheet() { return isDoc() || isFollowup(); }
 
 let _anyTabEnabled = false;
 
-// The strip is the mode switch's row too, so it never leaves the screen. Only
-// the tab buttons come and go: before any section exists, and in the sheet
+// The strip holds tabs and nothing else, so it can leave the screen entirely
+// when there are none to show: before any section exists, and in the sheet
 // modes where every section is already on one page. Three call sites used to
-// set the strip's display directly and could drift apart; the decision lives
-// here so each of them only has to say "re-decide".
+// set its display directly and could drift apart; the decision lives here so
+// each of them only has to say "re-decide".
 function applyTabStripChrome() {
   const strip = document.getElementById('resultTabs');
-  if (strip) strip.classList.toggle('tabs-hidden', isSheet() || !_anyTabEnabled);
+  if (strip) strip.style.display = (!isSheet() && _anyTabEnabled) ? 'flex' : 'none';
 }
 
 // The furthest section that exists, in the order restoreUI already uses. Null
@@ -2768,8 +2817,11 @@ function applyModeChrome() {
     if (b) b.classList.toggle('active', m === state.mode);
   });
   applyTabStripChrome();
+  // The rail stays on screen in every mode because it carries the mode switch.
+  // Only the steps go: a sheet has no step you are standing on. Same shape as
+  // the tab strip's rule, one row up.
   const rail = document.querySelector('.progress-bar');
-  if (rail) rail.style.display = isSheet() ? 'none' : '';
+  if (rail) rail.classList.toggle('steps-hidden', isSheet());
 }
 
 // Ask the server for the outcome table and redraw. Called when the mode is
@@ -4735,7 +4787,7 @@ function knownCostRollup(rows) {
 // used. Factored out so the three transparency lines cannot drift apart.
 function subLine(label, valueHtml) {
   return '<div style="font-size:11px;color:var(--kk-gray-500);margin-top:3px;font-style:italic">'
-    + '<span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">'
+    + '<span style="font-style:normal;font-weight:500;color:var(--kk-gray-500);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">'
     + label + '</span>' + valueHtml + '</div>';
 }
 
@@ -4935,7 +4987,7 @@ function alternativHtml(st, cfg) {
     const blProduct = (blBaselineComp && blBaselineComp.boverket_product) ? blBaselineComp.boverket_product : '';
     const blSource = (blBaselineComp && blBaselineComp.source) ? blBaselineComp.source : 'NollCO2';
     const blMaterialCell = blProduct
-      ? '<div style="font-weight:500">Konventionellt</div><div style="font-size:11px;color:var(--kk-gray-500);font-style:italic;margin-top:2px"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-400);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Boverket-produkt</span>' + esc(blProduct) + '</div>'
+      ? '<div style="font-weight:500">Konventionellt</div><div style="font-size:11px;color:var(--kk-gray-500);font-style:italic;margin-top:2px"><span style="font-style:normal;font-weight:500;color:var(--kk-gray-500);font-size:9.5px;letter-spacing:0.8px;text-transform:uppercase;display:block;margin-bottom:1px">Boverket-produkt</span>' + esc(blProduct) + '</div>'
       : '<div style="font-weight:500">Konventionellt</div>';
     // component_id is LLM-generated and round-trips through user-editable
     // Supabase rows — escape it before interpolating into HTML attributes / ids.
@@ -5119,7 +5171,7 @@ function installeratHtml(st, cfg) {
                        : esc(r.installed_name || '—')) + '</td>'
       + '<td>' + (edit ? asBuiltInput(cid, 'quantity', r.installed_quantity, 'Installerad mängd för ' + r.name, 'number')
                        : (r.installed_quantity != null ? fmtNum(r.installed_quantity) : '—'))
-      + ' <span style="color:var(--kk-gray-400)">' + esc(r.installed_unit || '') + '</span></td>'
+      + ' <span style="color:var(--kk-gray-500)">' + esc(r.installed_unit || '') + '</span></td>'
       + '<td style="color:var(--kk-gray-500)">' + planned + '</td>'
       // Recorded, never converted to emissions: that needs a mass per component
       // Aida does not have. The column exists because the outcome note promises
@@ -5150,11 +5202,11 @@ function matchningHtml(st, cfg) {
     // An unbound row is not an error and is not styled as one. It goes to the
     // report as "uppskattad", which §12.6 names as a valid outcome.
     const bound = e ? esc(e.name || e.id) + (e.reg_no ? subLine('Reg.nr', esc(e.reg_no)) : '')
-                    : '<span style="color:var(--kk-gray-400)">Ingen bunden ännu</span>';
+                    : '<span style="color:var(--kk-gray-500)">Ingen bunden ännu</span>';
     const per = (e && e.gwp_per_unit != null)
       ? fmtNum(e.gwp_per_unit) + ' / ' + esc(e.unit || '')
         + (e.gwp_basis === 'ghg' ? ' ' + gwpBasisBadge({gwp_basis: 'ghg'}) : '')
-      : '<span style="color:var(--kk-gray-400)">—</span>';
+      : '<span style="color:var(--kk-gray-500)">—</span>';
     html += '<tr>'
       + '<td><strong>' + esc(r.name) + '</strong>'
       + (r.installed_name ? subLine('Installerat', esc(r.installed_name)) : '') + '</td>'
@@ -5305,7 +5357,7 @@ function utfallHtml(st, cfg) {
   rows.forEach(r => {
     const outcome = r.outcome_co2e_kg != null
       ? fmtNum(r.outcome_co2e_kg)
-      : '<span style="color:var(--kk-gray-400)">Räknas inte</span>';
+      : '<span style="color:var(--kk-gray-500)">Räknas inte</span>';
     html += '<tr>'
       + '<td><strong>' + esc(r.name) + '</strong></td>'
       + '<td>' + outcome + (r.outcome_note ? subLine('Notering', esc(r.outcome_note)) : '') + '</td>'
@@ -5825,7 +5877,7 @@ async function loadAnalysesList() {
         textWrap.onclick = () => { loadAnalysis(a.id); toggleProjectMenu(); };
         item.appendChild(textWrap);
         const del = document.createElement('button');
-        del.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--kk-gray-400);padding:2px 4px;flex-shrink:0';
+        del.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--kk-gray-500);padding:2px 4px;flex-shrink:0';
         del.title = 'Ta bort';
         del.innerHTML = '\u2715';
         del.onclick = async (e) => {
@@ -5837,7 +5889,7 @@ async function loadAnalysesList() {
         container.appendChild(item);
       });
     } else {
-      container.innerHTML = '<div style="padding:8px 16px;font-size:12px;color:var(--kk-gray-400)">Inga projekt ännu</div>';
+      container.innerHTML = '<div style="padding:8px 16px;font-size:12px;color:var(--kk-gray-500)">Inga projekt ännu</div>';
     }
     return list;
   } catch(e) { console.error('Failed to load list:', e); return null; }
@@ -5905,9 +5957,7 @@ function restoreUI() {
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
   });
-  document.getElementById('progressFill').style.width = '0%';
-  document.querySelectorAll('.step-circle').forEach((c, i) => { c.className = 'step-circle'; c.textContent = i + 1; });
-  document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
+  resetProgressRail();
 
   applyModeChrome();
 
@@ -6008,9 +6058,7 @@ function createNewProject() {
   _anyTabEnabled = false;
   applyTabStripChrome();
   document.getElementById('resultContent').innerHTML = '<div class="empty-state"><p>Beskriv ditt projekt i chatten till vänster för att börja.</p></div>';
-  document.getElementById('progressFill').style.width = '0%';
-  document.querySelectorAll('.step-circle').forEach((c, i) => { c.className = 'step-circle'; c.textContent = i + 1; });
-  document.querySelectorAll('.step-label').forEach(l => l.className = 'step-label');
+  resetProgressRail();
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   addMsg('Hej! Beskriv ditt projekt. Berätta vad byggnaden används till, byggnadsår, ungefärlig yta och vilka behoven är.', 'bot');
