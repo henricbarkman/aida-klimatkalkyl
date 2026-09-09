@@ -196,15 +196,20 @@ def email_is_allowed(claims):
     return bool(email) and email in ALLOWED_EMAILS
 
 
-def supabase_request(method, path, data=None, token=None, params=None):
-    """Make a request to Supabase REST API (PostgREST)."""
+def supabase_request(method, path, data=None, token=None, params=None, prefer=None):
+    """Make a request to Supabase REST API (PostgREST).
+
+    `prefer` replaces the default Prefer header. Used for upserts, which need
+    `resolution=merge-duplicates` on top of the representation the callers here
+    already expect back.
+    """
     url = f"{SUPABASE_URL}/rest/v1/{path}"
     if params:
         url += '?' + urlencode(params)
     headers = {
         'apikey': SUPABASE_ANON_KEY,
         'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
+        'Prefer': prefer or 'return=representation',
     }
     if token:
         headers['Authorization'] = f'Bearer {token}'
@@ -841,6 +846,8 @@ def api_chat():
             alternatives=data.get('alternatives'),
             selections=data.get('selections'),
             overrides=data.get('overrides'),
+            as_built=data.get('as_built'),
+            epd_resolver=resolve_epd,
         )
         return jsonify(result)
     except _TIMEOUT_ERRORS:
@@ -855,7 +862,245 @@ def api_chat():
 # here would let a crafted request ask for a full recompute of everything, which
 # is the one operation that costs every other component its choices.
 _CELL_TOOLS = ('update_component', 'add_component', 'remove_component', 'select_alternative',
-               'set_override', 'clear_override')
+               'set_override', 'clear_override', 'set_as_built', 'bind_epd')
+
+
+# One client for the whole process. The index is 5.8 MB of JSON and the client
+# memoises it per instance, so building a new one per request would re-parse it
+# every time somebody types a letter in the match field.
+_epd_client = None
+_epd_client_lock = threading.Lock()
+
+
+def _get_epd_client():
+    global _epd_client
+    if _epd_client is None:
+        with _epd_client_lock:
+            if _epd_client is None:
+                from aida.data.environdec_client import EnvirondecClient
+                _epd_client = EnvirondecClient()
+    return _epd_client
+
+
+def resolve_epd(epd_id: str, version: str = '') -> dict | None:
+    """Look up one declaration and return it in the shape `bind_epd` stores.
+
+    The GWP has to come from the register rather than from whoever is asking:
+    this is the number that ends up in a klimatredovisning, and a figure that
+    travelled through a form field or a language model is not a declaration, it
+    is a claim about one.
+
+    GWP-fossil A1-A3 only, and None when the declaration has no fossil figure.
+    Falling back to GWP-total would silently mix in a biogenic credit and make
+    the row incomparable to the Boverket baseline the rest of the tool uses.
+    """
+    if not epd_id:
+        return None
+    detail = _get_epd_client().fetch_epd_detail(epd_id, version=version)
+    if detail is None:
+        return None
+    gwp = detail.gwp_fossil_a1a3
+    basis = 'fossil'
+    if gwp is None and detail.gwp_ghg_a1a3 is not None:
+        # Same marking PR #550 established: usable, but never as if it were the
+        # same indicator. The badge follows the number everywhere it goes.
+        gwp = detail.gwp_ghg_a1a3
+        basis = 'ghg'
+    return {
+        'id': detail.uuid,
+        'name': detail.name,
+        'gwp_per_unit': gwp,
+        'unit': detail.declared_unit,
+        'gwp_basis': basis if gwp is not None else '',
+        'reg_no': detail.reg_no,
+    }
+
+
+@app.route('/api/match', methods=['POST'])
+@require_auth
+@rate_limited
+def api_match():
+    """Candidates for "which declaration is the thing that actually got installed".
+
+    Searches the whole Environdec index (18 849 rows), not `epd_alternatives.json`
+    (1 428). That file is pruned to the best candidates per category, which is
+    right when proposing what to build and wrong here: the product a contractor
+    actually delivered is usually not one of the best in its category, and a
+    search that cannot find it would push the user towards a typvärde for no
+    reason other than our own curation.
+
+    The GWP is deliberately not fetched for every candidate. That is one API call
+    per row, and the list exists to be looked at, not summed. It arrives when a
+    row is bound, which is also when it starts to matter.
+
+    Request:  {query, geo?, component_hint?, limit?}
+    Response: {candidates: [{id, name, owner, geo, reg_no, valid_until}]}
+    """
+    data = request.json or {}
+    query = (data.get('query') or '').strip()
+    if not query:
+        return jsonify({'error': 'Sökningen behöver ett produktnamn.'}), 400
+    try:
+        limit = min(int(data.get('limit') or 12), 40)
+    except (TypeError, ValueError):
+        limit = 12
+
+    try:
+        hits = _get_epd_client().search_index(
+            query,
+            geo_filter=(data.get('geo') or '').strip(),
+            component_hint=(data.get('component_hint') or '').strip(),
+            max_results=limit,
+        )
+    except Exception as e:
+        return step_failed(e, 'EPD-sökningen')
+
+    return jsonify({'candidates': [{
+        'id': h.uuid,
+        'version': h.version,
+        'name': h.name,
+        'owner': h.owner,
+        'geo': h.geo,
+        'reg_no': h.reg_no,
+        'valid_until': h.valid_until,
+    } for h in hits]})
+
+
+@app.route('/api/followup', methods=['POST'])
+@require_auth
+def api_followup():
+    """The outcome table: what was installed, against baseline and against plan.
+
+    Computed here and nowhere else. The override side needed a JS twin because
+    `effectiveState` runs on every render; this does not, because every input to
+    it (as_built, baseline, selections, overrides) only ever changes through a
+    request that already goes to the server. So the client asks once per change
+    and renders what it is told, and there is one implementation of the arithmetic
+    instead of two that have to be kept honest about each other.
+
+    Request:  {project, baseline?, selections?, as_built?, overrides?}
+    Response: {rows, totals, uncertainties}
+    """
+    from aida import followup as followup_mod
+
+    data = request.json or {}
+    if not isinstance(data.get('project'), dict):
+        return jsonify({'error': 'project måste vara ett objekt.'}), 400
+    for bag in ('baseline', 'selections', 'as_built', 'overrides'):
+        value = data.get(bag)
+        if value is not None and not isinstance(value, dict):
+            return jsonify({'error': f'{bag} måste vara ett objekt eller saknas.'}), 400
+
+    try:
+        return jsonify(followup_mod.compute(
+            data.get('project'),
+            data.get('baseline'),
+            data.get('selections') or {},
+            data.get('as_built') or {},
+            overrides=data.get('overrides') or {},
+        ))
+    except Exception as e:
+        return step_failed(e, 'uppföljningen')
+
+
+@app.route('/api/followup/report', methods=['POST'])
+@require_auth
+def api_followup_report():
+    """The klimatredovisning, rendered from the outcome table.
+
+    Its own endpoint rather than a template flag on /api/report, because the two
+    have different preconditions and the shared one would have to lose its.
+    /api/report refuses an empty `selections.components`, and rightly so: a plan
+    with nothing chosen is not a report. A follow-up trips that check while being
+    perfectly valid, because following up a job Aida never planned is the case
+    §12.6 was written for.
+
+    Request:  {project, baseline?, selections?, as_built?, overrides?, property_ref?}
+    Response: {markdown}
+    """
+    from aida import followup as followup_mod
+    from aida.agents.report import render_followup_report
+
+    data = request.json or {}
+    if not isinstance(data.get('project'), dict):
+        return jsonify({'error': 'project måste vara ett objekt.'}), 400
+    for bag in ('baseline', 'selections', 'as_built', 'overrides'):
+        value = data.get(bag)
+        if value is not None and not isinstance(value, dict):
+            return jsonify({'error': f'{bag} måste vara ett objekt eller saknas.'}), 400
+
+    try:
+        result = followup_mod.compute(
+            data.get('project'),
+            data.get('baseline'),
+            data.get('selections') or {},
+            data.get('as_built') or {},
+            overrides=data.get('overrides') or {},
+        )
+        markdown = render_followup_report(
+            data.get('project'), result,
+            overrides=data.get('overrides') or {},
+            property_ref=str(data.get('property_ref') or '').strip()[:200],
+        )
+        return jsonify({'markdown': markdown})
+    except Exception as e:
+        return step_failed(e, 'klimatredovisningen')
+
+
+@app.route('/api/followup/facts', methods=['POST'])
+@require_supabase_auth
+def api_followup_facts():
+    """Record what was estimated against what it turned out to be.
+
+    Collected, not fed back. §12.6 is explicit that none of this loops into
+    pricing yet: a correction drawn from a handful of projects is a rumour with a
+    number on it. The point of writing it down now is that in two years there
+    will be enough of it to decide with.
+
+    The facts are computed here rather than accepted from the caller. A row in
+    this table is a claim about how far Aida's estimate was off, and one that
+    arrived ready-made from a browser would be a claim nobody checked.
+
+    Request:  {analysis_id, project, baseline?, selections?, as_built?, overrides?}
+    Response: {written: n}
+    """
+    from aida import followup as followup_mod
+
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    data = request.json or {}
+    analysis_id = str(data.get('analysis_id') or '').strip()
+    if not analysis_id:
+        return jsonify({'error': 'analysis_id saknas.'}), 400
+    if not isinstance(data.get('project'), dict):
+        return jsonify({'error': 'project måste vara ett objekt.'}), 400
+    for bag in ('baseline', 'selections', 'as_built', 'overrides'):
+        value = data.get(bag)
+        if value is not None and not isinstance(value, dict):
+            return jsonify({'error': f'{bag} måste vara ett objekt eller saknas.'}), 400
+
+    try:
+        result = followup_mod.compute(
+            data.get('project'),
+            data.get('baseline'),
+            data.get('selections') or {},
+            data.get('as_built') or {},
+            overrides=data.get('overrides') or {},
+        )
+        rows = followup_mod.facts(analysis_id, result['rows'])
+        if not rows:
+            return jsonify({'written': 0})
+        for row in rows:
+            row['user_id'] = request.user_id
+        # Upsert on (analysis_id, component_id, field): a second follow-up of the
+        # same project corrects its own earlier rows rather than adding a second
+        # opinion beside them.
+        supabase_request(
+            'POST', 'follow_up_facts', data=rows, token=token,
+            prefer='return=minimal,resolution=merge-duplicates',
+        )
+        return jsonify({'written': len(rows)})
+    except Exception as e:
+        return step_failed(e, 'uppföljningsfakta')
 
 
 @app.route('/api/mutate', methods=['POST'])
@@ -888,15 +1133,34 @@ def api_mutate():
     if not isinstance(data.get('project'), dict):
         return jsonify({'error': 'project måste vara ett objekt.'}), 400
     for bag, kind in (('baseline', dict), ('alternatives', dict), ('selections', dict),
-                      ('overrides', dict)):
+                      ('overrides', dict), ('as_built', dict)):
         value = data.get(bag)
         if value is not None and not isinstance(value, kind):
             return jsonify({'error': f'{bag} måste vara ett objekt eller saknas.'}), 400
 
+    inp = data['input']
+    if tool == 'bind_epd' and 'epd' not in inp:
+        # Same resolution the chat goes through, in the same place in the flow:
+        # the client sends an id off the candidate list and the GWP is fetched
+        # here, from the register. A client-supplied figure would be a number
+        # that never passed a declaration on its way into the report.
+        inp = dict(inp)
+        epd_id = inp.pop('epd_id', None)
+        if epd_id:
+            try:
+                found = resolve_epd(epd_id, version=inp.pop('version', '') or '')
+            except Exception as e:
+                return step_failed(e, 'EPD-uppslaget')
+            if not found:
+                return jsonify({'error': 'Hittade ingen deklaration med det id:t.'}), 404
+            inp['epd'] = found
+        else:
+            inp['epd'] = None
+
     try:
         result = apply_mutation(
             tool=tool,
-            inp=data['input'],
+            inp=inp,
             project=data.get('project'),
             baseline=data.get('baseline'),
             alternatives=data.get('alternatives'),
@@ -905,6 +1169,7 @@ def api_mutate():
             # so the module applies it instead.
             auto_rerun=True,
             overrides=data.get('overrides') or {},
+            as_built=data.get('as_built') or {},
         )
         return jsonify(result)
     except Exception as e:
@@ -948,6 +1213,12 @@ def create_analysis():
         # Orchestration increment 4: the chat is part of the analysis, not of
         # the browser that happened to run it.
         'conversation_data': data.get('conversation_data'),
+        # What was actually installed (§12.6). Its own column rather than a ride
+        # in project_data, for the same reason conversation_data got one: an
+        # analysis started straight in follow-up mode has no project_data to
+        # ride in until intake has run, and following up a project that was
+        # never calculated in Aida is a normal case, not an exception.
+        'as_built_data': data.get('as_built_data'),
         # Which building this analysis is about, and roughly when the work is
         # planned. Both optional. They exist so analyses stop being isolated
         # events: two analyses on the same school can be related, and the set
@@ -1001,7 +1272,7 @@ def update_analysis(analysis_id):
     update = {}
     for key in ('name', 'status', 'project_data', 'baseline_data',
                 'alternatives_data', 'selections_data', 'report_markdown',
-                'conversation_data'):
+                'conversation_data', 'as_built_data'):
         if key in data:
             update[key] = data[key]
     # Kept apart from the loop above because '' has to become NULL rather than
@@ -1245,6 +1516,20 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .override-form .ov-clear { border-color: transparent; text-decoration: underline; padding-left: 4px; }
 .override-hint { flex-basis: 100%; font-size: 11px; color: var(--kk-gray-500); }
 .override-hint.bad { color: var(--kk-red-orange); }
+/* EPD-sökträffar. Capped and scrolled rather than allowed to grow: twelve hits
+   would push the rest of the outcome table off screen, and the row being matched
+   has to stay visible while the choice is made. */
+.match-results { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 260px; overflow-y: auto; border: 1px solid var(--kk-gray-200); border-radius: 6px; background: white; }
+/* Full-width row, not a chip: the product name is the thing being read, and a
+   name truncated to fit a pill is a match nobody can verify. */
+.match-hit { display: block; width: 100%; text-align: left; font: inherit; padding: 7px 10px; background: none; border: none; border-bottom: 1px solid var(--kk-gray-100); cursor: pointer; }
+.match-hit:last-child { border-bottom: none; }
+.match-hit:hover { background: var(--kk-gray-50); }
+.match-hit:focus-visible { outline: 2px solid var(--kk-dark-red); outline-offset: -2px; }
+.match-hit-name { display: block; font-size: 13px; color: var(--kk-charcoal); }
+/* Owner, geography and registration number. Which of two similarly named
+   products this is depends on exactly this line, so it is quiet but present. */
+.match-hit-meta { display: block; font-size: 11px; color: var(--kk-gray-500); margin-top: 1px; }
 .source-legend { display: flex; gap: 16px; margin: 4px 0 12px; font-size: 12px; color: var(--kk-gray-500); }
 .method-label { margin: 4px 0 8px; font-size: 11px; color: var(--kk-gray-500); font-style: italic; }
 
@@ -1632,6 +1917,7 @@ select.cell-input { cursor: pointer; }
     <div class="mode-switch" id="modeSwitch" role="group" aria-label="Vy">
       <button class="mode-btn active" id="mode-stepwise" onclick="setMode('stepwise')" title="Sex steg med bekr&#xE4;ftelse mellan varje">Stegvis</button>
       <button class="mode-btn" id="mode-document" onclick="setMode('document')" title="Allt i ett ark, ingen best&#xE4;md ordning">Arbetsblad</button>
+      <button class="mode-btn" id="mode-followup" onclick="setMode('followup')" title="Vad som faktiskt installerades, mot baslinje och plan">Uppf&#xF6;ljning</button>
     </div>
     <div class="results-tabs" id="resultTabs" style="display:none">
       <button class="tab" id="tab-projekt" onclick="switchTab('projekt')" disabled>Projekt</button>
@@ -1805,6 +2091,17 @@ let state = {
   // why an override survives every rerun and why lifting one shows Aida's number
   // again without recomputing anything. Rides in project_data beside `mode`.
   overrides: {},
+  // Orchestration §12.6: what was actually installed, keyed by component id.
+  //   as_built.c1 = {installed_name, quantity, unit, epd, match_quality, ...}
+  // Its own Supabase column rather than a ride in project_data: an analysis
+  // started straight in follow-up mode has no project_data until intake runs,
+  // and following up a project that was never calculated in Aida is normal.
+  as_built: {},
+  // The computed outcome table. Derived, never saved, and never computed here:
+  // the server owns that arithmetic (see /api/followup), so there is one
+  // implementation of the figure that ends up in a klimatredovisning instead of
+  // one per language that have to be kept honest about each other.
+  followup: null,
   get step() { return _step; },
   set step(v) { _step = v; updatePlaceholder(); },
 };
@@ -1999,7 +2296,7 @@ function updateConfirmBar() {
   const bar = document.getElementById('confirmBar');
   // The sheet has no gates (§12.1): runs start from the section that is missing,
   // so a bar saying "confirm to continue" would point at a step that isn't there.
-  const cfg = isDoc() ? null : CONFIRM_BAR_CONFIG[state.step];
+  const cfg = isSheet() ? null : CONFIRM_BAR_CONFIG[state.step];
   if (cfg) {
     document.getElementById('confirmBarText').textContent = cfg.text;
     const btn = document.getElementById('confirmBarBtn');
@@ -2137,7 +2434,7 @@ function intakeSummary(project) {
 // keeps its `confirm` either way, so switching back to Stegvis restores the
 // buttons: the mode changes the view, never the data.
 function confirmBlockHtml(btnLabel, hint) {
-  if (isDoc()) return '';
+  if (isSheet()) return '';
   return '<div class="confirm-actions"><button class="btn-confirm" onclick="confirmStep()">' + btnLabel + '</button></div>' +
          '<div class="confirm-hint">' + hint + '</div>';
 }
@@ -2230,9 +2527,14 @@ function setLoading(on) {
 // A mode is a configuration of the view, not a branch of the pipeline. Labels
 // live here and nowhere else, so renaming one is a one-line change; the keys are
 // what the rest of the code and the database see. 'followup' arrives in step 5.
-const MODES = ['stepwise', 'document'];
+const MODES = ['stepwise', 'document', 'followup'];
 const MODE_LABELS = {stepwise: 'Stegvis', document: 'Arbetsblad', followup: 'Uppföljning'};
 function isDoc() { return state.mode === 'document'; }
+function isFollowup() { return state.mode === 'followup'; }
+// Both non-stepwise modes are a stacked sheet rather than a tab strip. Almost
+// every place that used to ask isDoc() was really asking this, and the two
+// questions only stayed the same answer while there were two modes.
+function isSheet() { return isDoc() || isFollowup(); }
 
 let _anyTabEnabled = false;
 
@@ -2259,8 +2561,12 @@ function setMode(m) {
   // the pipeline may have moved on twice since. Only switchTab sets both the
   // content and the mark, so the strip cannot claim a different section than the
   // one on screen.
-  if (isDoc()) {
+  if (isSheet()) {
     refreshResults();
+    // Entering follow-up with a project already loaded: the table is empty until
+    // the server has computed it, so ask straight away rather than leaving three
+    // sections looking broken until the first edit.
+    if (isFollowup()) refreshFollowup();
   } else {
     const t = activeTab || defaultTab();
     if (t) switchTab(t);
@@ -2278,11 +2584,40 @@ function applyModeChrome() {
     const b = document.getElementById('mode-' + m);
     if (b) b.classList.toggle('active', m === state.mode);
   });
-  const doc = isDoc();
+  const doc = isSheet();
   const tabs = document.getElementById('resultTabs');
   if (tabs) tabs.style.display = (!doc && _anyTabEnabled) ? 'flex' : 'none';
   const rail = document.querySelector('.progress-bar');
   if (rail) rail.style.display = doc ? 'none' : '';
+}
+
+// Ask the server for the outcome table and redraw. Called when the mode is
+// entered, after every mutation while it is on, and after an analysis loads.
+// Not on a timer and not on every render: every input to it changes only
+// through a request, so anything more often would be asking the same question
+// twice.
+let _followupInFlight = false;
+async function refreshFollowup() {
+  if (!state.project || _followupInFlight) return;
+  _followupInFlight = true;
+  try {
+    const r = await authFetch('/api/followup', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({project: state.project, baseline: state.baseline,
+                            selections: state.selections, as_built: state.as_built,
+                            overrides: state.overrides})});
+    const d = await r.json();
+    if (d && !d.error) {
+      state.followup = d;
+      if (isFollowup()) renderSheet();
+    }
+  } catch (e) {
+    // A failed outcome fetch leaves the previous table on screen rather than
+    // blanking it. The numbers are stale, not wrong, and the sections around
+    // them still work; a thrown error here used to take the whole redraw with it.
+    console.warn('uppföljningen kunde inte hämtas', e);
+  } finally {
+    _followupInFlight = false;
+  }
 }
 
 function sectionExists(tab) {
@@ -2297,7 +2632,7 @@ function sectionExists(tab) {
 // to test activeTab themselves now ask for this instead, so adding a mode does
 // not mean finding every re-render site again.
 function refreshResults() {
-  if (isDoc()) { renderSheet(); return; }
+  if (isSheet()) { renderSheet(); return; }
   // A rerun can invalidate the very section being looked at: a full baseline
   // rerun nulls alternatives, the report, and every selection. Rendering nothing
   // would leave the old table sitting there with its radio buttons ticked,
@@ -2321,7 +2656,7 @@ function enableTab(name) {
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.disabled = false;
   _anyTabEnabled = true;
-  if (!isDoc()) document.getElementById('resultTabs').style.display = 'flex';
+  if (!isSheet()) document.getElementById('resultTabs').style.display = 'flex';
 }
 
 function switchTab(name) {
@@ -2329,7 +2664,7 @@ function switchTab(name) {
   // In the sheet every section is already on screen, so "switch to baslinje"
   // means "take me there". The pipeline calls this when a run finishes, which is
   // exactly when the user wants to be moved to the result.
-  if (isDoc()) { renderSheet(); scrollToSection(name); return; }
+  if (isSheet()) { renderSheet(); scrollToSection(name); return; }
   document.querySelectorAll('.results-tabs .tab').forEach(t => t.classList.remove('active'));
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.classList.add('active');
@@ -2569,6 +2904,11 @@ async function runIntake(desc) {
     // survived a re-intake would attach itself to whatever component happened to
     // get that id next, which is the one failure this feature must not have.
     state.overrides = {};
+    // And what was registered as installed, keyed the same way. Re-running intake
+    // on a project someone had already followed up is rare, but the failure it
+    // would leave behind is a delivered quantity filed under the wrong component.
+    state.as_built = {};
+    state.followup = null;
     state.step = 'intake_done';
     notifyStepDone('intake', true);
     if (HAS_SUPABASE) { document.getElementById('projectName').textContent = d.name || d.building_type || 'Nytt projekt'; }
@@ -2949,6 +3289,58 @@ async function generateReport() {
   }
 }
 
+// The follow-up's own report. Written from the outcome table rather than from
+// the plan, so it does not go through generateReport: that one refuses when no
+// alternative has been chosen, which is the normal state of a project that was
+// followed up without ever being planned in Aida.
+async function generateFollowupReport() {
+  addMsg('Skriver klimatredovisningen...', 'system');
+  setLoading(true);
+  try {
+    const r = await authFetch('/api/followup/report', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({project: state.project, baseline: state.baseline,
+                            selections: state.selections, as_built: state.as_built,
+                            overrides: state.overrides, property_ref: state.propertyRef || ''})});
+    const d = await r.json();
+    if (d.error) { addMsg('Fel: ' + d.error, 'system'); setLoading(false); return; }
+    state.reportMarkdown = d.markdown;
+    scheduleAutoSave();
+    // Deliberately not state.step = 'report_done'. The step machine describes
+    // how far the six-step analysis has run, and a follow-up on a project that
+    // was never analysed here has not run any of it. Writing the redovisning
+    // would otherwise light up a progress bar for work nobody did.
+    addMsg('Klimatredovisningen är klar. Den ligger under Klimatredovisning här till höger.', 'bot');
+    refreshResults();
+    recordFollowupFacts();
+    setLoading(false);
+  } catch(e) {
+    addMsg('Fel: ' + e.message, 'system');
+    setLoading(false);
+  }
+}
+
+// What the follow-up learned: estimated against actual, per component and field.
+// Written when the redovisning is, because that is the point at which the numbers
+// stop moving.
+//
+// Deliberately silent, in both directions. It is bookkeeping for a decision two
+// years out (§12.6: nothing here feeds back into pricing yet), so a failure must
+// not land on top of a document the user just successfully produced, and a
+// success is not news either.
+async function recordFollowupFacts() {
+  if (!HAS_SUPABASE || !currentUser || !currentAnalysisId) return;
+  try {
+    await authFetch('/api/followup/facts', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({analysis_id: currentAnalysisId, project: state.project,
+                            baseline: state.baseline, selections: state.selections,
+                            as_built: state.as_built, overrides: state.overrides})});
+  } catch (e) {
+    console.warn('uppföljningsfakta kunde inte sparas', e);
+  }
+}
+
 // Orchestration increment 1: classify a message server-side, getting an advisory
 // answer back in the same call when applicable. Mirrors runChat's body shape.
 async function routeMessage(text) {
@@ -3318,13 +3710,27 @@ function applyAgentStateUpdates(updates) {
     backfillIntent();
     touched = true;
   }
-  // Tested for presence rather than truthiness: clearing the last override
-  // returns {}, and `if (updates.overrides)` would keep the one the user just
-  // removed. The four bags above are never legitimately empty, so the same trap
-  // is not there.
+  // Presence, not truthiness. The guard that actually carries the emptiness sits
+  // on the server, in build_state_updates: an empty dict is falsy in PYTHON, so
+  // `if overrides:` there would drop the key and never tell the client that the
+  // last override went. Here the same shape is defence in depth rather than the
+  // fix, because {} is truthy in JS. It earns its place on one input: an explicit
+  // null, which `if (updates.overrides)` would skip while leaving the stale bag
+  // on screen. The four bags above are never legitimately empty, so the trap is
+  // not there.
   if (Object.prototype.hasOwnProperty.call(updates, 'overrides')) {
     state.overrides = updates.overrides || {};
     touched = true;
+  }
+  // Same test, same reasoning: unbinding the last EPD or clearing the last
+  // installed row leaves the bag empty, and that emptiness is the edit.
+  if (Object.prototype.hasOwnProperty.call(updates, 'as_built')) {
+    state.as_built = updates.as_built || {};
+    touched = true;
+    // The outcome table is derived server-side, so it does not follow from the
+    // new bag by itself. Without this the numbers on screen belong to the
+    // previous edit.
+    if (isFollowup()) refreshFollowup();
   }
 
   if (touched) {
@@ -3765,7 +4171,47 @@ function bindCells() {
   if (cellsLocked()) setCellsDisabled(true);
 }
 
+// An as-built cell is the same kind of cell with a different destination: it
+// describes what was installed, not what is planned, so it must not land in
+// update_component and quietly rewrite the plan. Same lock, same escape key,
+// same round trip; one attribute decides which tool it reaches.
+function asBuiltInput(cid, field, value, label, type) {
+  const v = value == null ? '' : String(value);
+  return '<input class="cell-input" data-ab="1" data-cid="' + esc(cid) + '" data-field="' + field + '"' +
+         ' data-was="' + esc(v) + '" value="' + esc(v) + '" aria-label="' + esc(label) + '"' +
+         (type === 'number' ? ' type="number" min="0" step="any"' : ' type="text"') + '>';
+}
+
+const AS_BUILT_NUMERIC = ['quantity', 'actual_cost', 'transport_km'];
+
+function commitAsBuiltCell(el) {
+  const raw = el.value.trim();
+  if (raw === (el.dataset.was || '')) return;
+  const field = el.dataset.field;
+  const input = {component_id: el.dataset.cid};
+  if (AS_BUILT_NUMERIC.indexOf(field) !== -1) {
+    // Empty clears the field rather than writing a zero. Zero kronor is a
+    // statement (donated, already owned); blank is the absence of one, and the
+    // outcome table renders the two differently on purpose.
+    if (raw === '') { input[field] = null; }
+    else {
+      const n = Number(raw);
+      if (!(n >= 0)) {
+        addMsg('Värdet måste vara ett tal, noll eller större.', 'system');
+        el.value = el.dataset.was;
+        return;
+      }
+      input[field] = n;
+    }
+  } else {
+    input[field] = raw;
+  }
+  el.classList.add('saving');
+  return sendMutation('set_as_built', input);
+}
+
 function commitCell(el) {
+  if (el.dataset.ab) return commitAsBuiltCell(el);
   const value = el.value.trim();
   if (value === (el.dataset.was || '')) return;   // blur without an edit
   const field = el.dataset.field;
@@ -3816,7 +4262,7 @@ async function sendMutation(tool, input) {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({tool, input, project: state.project, baseline: state.baseline,
                             alternatives: state.alternatives, selections: state.selections,
-                            overrides: state.overrides}),
+                            overrides: state.overrides, as_built: state.as_built}),
     });
     const d = await r.json();
     if (d.error) { addMsg('Fel: ' + d.error, 'system'); refreshResults(); return; }
@@ -4425,6 +4871,244 @@ function bindReportDownloads() {
 // the empty state can offer a button at all: an empty section with no way to
 // fill it would just be a scold. `action` is null when the prerequisite is
 // missing, and then the text alone says what is needed.
+// === Uppföljning (§12.6) ===
+// The three renderers read st.followup, which the server computed. There is no
+// arithmetic in here on purpose: the outcome figure ends up in a klimatredovisning
+// and having two implementations of it, one per language, is how the sheet and
+// the document end up disagreeing while both look authoritative.
+
+const QUALITY_LABELS = {product: 'Produktspecifik EPD', generic: 'Generisk EPD',
+                        typvarde: 'Kategorins typvärde', reuse: 'Återbruk',
+                        none: 'Ingen träff'};
+
+// The badge says what the figure rests on, in the same visual grammar as every
+// other source badge on the page: filled and warm when it comes from a real
+// declaration, outlined when it does not come from our sources at all.
+function qualityBadge(quality) {
+  const label = QUALITY_LABELS[quality] || QUALITY_LABELS.none;
+  if (quality === 'product') return '<span class="source-badge source-verified" title="' + esc(label) + '">EPD</span>';
+  if (quality === 'generic') return '<span class="source-badge source-verified" title="' + esc(label) + '">Generisk</span>';
+  if (quality === 'reuse') return '<span class="type-badge type-reuse" title="' + esc(label) + '">Återbruk</span>';
+  if (quality === 'typvarde') return '<span class="source-badge source-aggregate" title="' + esc(label) + '">Typvärde</span>';
+  return '<span class="source-badge source-estimate" title="' + esc(label) + '">Ingen träff</span>';
+}
+
+function followupRows(st) {
+  return (st.followup && st.followup.rows) || [];
+}
+
+function installeratHtml(st, cfg) {
+  const rows = followupRows(st);
+  const edit = !!(cfg && cfg.editable);
+  let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">Installerat</div>';
+  html += '<div class="method-label">Vad som faktiskt sattes in, bredvid det som planerades</div>';
+  html += '<div class="comp-card"><table class="comp-table"><thead><tr>'
+        + '<th>Komponent</th><th>Installerad produkt</th><th>Mängd</th>'
+        + '<th>Planerat</th><th>Kostnad (SEK)</th><th>Prisunderlag</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    const cid = r.component_id;
+    const planned = (r.planned_quantity != null ? fmtNum(r.planned_quantity) + ' ' + esc(r.unit || '') : '—');
+    html += '<tr>'
+      + '<td><strong>' + esc(r.name) + '</strong></td>'
+      + '<td>' + (edit ? asBuiltInput(cid, 'installed_name', r.installed_name, 'Installerad produkt för ' + r.name, 'text')
+                       : esc(r.installed_name || '—')) + '</td>'
+      + '<td>' + (edit ? asBuiltInput(cid, 'quantity', r.installed_quantity, 'Installerad mängd för ' + r.name, 'number')
+                       : (r.installed_quantity != null ? fmtNum(r.installed_quantity) : '—'))
+      + ' <span style="color:var(--kk-gray-400)">' + esc(r.installed_unit || '') + '</span></td>'
+      + '<td style="color:var(--kk-gray-500)">' + planned + '</td>'
+      + '<td>' + (edit ? asBuiltInput(cid, 'actual_cost', r.actual_cost_sek, 'Verklig kostnad för ' + r.name, 'number')
+                       : (r.actual_cost_sek != null ? fmtNum(r.actual_cost_sek) : '—')) + '</td>'
+      + '<td>' + (edit ? asBuiltInput(cid, 'cost_source', r.cost_source, 'Prisunderlag för ' + r.name, 'text')
+                       : esc(r.cost_source || '—')) + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function matchningHtml(st, cfg) {
+  const rows = followupRows(st);
+  const edit = !!(cfg && cfg.editable);
+  let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">Matchning</div>';
+  html += '<div class="method-label">Vilken miljödeklaration som gäller för det installerade</div>';
+  html += '<div class="comp-card"><table class="comp-table"><thead><tr>'
+        + '<th>Komponent</th><th>Bunden deklaration</th><th>Underlag</th>'
+        + '<th>kg CO₂e per enhet</th>' + (edit ? '<th></th>' : '') + '</tr></thead><tbody>';
+  rows.forEach(r => {
+    const e = r.epd;
+    // An unbound row is not an error and is not styled as one. It goes to the
+    // report as "uppskattad", which §12.6 names as a valid outcome.
+    const bound = e ? esc(e.name || e.id) + (e.reg_no ? subLine('Reg.nr', esc(e.reg_no)) : '')
+                    : '<span style="color:var(--kk-gray-400)">Ingen bunden ännu</span>';
+    const per = (e && e.gwp_per_unit != null)
+      ? fmtNum(e.gwp_per_unit) + ' / ' + esc(e.unit || '')
+        + (e.gwp_basis === 'ghg' ? ' ' + gwpBasisBadge({gwp_basis: 'ghg'}) : '')
+      : '<span style="color:var(--kk-gray-400)">—</span>';
+    html += '<tr>'
+      + '<td><strong>' + esc(r.name) + '</strong>'
+      + (r.installed_name ? subLine('Installerat', esc(r.installed_name)) : '') + '</td>'
+      + '<td>' + bound + '</td>'
+      + '<td>' + qualityBadge(r.match_quality) + '</td>'
+      + '<td>' + per + '</td>'
+      + (edit ? '<td><button type="button" class="btn-na-cancel" onclick="openMatch(\'' + esc(r.component_id) + '\')">'
+                + (e ? 'Byt' : 'Sök') + '</button></td>' : '')
+      + '</tr>';
+    if (edit) html += matchFormRow(r);
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// Which row has its search open, and what came back. One at a time, for the
+// same reason the override editor is: two open searches in one table would let
+// someone start in one and bind from the other.
+let _matchOpen = null;
+let _matchResults = [];
+let _matchBusy = false;
+
+function openMatch(cid) {
+  if (cellsLocked()) return;
+  _matchOpen = cid;
+  _matchResults = [];
+  refreshResults();
+  const el = document.getElementById('matchQuery');
+  if (el) { el.focus(); el.select(); }
+}
+
+function closeMatch() {
+  _matchOpen = null;
+  _matchResults = [];
+  refreshResults();
+}
+
+function matchFormRow(r) {
+  if (_matchOpen !== r.component_id) return '';
+  const hint = _matchBusy ? 'Söker…'
+    : (_matchResults.length ? 'Välj den produkt som faktiskt installerades.'
+       : 'Sök på produktnamnet. Hittar du den inte, lämna raden obunden: den redovisas då som uppskattad.');
+  let html = '<tr class="override-row"><td colspan="5">'
+    + '<div class="override-form">'
+    + '<div class="ov-note"><label for="matchQuery">Sök i EPD-registret</label>'
+    + '<input id="matchQuery" type="text" value="' + esc(r.installed_name || r.name || '') + '"'
+    + ' placeholder="Produktnamn, till exempel iQ Granit" onkeydown="if(event.key===\'Enter\'){event.preventDefault();runMatch();}"></div>'
+    + '<div class="ov-actions">'
+    + '<button type="button" class="btn-na-cancel" onclick="closeMatch()">Stäng</button>'
+    + '<button type="button" class="btn-na-save" onclick="runMatch()">Sök</button>'
+    + (r.epd ? '<button type="button" class="btn-na-cancel ov-clear" onclick="unbindEpd(\'' + esc(r.component_id) + '\')">Ta bort bindningen</button>' : '')
+    + '</div>'
+    + '<div class="override-hint" id="matchHint">' + esc(hint) + '</div>';
+  if (_matchResults.length) {
+    html += '<div class="match-results">';
+    _matchResults.forEach(c => {
+      html += '<button type="button" class="match-hit" onclick="bindMatch(\'' + esc(r.component_id)
+        + '\',\'' + esc(c.id) + '\',\'' + esc(c.version || '') + '\')">'
+        + '<span class="match-hit-name">' + esc(c.name) + '</span>'
+        + '<span class="match-hit-meta">' + esc(c.owner || '') + (c.geo ? ' · ' + esc(c.geo) : '')
+        + (c.reg_no ? ' · ' + esc(c.reg_no) : '') + '</span></button>';
+    });
+    html += '</div>';
+  }
+  return html + '</div></td></tr>';
+}
+
+async function runMatch() {
+  const el = document.getElementById('matchQuery');
+  const query = (el && el.value || '').trim();
+  const hint = document.getElementById('matchHint');
+  if (!query) {
+    if (hint) { hint.className = 'override-hint bad'; hint.textContent = 'Skriv ett produktnamn att söka på.'; }
+    return;
+  }
+  _matchBusy = true;
+  if (hint) { hint.className = 'override-hint'; hint.textContent = 'Söker…'; }
+  try {
+    const comp = (followupRows(effectiveState(state)).find(r => r.component_id === _matchOpen)) || {};
+    const r = await authFetch('/api/match', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: query, component_hint: comp.name || '', limit: 12})});
+    const d = await r.json();
+    _matchBusy = false;
+    if (d.error) {
+      if (hint) { hint.className = 'override-hint bad'; hint.textContent = d.error; }
+      return;
+    }
+    _matchResults = d.candidates || [];
+    refreshResults();
+    if (!_matchResults.length) {
+      const h2 = document.getElementById('matchHint');
+      if (h2) h2.textContent = 'Inga träffar. Lämna raden obunden så redovisas den som uppskattad, '
+                             + 'eller sök på ett kortare produktnamn.';
+    }
+  } catch (e) {
+    _matchBusy = false;
+    if (hint) { hint.className = 'override-hint bad'; hint.textContent = 'Sökningen misslyckades: ' + e.message; }
+  }
+}
+
+function bindMatch(cid, epdId, version) {
+  _matchOpen = null;
+  _matchResults = [];
+  return sendMutation('bind_epd', {component_id: cid, epd_id: epdId, version: version,
+                                   match_quality: 'product'});
+}
+
+function unbindEpd(cid) {
+  _matchOpen = null;
+  _matchResults = [];
+  return sendMutation('bind_epd', {component_id: cid, epd_id: null, match_quality: 'none'});
+}
+
+function utfallHtml(st, cfg) {
+  const rows = followupRows(st);
+  const t = (st.followup && st.followup.totals) || null;
+  let html = (cfg && cfg.hideTitle) ? '' : '<div class="section-title">Utfall</div>';
+  html += '<div class="method-label">Utfall mot baslinje och mot plan, GWP-fossil A1-A3</div>';
+  if (t) {
+    html += '<div class="summary">';
+    html += '<div class="card"><div class="card-title">Utfall</div><div class="value">'
+          + fmtNum(t.outcome_co2e_kg) + '</div><div class="sublabel">kg CO₂e</div></div>';
+    html += '<div class="card"><div class="card-title">Mot baslinjen</div><div class="value">'
+          + fmtNum(t.avoided_vs_baseline_kg) + '</div><div class="sublabel">kg CO₂e undveks</div></div>';
+    html += '<div class="card"><div class="card-title">Mot planen</div><div class="value">'
+          + (t.deviation_vs_plan_kg > 0 ? '+' : '') + fmtNum(t.deviation_vs_plan_kg)
+          + '</div><div class="sublabel">kg CO₂e avvikelse</div></div>';
+    html += '</div>';
+    // The sentence that keeps the three cards honest. Without it the totals
+    // read as covering the whole project, and a saving computed over three of
+    // five components looks exactly like one computed over all five.
+    if (t.rows_counted !== t.rows_total) {
+      html += '<div class="method-label" style="color:var(--kk-red-orange)">Summorna gäller '
+            + t.rows_counted + ' av ' + t.rows_total + ' komponenter. Utanför: '
+            + esc((t.uncounted_names || []).join(', '))
+            + '. Baslinje och plan är räknade över samma rader, så jämförelsen gäller.</div>';
+    }
+    if (t.cost_rows_counted) {
+      html += '<div class="method-label">Kostnad: ' + fmtNum(t.actual_cost_sek) + ' SEK mot planerade '
+            + fmtNum(t.planned_cost_sek) + ' SEK ('
+            + (t.cost_difference_sek > 0 ? '+' : '') + fmtNum(t.cost_difference_sek) + ' SEK), över '
+            + t.cost_rows_counted + ' komponenter med verkligt pris.</div>';
+    }
+  }
+  html += '<div class="comp-card"><table class="comp-table"><thead><tr>'
+        + '<th>Komponent</th><th>Utfall (kg)</th><th>Underlag</th>'
+        + '<th>Baslinje (kg)</th><th>Planerat (kg)</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    const outcome = r.outcome_co2e_kg != null
+      ? fmtNum(r.outcome_co2e_kg)
+      : '<span style="color:var(--kk-gray-400)">Räknas inte</span>';
+    html += '<tr>'
+      + '<td><strong>' + esc(r.name) + '</strong></td>'
+      + '<td>' + outcome + (r.outcome_note ? subLine('Notering', esc(r.outcome_note)) : '') + '</td>'
+      + '<td>' + qualityBadge(r.match_quality) + '</td>'
+      + '<td>' + (r.baseline_co2e_kg != null ? fmtNum(r.baseline_co2e_kg) : '—')
+      + overrideBadge(r.baseline_co2e_override) + '</td>'
+      + '<td>' + (r.planned_co2e_kg != null ? fmtNum(r.planned_co2e_kg) : '—')
+      + (r.planned_is_baseline ? subLine('Underlag', 'Inget alternativ valdes, så planen är baslinjen') : '') + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
 const SHEET_SECTIONS = [
   {key: 'projekt', title: 'Projektinformation', html: projektHtml,
    has: st => !!st.project,
@@ -4446,6 +5130,39 @@ const SHEET_SECTIONS = [
    action: {label: 'Generera rapport', fn: 'generateReport'}},
 ];
 
+// Follow-up is its own list, not a flag on the one above. The two sheets share
+// only 'projekt', and the rest answer different questions: one is about what to
+// build, the other about what got built. §12.1 puts baseline and plan in the
+// outcome table as COLUMNS rather than as sections, which is why they are not
+// repeated here.
+const FOLLOWUP_SECTIONS = [
+  {key: 'projekt', title: 'Projektinformation', html: projektHtml,
+   has: st => !!st.project,
+   empty: 'Beskriv projektet i chatten, så förs det in här: byggnad, yta, och vad som gjordes.',
+   ready: () => false, action: null},
+  {key: 'installerat', title: 'Installerat', html: installeratHtml,
+   has: st => !!st.project,
+   empty: 'När projektet är inläst listas komponenterna här, så du kan fylla i vad som faktiskt sattes in.',
+   ready: () => false, action: null},
+  {key: 'matchning', title: 'Matchning', html: matchningHtml,
+   has: st => !!st.project,
+   empty: 'Här binder du en miljödeklaration till varje installerad produkt.',
+   ready: () => false, action: null},
+  {key: 'utfall', title: 'Utfall', html: utfallHtml,
+   has: st => !!st.project,
+   empty: 'Utfallet räknas när något är registrerat som installerat.',
+   ready: () => false, action: null},
+  {key: 'redovisning', title: 'Klimatredovisning', html: rapportHtml,
+   has: st => !!st.reportMarkdown,
+   empty: 'Redovisningen skrivs ur utfallet, med källkvalitet per byggdel och osäkerheterna namngivna.',
+   ready: st => !!(st.followup && st.followup.totals && st.followup.totals.rows_counted > 0),
+   action: {label: 'Skriv klimatredovisning', fn: 'generateFollowupReport'}},
+];
+
+function sectionsForMode() {
+  return isFollowup() ? FOLLOWUP_SECTIONS : SHEET_SECTIONS;
+}
+
 // Stegvis disables its confirm button synchronously, before any await, because
 // the click starts minutes of work. The sheet needs the same: it is not redrawn
 // until the run returns, so a second click would start a second pipeline against
@@ -4457,9 +5174,9 @@ function sheetAction(btn, fn) {
   window[fn]();
 }
 
-function sheetHtml(st) {
+function sheetHtml(st, sections) {
   let html = '<div class="sheet">';
-  SHEET_SECTIONS.forEach(sec => {
+  (sections || SHEET_SECTIONS).forEach(sec => {
     const filled = sec.has(st);
     html += '<section class="sheet-section" id="sheet-' + sec.key + '">';
     html += '<div class="sheet-head"><h2>' + esc(sec.title) + '</h2>'
@@ -4478,7 +5195,8 @@ function sheetHtml(st) {
 }
 
 function renderSheet() {
-  document.getElementById('resultContent').innerHTML = sheetHtml(effectiveState(state));
+  document.getElementById('resultContent').innerHTML =
+    sheetHtml(effectiveState(state), sectionsForMode());
   _populateNeedsTextarea();
   bindCells();
   bindAltRows();
@@ -4669,6 +5387,11 @@ async function autoSave() {
     // piggyback like directives — project_data is null until intake succeeds,
     // and the advisory questions we most want to keep happen before that.
     conversation_data: (state.conversation && state.conversation.length) ? state.conversation : null,
+    // Own column, like conversation_data and for the same reason: an analysis
+    // opened straight in follow-up mode has no project_data to ride in until
+    // intake has run, and following up a job Aida never calculated is a normal
+    // case, not an edge one.
+    as_built_data: Object.keys(state.as_built || {}).length ? state.as_built : null,
     property_ref: state.propertyRef || null,
     // The month input gives 'YYYY-MM'; the column is a DATE, so anchor it to the
     // first of the month. We only ever show the month back, so the day is a
@@ -4955,6 +5678,12 @@ async function loadAnalysis(id) {
     // {} and renders exactly as it always did.
     state.overrides = (state.project && state.project.overrides) || {};
     if (state.project && 'overrides' in state.project) delete state.project.overrides;
+    // What was actually installed has its own column, so it loads straight and
+    // needs no delete. state.followup is derived and never stored: leaving a
+    // previous project's outcome table up while this one's is fetched would show
+    // one project's numbers under another project's name.
+    state.as_built = data.as_built_data || {};
+    state.followup = null;
     document.getElementById('projectName').textContent = data.name || 'Nytt projekt';
     restoreUI();
     await loadAnalysesList();
@@ -4981,7 +5710,7 @@ function restoreUI() {
   // An empty analysis has nothing to switch to, but the sheet still has four
   // sections to show and one of them says how to start. The tab view keeps its
   // own empty state, which is the same sentence in a different place.
-  else if (isDoc()) { renderSheet(); }
+  else if (isSheet()) { renderSheet(); }
 
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
@@ -5029,6 +5758,9 @@ function restoreUI() {
     }
   }
   updatePlaceholder();
+  // Restoring into follow-up mode: the outcome table is derived server-side, so
+  // renderSheet above drew three sections with nothing in them. Ask now.
+  if (isFollowup()) refreshFollowup();
 }
 
 function createNewProject() {
@@ -5051,6 +5783,8 @@ function createNewProject() {
   state.directives = {global: [], byComponent: {}};
   state.selectionIntent = {};
   state.overrides = {};
+  state.as_built = {};
+  state.followup = null;
   state.propertyRef = '';
   state.plannedStart = '';
   document.getElementById('projectName').textContent = 'Nytt projekt';

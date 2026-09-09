@@ -433,6 +433,199 @@ def render_stock_caveats(caveats: list[dict]) -> str:
     )
 
 
+def _fmt(value, digits=0) -> str:
+    if value is None:
+        return "-"
+    return f"{value:,.{digits}f}".replace(",", " ")
+
+
+def _signed(value) -> str:
+    """A deviation keeps its sign. "+1 200" and "1 200" are different findings,
+    and the second one reads as an amount rather than as an overrun."""
+    return f"{value or 0:+,.0f}".replace(",", " ")
+
+
+def render_followup_report(project: dict, result: dict, overrides=None,
+                           property_ref: str = "") -> str:
+    """The klimatredovisning: what the building actually cost the climate.
+
+    Written without the model, unlike every other report here. Three reasons,
+    in order of weight.
+
+    Every figure in this document already exists. `followup.compute` produced
+    the rows, the totals and the list of uncertainties; there is no judgement
+    left to make, only a document to lay out. A model between the numbers and
+    the page can only add wording, and wording is the thing that goes wrong: the
+    place a summary rounds off is exactly the sentence saying the totals cover
+    three of five components, because that sentence is the awkward one.
+
+    It is also a document of record rather than a piece of advice. Someone puts
+    this in a redovisning to a nämnd, and two runs on identical state must
+    produce identical text, or the difference between them becomes a question
+    nobody can answer.
+
+    And it returns instantly, which matters on Vercel's ten seconds.
+    """
+    rows = result.get("rows") or []
+    totals = result.get("totals") or {}
+    uncertain = result.get("uncertainties") or []
+    counted = totals.get("rows_counted", 0)
+    total_rows = totals.get("rows_total", 0)
+
+    head = f"# Klimatredovisning: {project.get('building_type') or 'ombyggnation'}\n\n"
+    if property_ref:
+        head += f"Avser {property_ref}. "
+    head += f"Upprättad {date.today().isoformat()}.\n\n"
+
+    if not counted:
+        # Not an error: a follow-up that has begun but has nothing bound yet is
+        # a normal state, and it deserves a document that says which rows are
+        # missing rather than a total of zero.
+        return (
+            head
+            + "## Utfall\n\nIngen byggdel har ännu ett utfall som går att räkna. "
+            + (f"De {total_rows} byggdelarna saknar installerad mängd, bunden "
+               "miljödeklaration, eller båda. " if total_rows else "")
+            + "Redovisningen nedan listar vad som saknas.\n\n"
+            + _followup_uncertainty_section(uncertain)
+            + FOLLOWUP_METHOD
+        )
+
+    coverage = (
+        f"Summorna gäller {counted} av {total_rows} byggdelar. Utanför står "
+        f"{', '.join(totals.get('uncounted_names') or [])}. Baslinje och plan är "
+        "räknade över samma rader som utfallet, så jämförelsen gäller, men den "
+        "gäller inte hela projektet.\n\n"
+    ) if counted != total_rows else (
+        f"Summorna gäller samtliga {total_rows} byggdelar.\n\n"
+    )
+
+    body = (
+        "## Utfall\n\n"
+        f"Klimatpåverkan från det som faktiskt installerades: "
+        f"{_fmt(totals.get('outcome_co2e_kg'))} kg CO2e (GWP-fossil, skedena A1-A3). "
+        f"Baslinjen för samma byggdelar var {_fmt(totals.get('baseline_co2e_kg'))} kg CO2e, "
+        f"alltså {_fmt(totals.get('avoided_vs_baseline_kg'))} kg CO2e undveks. "
+        f"Mot den plan som valdes i analysen är avvikelsen "
+        f"{_signed(totals.get('deviation_vs_plan_kg'))} kg CO2e.\n\n"
+        + coverage
+    )
+
+    if totals.get("cost_rows_counted"):
+        body += (
+            f"Verklig kostnad för de {totals['cost_rows_counted']} byggdelar som har ett "
+            f"pris: {_fmt(totals.get('actual_cost_sek'))} SEK mot planerade "
+            f"{_fmt(totals.get('planned_cost_sek'))} SEK, alltså "
+            f"{_signed(totals.get('cost_difference_sek'))} SEK.\n\n"
+        )
+
+    body += (
+        "## Per byggdel\n\n"
+        "| Byggdel | Installerat | Mängd | Underlag | Utfall (kg CO2e) "
+        "| Baslinje (kg) | Planerat (kg) |\n"
+        "|---|---|---|---|---|---|---|\n"
+    )
+    for r in rows:
+        quantity = (f"{_fmt(r['installed_quantity'], 1)} {r.get('installed_unit') or ''}".strip()
+                    if r.get("installed_quantity") is not None else "-")
+        outcome = (_fmt(r["outcome_co2e_kg"], 1) if r.get("outcome_co2e_kg") is not None
+                   else "Räknas inte")
+        body += (
+            f"| {cell(r.get('name', ''))} "
+            f"| {cell(r.get('installed_name') or '-')} "
+            f"| {cell(quantity)} "
+            f"| {cell(_followup_source_label(r))} "
+            f"| {cell(outcome)} "
+            f"| {_fmt(r.get('baseline_co2e_kg'), 1) if r.get('baseline_co2e_kg') is not None else '-'} "
+            f"| {_fmt(r.get('planned_co2e_kg'), 1) if r.get('planned_co2e_kg') is not None else '-'} |\n"
+        )
+    body += "\n"
+
+    out = head + body + _followup_uncertainty_section(uncertain)
+
+    ghg = [r for r in rows
+           if isinstance(r.get("epd"), dict) and r["epd"].get("gwp_basis") == "ghg"]
+    if ghg:
+        out += (
+            "## Avvikande klimatunderlag\n\n"
+            "För byggdelarna nedan gick GWP-fossil inte att använda: "
+            "miljödeklarationens egna delposter stämmer inte med dess totalsumma. "
+            "I stället används GWP-GHG, alltså totala växthusgasutsläpp exklusive "
+            "biogent kol. Det ligger nära i storleksordning men är inte samma "
+            "indikator.\n\n"
+            "| Byggdel | Miljödeklaration |\n|---|---|\n"
+            + "".join(f"| {cell(r.get('name', ''))} | {cell(r['epd'].get('name') or r['epd'].get('id'))} |\n"
+                      for r in ghg)
+            + "\n"
+        )
+
+    override_rows = overrides_mod.listing(project, overrides)
+    if override_rows:
+        out += render_override_caveats(override_rows) + "\n"
+
+    return out + FOLLOWUP_METHOD
+
+
+def _followup_source_label(row: dict) -> str:
+    """What stands behind this row's figure, in the cell rather than in a footnote.
+
+    A reader comparing two rows needs to know that one is the installed product's
+    own declaration and the other is a category average, and a legend at the
+    bottom of the page is not where that comparison happens.
+    """
+    from aida.followup import QUALITY_LABELS
+
+    label = QUALITY_LABELS.get(row.get("match_quality") or "none", "Ingen träff")
+    epd = row.get("epd")
+    if isinstance(epd, dict) and epd.get("reg_no"):
+        return f"{label} ({epd['reg_no']})"
+    return label
+
+
+def _followup_uncertainty_section(uncertain: list[dict]) -> str:
+    """Always present, even when empty.
+
+    An absent section reads as an oversight; a section saying every row rests on
+    the installed product's own declaration is a claim, and it is one this
+    document should have to make explicitly.
+    """
+    if not uncertain:
+        return (
+            "## Osäkerheter\n\nVarje redovisad byggdel har en miljödeklaration "
+            "bunden till den produkt som faktiskt installerades, och en "
+            "installerad mängd i deklarationens egen enhet.\n\n"
+        )
+    return (
+        "## Osäkerheter\n\n"
+        "Byggdelarna nedan vilar inte på den installerade produktens egen "
+        "deklaration. De redovisas hellre än utelämnas, men de bär inte samma "
+        "vikt som raderna ovan.\n\n"
+        "| Byggdel | Underlag | Varför |\n|---|---|---|\n"
+        + "".join(f"| {cell(u['komponent'])} | {cell(u['underlag'])} | {cell(u['varför'])} |\n"
+                  for u in uncertain)
+        + "\n"
+    )
+
+
+FOLLOWUP_METHOD = (
+    "## Metod och avgränsning\n\n"
+    "Utfallet är beräknat som installerad mängd gånger miljödeklarationens "
+    "GWP-fossil för skedena A1-A3, per byggdel. En byggdel utan bunden "
+    "deklaration, utan registrerad mängd, eller där deklarationen är angiven i "
+    "en annan enhet än mängden, räknas inte in i summan. Den räknas alltså inte "
+    "som noll, utan står utanför, och namnges ovan.\n\n"
+    "Återbruk redovisas som noll i A1-A3, eftersom ingen ny produktion skett. "
+    "Transporten av det återbrukade materialet är registrerad men inte omräknad "
+    "till utsläpp, eftersom omräkningen kräver en massa per byggdel som inte "
+    "finns i underlaget. Utfallet för återbruksrader är därför ett golv.\n\n"
+    "Baslinjen följer NollCO2-metoden och beskriver utsläppen om allt hade "
+    "byggts nytt utan miljöambitioner. Kolumnen Planerat är det alternativ som "
+    "valdes i analysen innan arbetet utfördes.\n\n"
+    "Detta är beslutsunderlag, inte en certifierad klimatdeklaration enligt "
+    "Boverkets föreskrifter.\n"
+)
+
+
 def generate_report_pdf(project: Project, selections: Selections, output_path: str) -> str:
     """Generate a PDF report. Falls back to markdown if PDF generation fails."""
     markdown = generate_report_markdown(project, selections)

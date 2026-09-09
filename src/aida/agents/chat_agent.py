@@ -30,6 +30,11 @@ VERKTYG:
 - remove_component: ta bort en komponent ("vi byter inte fönstren ändå").
 - rerun_baseline: begär att baslinjen räknas om för specifika komponenter (component_ids=['c1']) eller hela analysen (component_ids=[]). Frontend kör själva omberäkningen.
 - rerun_alternatives: begär att alternativen körs om, eventuellt med user_feedback som styrning ("fokusera på ljudmiljö", "bara svenska tillverkare").
+- set_as_built: registrera vad som faktiskt installerades, i uppföljningsläget ("vi la iQ Granit, 100 kvadrat, fakturan gick på 41 000").
+- bind_epd: bind en miljödeklaration till det installerade ("ja, det är iQ Granit SD"). Kräver ett epd_id ur kandidatlistan.
+
+UPPFÖLJNING:
+Uppföljningen handlar om vad som blev, inte vad som planerades. Registrera bara det användaren faktiskt uppger. Saknas mängd, pris eller produktnamn: fråga, fyll aldrig i själv. En rad utan bunden deklaration är ett giltigt utfall och redovisas som uppskattad, så det är alltid bättre att lämna den tom än att binda en deklaration du inte vet stämmer.
 
 NÄR DU SKA ANVÄNDA VERKTYG:
 - Använd verktyg när användaren ger en konkret korrigering, ett val eller en begäran som går att genomföra direkt.
@@ -182,6 +187,57 @@ TOOLS = [
         },
     },
     {
+        "name": "set_as_built",
+        "description": (
+            "Registrera vad som faktiskt installerades för en komponent, i "
+            "uppföljningsläget ('vi la iQ Granit, 100 kvadrat, fakturan gick på "
+            "41 000'). Skicka bara de fält användaren har angett: uppgifterna "
+            "fylls på över tid och en tom mängd raderar inte den som redan finns. "
+            "Hitta aldrig på en mängd, ett pris eller ett produktnamn."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "component_id": {"type": "string"},
+                "installed_name": {"type": "string", "description": "Produkten som installerades"},
+                "quantity": {"type": "number"},
+                "unit": {"type": "string", "enum": ["m2", "st", "lm", "kg"]},
+                "actual_cost": {"type": "number", "description": "Verklig kostnad i SEK exkl moms"},
+                "cost_source": {"type": "string", "description": "Var priset kommer ifrån, t.ex. fakturanummer"},
+                "transport_km": {"type": "number"},
+                "match_quality": {
+                    "type": "string",
+                    "enum": ["product", "generic", "typvarde", "reuse", "none"],
+                    "description": "Sätt 'reuse' när komponenten är återbrukad.",
+                },
+            },
+            "required": ["component_id"],
+        },
+    },
+    {
+        "name": "bind_epd",
+        "description": (
+            "Bind en miljödeklaration till det som installerades ('ja, det är "
+            "iQ Granit SD'). Samma sak som att klicka en rad i kandidatlistan. "
+            "Ange epd_id från kandidatlistan. Skicka epd_id=null för att ta bort "
+            "bindningen. Gissa aldrig ett id: har du inga kandidater, be "
+            "användaren söka fram produkten i arket först."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "component_id": {"type": "string"},
+                "epd_id": {"type": ["string", "null"], "description": "uuid från kandidatlistan, eller null"},
+                "match_quality": {
+                    "type": "string",
+                    "enum": ["product", "generic", "typvarde", "reuse", "none"],
+                    "description": "product när deklarationen gäller just den produkten, generic när den är leverantörens allmänna.",
+                },
+            },
+            "required": ["component_id"],
+        },
+    },
+    {
         "name": "remove_component",
         "description": "Ta bort en komponent helt från projektet. Baslinje, alternativ och val för komponenten rensas också.",
         "input_schema": {
@@ -300,6 +356,9 @@ def _format_state(project, baseline, alternatives, selections) -> str:
 
 
 from aida.mutations import (  # noqa: F401  (re-exported for existing importers)
+    AS_BUILT_HANDLERS as _AS_BUILT_HANDLERS,
+)
+from aida.mutations import (  # noqa: F401  (re-exported for existing importers)
     HANDLERS as _HANDLERS,
 )
 from aida.mutations import (
@@ -322,6 +381,39 @@ from aida.mutations import (
 from aida.mutations import (
     run_handler as _run_handler,
 )
+
+
+def _resolve_bind_input(inp, resolver):
+    """Turn an `epd_id` from the model into the declaration itself.
+
+    Resolution is a network call, so it cannot live in `mutations.py`, which is
+    pure by design and has to stay movable behind /api/turn. It cannot live in
+    the model's hands either: the GWP figure has to come from the register, not
+    from what a language model remembers about a product. So the caller injects
+    a resolver and the pure handler only ever sees a resolved declaration.
+
+    Returns (input, error) with exactly one meaningful.
+    """
+    inp = dict(inp or {})
+    if "epd" in inp:
+        return inp, ""
+    epd_id = inp.pop("epd_id", None)
+    if not epd_id:
+        # An explicit null is how the model unbinds, and that needs no lookup.
+        inp["epd"] = None
+        return inp, ""
+    if resolver is None:
+        return inp, "Kan inte slå upp deklarationer just nu."
+    try:
+        found = resolver(epd_id)
+    except Exception:
+        logger.exception("EPD-uppslag misslyckades för %s", epd_id)
+        return inp, "Uppslaget mot EPD-registret misslyckades."
+    if not found:
+        return inp, (f"Hittade ingen deklaration med id {epd_id}. Be användaren "
+                     f"söka fram produkten i arket i stället för att gissa.")
+    inp["epd"] = found
+    return inp, ""
 
 
 def _sanitize_history(history: list) -> list[dict]:
@@ -355,6 +447,8 @@ def run_chat_agent(
     selections: dict | None = None,
     max_turns: int = 5,
     overrides: dict | None = None,
+    as_built: dict | None = None,
+    epd_resolver=None,
 ) -> dict:
     """Run chat with tool-use loop.
 
@@ -372,6 +466,7 @@ def run_chat_agent(
     alternatives = copy.deepcopy(alternatives) if alternatives else None
     selections = copy.deepcopy(selections) if selections else {}
     overrides = copy.deepcopy(overrides) if overrides else {}
+    as_built = copy.deepcopy(as_built) if as_built else {}
 
     touched_bags: set[str] = set()
     tool_calls: list[dict] = []
@@ -406,7 +501,7 @@ def run_chat_agent(
                 "reply": reply.strip(),
                 "state_updates": _build_state_updates(
                     touched_bags, project, baseline, alternatives, selections,
-                    pending_actions, overrides=overrides,
+                    pending_actions, overrides=overrides, as_built=as_built,
                 ),
                 "tool_calls": tool_calls,
             }
@@ -418,8 +513,12 @@ def run_chat_agent(
         for block in response.content:
             if getattr(block, "type", None) != "tool_use":
                 continue
-            handler = _HANDLERS.get(block.name)
-            if not handler:
+            # Both maps, not just HANDLERS. The as-built tools live in their own
+            # registry because they take a different bag, and a dispatch that
+            # only knew the first one would reject them here as unknown - before
+            # ever reaching the seam that does know them.
+            known = block.name in _HANDLERS or block.name in _AS_BUILT_HANDLERS
+            if not known:
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -429,14 +528,27 @@ def run_chat_agent(
                 tool_calls.append({"name": block.name, "input": block.input, "ok": False})
                 continue
 
+            tool_input = block.input
+            if block.name == "bind_epd":
+                tool_input, resolve_error = _resolve_bind_input(tool_input, epd_resolver)
+                if resolve_error:
+                    tool_results.append({
+                        "type": "tool_result", "tool_use_id": block.id,
+                        "content": resolve_error, "is_error": True,
+                    })
+                    tool_calls.append({"name": block.name, "input": block.input,
+                                       "ok": False, "result": resolve_error})
+                    continue
+
             try:
                 # Through the shared seam, not straight to the handler: the
                 # override lifecycle lives there, and a material change made by
                 # the chat has to drop a stale manual figure exactly as a cell
                 # edit does.
                 result_text, ok, handler_touched = _run_handler(
-                    block.name, block.input, project, baseline, alternatives,
+                    block.name, tool_input, project, baseline, alternatives,
                     selections, pending_actions, overrides=overrides,
+                    as_built=as_built,
                 )
             except Exception as e:
                 logger.exception("Tool %s failed", block.name)
@@ -449,7 +561,7 @@ def run_chat_agent(
 
             tool_calls.append({
                 "name": block.name,
-                "input": block.input,
+                "input": tool_input,
                 "ok": ok,
                 "result": result_text,
             })
@@ -468,7 +580,7 @@ def run_chat_agent(
         "reply": "Jag fastnade i en loop. Försök formulera om, eller använd knapparna för att köra om stegen.",
         "state_updates": _build_state_updates(
             touched_bags, project, baseline, alternatives, selections,
-            pending_actions, overrides=overrides,
+            pending_actions, overrides=overrides, as_built=as_built,
         ),
         "tool_calls": tool_calls,
     }

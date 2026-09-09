@@ -23,6 +23,7 @@ change.
 
 from __future__ import annotations
 
+from aida import followup as followup_mod
 from aida import overrides as overrides_mod
 
 
@@ -447,6 +448,103 @@ OVERRIDE_HANDLERS = {
     "clear_override": _apply_clear_override,
 }
 
+
+def _apply_set_as_built(inp, project, as_built):
+    """Record what was actually installed for a component (§12.6).
+
+    Merges rather than replaces, because the installed row is filled in over
+    time and from two directions: a quantity typed in the sheet, an invoice
+    price added a week later, an EPD bound from the candidate list. A write that
+    replaced the record would make the last field entered the only one kept.
+    """
+    cid = inp.get("component_id")
+    comp = _find_component(project, cid)
+    if not comp:
+        return f"Komponent {cid} finns inte i projektet.", False, set()
+
+    merged = dict(as_built.get(cid) or {})
+    for key in ("installed_name", "quantity", "unit", "match_quality",
+                "transport_km", "actual_cost", "cost_source"):
+        if key in inp:
+            merged[key] = inp[key]
+    if "epd" in inp:
+        merged["epd"] = inp["epd"]
+    merged.pop("at", None)
+
+    record, err = followup_mod.normalize_as_built(merged)
+    if err:
+        return f"Inget installerat registrerat: {err}", False, set()
+
+    as_built[cid] = record
+    what = record["installed_name"] or comp.get("name", cid)
+    amount = (f"{record['quantity']:,.0f} {record['unit']}".replace(",", " ")
+              if record["quantity"] is not None else "mängd ej angiven")
+    return (
+        f"Installerat för {comp.get('name')}: {what}, {amount}.",
+        True,
+        {"as_built"},
+    )
+
+
+def _apply_bind_epd(inp, project, as_built):
+    """Bind a declaration to what was installed, or lift the binding.
+
+    The same act as clicking a row in the candidate list, which is why it is a
+    tool and not a bit of endpoint logic: "ja, det är iQ Granit SD" typed in the
+    chat has to land in exactly the same place as the click (§12.6).
+    """
+    cid = inp.get("component_id")
+    comp = _find_component(project, cid)
+    if not comp:
+        return f"Komponent {cid} finns inte i projektet.", False, set()
+
+    merged = dict(as_built.get(cid) or {})
+    epd = inp.get("epd")
+    quality = inp.get("match_quality")
+
+    if not epd:
+        # Unbinding is not the same as never having bound: the quality has to
+        # come down with the declaration, or the row keeps claiming a product
+        # match it no longer has behind it.
+        merged["epd"] = None
+        merged["match_quality"] = quality if quality in followup_mod.MATCH_QUALITIES else "none"
+    else:
+        merged["epd"] = epd
+        merged["match_quality"] = quality if quality in followup_mod.MATCH_QUALITIES else "product"
+    merged.pop("at", None)
+
+    record, err = followup_mod.normalize_as_built(merged)
+    if err:
+        return f"Ingen bindning: {err}", False, set()
+    if epd and not record["epd"]:
+        return "Ingen bindning: deklarationen saknar id.", False, set()
+
+    as_built[cid] = record
+    if not record["epd"]:
+        return (f"Bindningen för {comp.get('name')} är borttagen. "
+                f"Underlaget är nu {followup_mod.QUALITY_LABELS[record['match_quality']].lower()}.",
+                True, {"as_built"})
+
+    label = followup_mod.QUALITY_LABELS[record["match_quality"]].lower()
+    gwp = record["epd"]["gwp_per_unit"]
+    tail = (f" {gwp:g} kg CO₂e per {record['epd']['unit'] or 'enhet'}."
+            if gwp is not None else
+            " Deklarationen saknar GWP-värde, så utfallet går inte att räkna än.")
+    return (
+        f"{comp.get('name')} är bunden till {record['epd']['name'] or record['epd']['id']} "
+        f"({label}).{tail}",
+        True,
+        {"as_built"},
+    )
+
+
+# The sixth bag. Like overrides it is claimed rather than computed, so it goes
+# through the same seam and the same staleness rules.
+AS_BUILT_HANDLERS = {
+    "set_as_built": _apply_set_as_built,
+    "bind_epd": _apply_bind_epd,
+}
+
 # A mutation that changes what a component IS, or removes it, makes any manual
 # figure for it a claim about something that no longer exists. select_alternative
 # is not in the list: it changes what was chosen, not what the baseline is.
@@ -472,8 +570,32 @@ def _drop_stale_overrides(tool, inp, overrides) -> str:
     )
 
 
+def _drop_stale_as_built(tool, inp, as_built) -> str:
+    """Forget an installed record whose component no longer matches it.
+
+    Narrower than the override rule on purpose. An override is a claim about a
+    component's derived value, so any change to the component invalidates it. An
+    as-built record is a claim about physical reality: renaming the planned
+    component does not un-install what was installed. What does break it is the
+    component disappearing, and the unit changing, because the recorded quantity
+    is only meaningful next to its unit.
+
+    Passing `unit` unchanged also drops it. Over-eager rather than under-eager:
+    the cost of the false positive is retyping a row, the cost of the false
+    negative is a quantity read in the wrong unit inside a climate declaration.
+    """
+    if tool == "remove_component":
+        gone = followup_mod.drop_for_component(as_built, inp.get("component_id"))
+        return "Det installerade som var registrerat på komponenten togs bort." if gone else ""
+    if tool == "update_component" and "unit" in inp:
+        gone = followup_mod.drop_for_component(as_built, inp.get("component_id"))
+        return ("Det installerade som var registrerat togs bort, eftersom enheten "
+                "ändrades och den registrerade mängden gällde den gamla.") if gone else ""
+    return ""
+
+
 def run_handler(tool, inp, project, baseline, alternatives, selections,
-                pending_actions, overrides=None):
+                pending_actions, overrides=None, as_built=None):
     """The one seam both doors pass through.
 
     The chat loop needs the per-call touched set and cannot go through
@@ -485,6 +607,11 @@ def run_handler(tool, inp, project, baseline, alternatives, selections,
         if overrides is None:
             return f"{tool} kräver överskrivningar i anropet.", False, set()
         return OVERRIDE_HANDLERS[tool](inp, project, overrides)
+
+    if tool in AS_BUILT_HANDLERS:
+        if as_built is None:
+            return f"{tool} kräver uppföljningsdata i anropet.", False, set()
+        return AS_BUILT_HANDLERS[tool](inp, project, as_built)
 
     handler = HANDLERS.get(tool)
     if handler is None:
@@ -498,12 +625,17 @@ def run_handler(tool, inp, project, baseline, alternatives, selections,
         if note:
             message = f"{message} {note}"
             touched = set(touched) | {"overrides"}
+    if ok and as_built is not None:
+        note = _drop_stale_as_built(tool, inp, as_built)
+        if note:
+            message = f"{message} {note}"
+            touched = set(touched) | {"as_built"}
     return message, ok, touched
 
 
 def build_state_updates(
     touched: set[str], project, baseline, alternatives, selections,
-    pending_actions: list[dict] | None = None, overrides=None,
+    pending_actions: list[dict] | None = None, overrides=None, as_built=None,
 ) -> dict:
     updates: dict = {}
     if "project" in touched:
@@ -516,6 +648,11 @@ def build_state_updates(
         updates["selections"] = selections
     if "overrides" in touched:
         updates["overrides"] = overrides if overrides is not None else {}
+    # Presence, not truthiness, for the same reason as overrides: clearing the
+    # last record leaves {}, and a falsy check would send nothing and let the
+    # client keep showing what the server just dropped.
+    if "as_built" in touched:
+        updates["as_built"] = as_built if as_built is not None else {}
     if pending_actions:
         updates["pending_actions"] = pending_actions
     return updates
@@ -569,14 +706,14 @@ def _queue_reruns(tool, inp, project, before_ids, before_component, pending_acti
 
 
 def apply_mutation(tool, inp, project, baseline, alternatives, selections,
-                   auto_rerun: bool = False, overrides=None) -> dict:
+                   auto_rerun: bool = False, overrides=None, as_built=None) -> dict:
     """Run one mutation and report what changed. The door /api/mutate comes in by.
 
     `auto_rerun` is what separates a cell edit from a chat tool call. The model is
     told to follow a material change with scoped reruns; a cell has nobody to tell,
     so it asks for them here.
     """
-    if tool not in HANDLERS and tool not in OVERRIDE_HANDLERS:
+    if tool not in HANDLERS and tool not in OVERRIDE_HANDLERS and tool not in AS_BUILT_HANDLERS:
         return {"ok": False, "message": f"Okänt verktyg: {tool}", "state_updates": {}}
 
     before_ids = _component_ids(project)
@@ -588,7 +725,7 @@ def apply_mutation(tool, inp, project, baseline, alternatives, selections,
     pending_actions: list[dict] = []
     message, ok, touched = run_handler(
         tool, inp, project, baseline, alternatives, selections, pending_actions,
-        overrides=overrides,
+        overrides=overrides, as_built=as_built,
     )
 
     if ok and auto_rerun:
@@ -599,6 +736,6 @@ def apply_mutation(tool, inp, project, baseline, alternatives, selections,
         "message": message,
         "state_updates": build_state_updates(
             touched, project, baseline, alternatives, selections, pending_actions,
-            overrides=overrides,
+            overrides=overrides, as_built=as_built,
         ),
     }
