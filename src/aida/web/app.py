@@ -912,8 +912,35 @@ def resolve_epd(epd_id: str, version: str = '') -> dict | None:
         'gwp_per_unit': gwp,
         'unit': detail.declared_unit,
         'gwp_basis': basis if gwp is not None else '',
-        'reg_no': detail.reg_no,
+        'reg_no': detail.reg_no or _reg_no_from_index(detail.uuid),
     }
+
+
+def _reg_no_from_index(uuid: str) -> str:
+    """The registration number, from the index when the detail record lacks it.
+
+    The two endpoints disagree about where this lives. The index carries `regNo`
+    on every row; the detail document is supposed to carry it under
+    `descriptionAndOwnership.other`, and for a good share of records it simply is
+    not there (Golvabia Maxwear, S-P-06406, is one).
+
+    Worth reaching for rather than shrugging at, because this is the string a
+    reader of a klimatredovisning uses to look the declaration up and check the
+    figure against its source. Without it the document says a number came from an
+    EPD and gives no way to find which one. The search results show it, so it is
+    on screen at the moment of binding and then thrown away, which is the worst
+    of the three options.
+    """
+    if not uuid:
+        return ''
+    try:
+        for entry in _get_epd_client().fetch_index():
+            if entry.uuid == uuid:
+                return entry.reg_no or ''
+    except Exception:
+        # A missing registration number is a weaker document, not a failed bind.
+        logger.warning("Kunde inte slå upp regNo för %s", uuid[:8])
+    return ''
 
 
 @app.route('/api/match', methods=['POST'])
@@ -2597,19 +2624,31 @@ function applyModeChrome() {
 // through a request, so anything more often would be asking the same question
 // twice.
 let _followupInFlight = false;
+let _followupAgain = false;
 async function refreshFollowup() {
-  if (!state.project || _followupInFlight) return;
+  if (!state.project) return;
+  // A request that arrives mid-flight is remembered, not dropped. Returning here
+  // was wrong in the way that is hardest to see: the call succeeds, nothing
+  // errors, and the table simply keeps the previous edit's numbers. Binding a
+  // declaration and marking the row as reuse in the same second left the outcome
+  // reading "Ingen EPD bunden" for a row that had one. Same lesson autoSave
+  // already carries: the second caller has newer state, so it must not be the
+  // one thrown away.
+  if (_followupInFlight) { _followupAgain = true; return; }
   _followupInFlight = true;
   try {
-    const r = await authFetch('/api/followup', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project: state.project, baseline: state.baseline,
-                            selections: state.selections, as_built: state.as_built,
-                            overrides: state.overrides})});
-    const d = await r.json();
-    if (d && !d.error) {
-      state.followup = d;
-      if (isFollowup()) renderSheet();
-    }
+    do {
+      _followupAgain = false;
+      const r = await authFetch('/api/followup', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project: state.project, baseline: state.baseline,
+                              selections: state.selections, as_built: state.as_built,
+                              overrides: state.overrides})});
+      const d = await r.json();
+      if (d && !d.error) {
+        state.followup = d;
+        if (isFollowup()) renderSheet();
+      }
+    } while (_followupAgain);
   } catch (e) {
     // A failed outcome fetch leaves the previous table on screen rather than
     // blanking it. The numbers are stale, not wrong, and the sections around
@@ -2617,6 +2656,7 @@ async function refreshFollowup() {
     console.warn('uppföljningen kunde inte hämtas', e);
   } finally {
     _followupInFlight = false;
+    _followupAgain = false;
   }
 }
 
@@ -4904,7 +4944,8 @@ function installeratHtml(st, cfg) {
   html += '<div class="method-label">Vad som faktiskt sattes in, bredvid det som planerades</div>';
   html += '<div class="comp-card"><table class="comp-table"><thead><tr>'
         + '<th>Komponent</th><th>Installerad produkt</th><th>Mängd</th>'
-        + '<th>Planerat</th><th>Kostnad (SEK)</th><th>Prisunderlag</th></tr></thead><tbody>';
+        + '<th>Planerat</th><th>Transport (km)</th>'
+        + '<th>Kostnad (SEK)</th><th>Prisunderlag</th></tr></thead><tbody>';
   rows.forEach(r => {
     const cid = r.component_id;
     const planned = (r.planned_quantity != null ? fmtNum(r.planned_quantity) + ' ' + esc(r.unit || '') : '—');
@@ -4916,6 +4957,12 @@ function installeratHtml(st, cfg) {
                        : (r.installed_quantity != null ? fmtNum(r.installed_quantity) : '—'))
       + ' <span style="color:var(--kk-gray-400)">' + esc(r.installed_unit || '') + '</span></td>'
       + '<td style="color:var(--kk-gray-500)">' + planned + '</td>'
+      // Recorded, never converted to emissions: that needs a mass per component
+      // Aida does not have. The column exists because the outcome note promises
+      // the figure ("Transporten (140 km) är inte omräknad"), and a note naming
+      // a number the sheet cannot collect is a note about nothing.
+      + '<td>' + (edit ? asBuiltInput(cid, 'transport_km', r.transport_km, 'Transportsträcka för ' + r.name, 'number')
+                       : (r.transport_km != null ? fmtNum(r.transport_km) : '—')) + '</td>'
       + '<td>' + (edit ? asBuiltInput(cid, 'actual_cost', r.actual_cost_sek, 'Verklig kostnad för ' + r.name, 'number')
                        : (r.actual_cost_sek != null ? fmtNum(r.actual_cost_sek) : '—')) + '</td>'
       + '<td>' + (edit ? asBuiltInput(cid, 'cost_source', r.cost_source, 'Prisunderlag för ' + r.name, 'text')

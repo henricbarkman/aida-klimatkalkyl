@@ -434,9 +434,21 @@ def render_stock_caveats(caveats: list[dict]) -> str:
 
 
 def _fmt(value, digits=0) -> str:
+    """A number as a Swedish reader writes one: hard space for thousands, comma
+    for the decimal, and no decimal at all when there is nothing after it.
+
+    "112.0 m2" in a klimatredovisning reads as a foreign document, and worse,
+    "1 447.0" mixes a Swedish thousands separator with an English decimal
+    point inside one figure. The trailing zero is its own small untruth: it
+    claims a tenth of a kilo of precision on a number that came from an
+    estimated quantity times a declared average.
+    """
     if value is None:
         return "-"
-    return f"{value:,.{digits}f}".replace(",", " ")
+    out = f"{value:,.{digits}f}".replace(",", " ").replace(".", ",")
+    if "," in out:
+        out = out.rstrip("0").rstrip(",")
+    return out
 
 
 def _signed(value) -> str:
@@ -497,7 +509,8 @@ def render_followup_report(project: dict, result: dict, overrides=None,
         "räknade över samma rader som utfallet, så jämförelsen gäller, men den "
         "gäller inte hela projektet.\n\n"
     ) if counted != total_rows else (
-        f"Summorna gäller samtliga {total_rows} byggdelar.\n\n"
+        "Summorna gäller projektets enda byggdel.\n\n" if total_rows == 1
+        else f"Summorna gäller samtliga {total_rows} byggdelar.\n\n"
     )
 
     body = (
@@ -512,9 +525,15 @@ def render_followup_report(project: dict, result: dict, overrides=None,
     )
 
     if totals.get("cost_rows_counted"):
+        n = totals["cost_rows_counted"]
+        # "de 1 byggdelar" is what a template written only for the plural case
+        # produces, and one priced component is a common state early in a
+        # follow-up. A document that leaves the tool should not read as generated.
+        scope = ("den byggdel som har ett pris" if n == 1
+                 else f"de {n} byggdelar som har ett pris")
         body += (
-            f"Verklig kostnad för de {totals['cost_rows_counted']} byggdelar som har ett "
-            f"pris: {_fmt(totals.get('actual_cost_sek'))} SEK mot planerade "
+            f"Verklig kostnad för {scope}: "
+            f"{_fmt(totals.get('actual_cost_sek'))} SEK mot planerade "
             f"{_fmt(totals.get('planned_cost_sek'))} SEK, alltså "
             f"{_signed(totals.get('cost_difference_sek'))} SEK.\n\n"
         )
