@@ -1861,7 +1861,9 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .cell-input { width: 100%; font: inherit; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 3px 6px; margin: -3px -6px; font-family: inherit; }
 .cell-input:hover:not(:disabled) { border-color: var(--kk-gray-200); background: white; }
 .cell-input:focus { outline: none; border-color: var(--kk-dark-red); background: white; box-shadow: 0 0 0 2px rgba(181,32,31,0.12); }
-.cell-input:disabled { color: var(--kk-gray-500); cursor: not-allowed; }
+/* Stays on the non-text grey: a cell locked during a rerun has to look locked,
+   and the only other cue is a cursor you have to hover to find. */
+.cell-input:disabled { color: var(--kk-gray-400); cursor: not-allowed; }
 .cell-input.saving { border-color: var(--kk-gold); background: var(--kk-cream); }
 td.cell-num .cell-input { text-align: right; }
 select.cell-input { cursor: pointer; }
