@@ -1301,6 +1301,14 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .project-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
 .user-btn { background: none; border: none; color: var(--kk-gray-400); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; }
 .user-btn:hover { background: var(--kk-gray-100); color: var(--kk-charcoal); }
+/* Starting a new run is the one action the top bar exists for, so it is the
+   only filled control up there. Same charcoal-to-red language as the login
+   button: both are "begin" moments. Everything else in the cluster stays as
+   quiet gray text so this one reads first. */
+.topbar-new-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px 0 10px; background: var(--kk-charcoal); color: white; border: none; border-radius: 100px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
+.topbar-new-btn:hover { background: var(--kk-dark-red); }
+.topbar-new-btn:focus-visible { outline: 2px solid var(--kk-dark-red); outline-offset: 2px; }
+.topbar-new-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
 .dropdown-menu { position: absolute; top: calc(100% + 4px); background: white; border: 1px solid var(--kk-gray-200); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 220px; z-index: 100; padding: 4px 0; }
 .dropdown-right { right: 0; }
 .dropdown-header { padding: 8px 16px; font-size: 11px; font-weight: 600; color: var(--kk-gray-400); text-transform: uppercase; }
@@ -1497,6 +1505,8 @@ select.cell-input { cursor: pointer; }
   .results-tabs { overflow-x: auto; }
   .tab { padding: 10px 12px; font-size: 12px; white-space: nowrap; }
   .topbar-center { display: none; }
+  .topbar-new-btn { padding: 0 9px; }
+  .topbar-new-btn span { display: none; }
 }
 </style>
 </head>
@@ -1539,10 +1549,10 @@ select.cell-input { cursor: pointer; }
       <div class="dropdown-divider"></div>
       <button class="dropdown-item" onclick="startRenameProject()">Byt namn på projektet</button>
       <button class="dropdown-item" onclick="openProjectMeta()">Fastighet och tidpunkt</button>
-      <button class="dropdown-item" onclick="createNewProject()">+ Skapa nytt projekt</button>
     </div>
   </div>
   <div class="topbar-right" id="userDropdown" style="position:relative;display:flex;align-items:center;gap:12px">
+    <button class="topbar-new-btn" onclick="createNewProject()" title="Skapa nytt projekt" aria-label="Skapa nytt projekt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Nytt projekt</span></button>
     <a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a>
     <a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a>
     <span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span>
@@ -1557,7 +1567,7 @@ select.cell-input { cursor: pointer; }
   </div>
   {% else %}
   <div class="topbar-center"></div>
-  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
+  <div class="topbar-right" style="display:flex;align-items:center;gap:12px"><button class="topbar-new-btn" onclick="createNewProject()" title="Skapa nytt projekt" aria-label="Skapa nytt projekt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Nytt projekt</span></button><a href="#" id="soundToggle" onclick="toggleSound();return false" title="Pling när ett steg är klart, även om du är i en annan flik" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">🔔 Pling på</a><a href="#" onclick="openAbout();return false" style="color:var(--kk-gray-500);text-decoration:none;font-size:12px">Om verktyget</a><span id="saveIndicator" style="font-size:11px;color:var(--kk-gray-400);display:none"></span><span style="font-size:12px;color:var(--kk-gray-400)">Prototyp</span></div>
   {% endif %}
 </div>
 
@@ -5022,7 +5032,14 @@ function restoreUI() {
 }
 
 function createNewProject() {
-  toggleProjectMenu();
+  // Without an account nothing is saved, so a reset here is the only way to
+  // lose the current description. With Supabase the old project stays in the
+  // list and this is just a switch.
+  if (!HAS_SUPABASE && state.project && !confirm('Börja om med ett nytt projekt? Det du beskrivit försvinner.')) return;
+  // Close, never toggle: this runs from the top-bar button too, where the menu
+  // is already closed and a toggle would open it on top of the fresh project.
+  const menu = document.getElementById('projectMenu');
+  if (menu) menu.style.display = 'none';
   // Null the id BEFORE removing, so we clear the "new" chat bucket — not the
   // previous project's saved chat log (which must survive switching back).
   currentAnalysisId = null;
