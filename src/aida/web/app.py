@@ -1759,7 +1759,14 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 .dropdown-item.active { background: var(--kk-gold-light); }
 
 /* === Results tabs === */
-.results-tabs { display: flex; border-bottom: 2px solid var(--kk-gray-200); flex-shrink: 0; background: white; border-radius: 8px 8px 0 0; }
+/* The strip carries two different kinds of control, so it is always on screen:
+   the tabs (which section) on the left, the mode switch (what shape) at the
+   quiet right end. flex-wrap lets the switch drop to its own line by itself
+   when the tabs leave it too little room, which happens between roughly 770 and
+   1100px, so no breakpoint has to guess where that is. min-height keeps the
+   chrome from jumping when the tabs hide. */
+.results-tabs { display: flex; align-items: center; flex-wrap: wrap; min-height: 37px; padding-right: 6px; border-bottom: 2px solid var(--kk-gray-200); flex-shrink: 0; background: white; border-radius: 8px 8px 0 0; }
+.results-tabs.tabs-hidden .tab { display: none; }
 .tab { padding: 10px 20px; background: none; border: none; font-size: 13px; font-weight: 500; color: var(--kk-gray-400); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-family: inherit; transition: all 0.2s; }
 .tab:hover:not(:disabled) { color: var(--kk-charcoal); }
 .tab.active { color: var(--kk-charcoal); border-bottom-color: var(--kk-dark-red); font-weight: 600; }
@@ -1768,9 +1775,14 @@ html { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
 /* === Mode switch (orchestration-redesign §12) ===
    Deliberately NOT styled like .tab. A tab answers "which part am I looking at";
    the mode answers "what shape is the whole thing". Giving them the same
-   underline language would claim they are the same kind of choice. This is a
-   quiet preference control, so it sits above the tabs and stays small. */
-.mode-switch { display: flex; justify-content: flex-end; gap: 2px; padding: 8px 4px 6px; flex-shrink: 0; }
+   underline language would claim they are the same kind of choice. Sharing the
+   tabs' row does not: the row says "here you steer the view", and the two forms
+   (underlined text, filled pill group) keep saying that they are different
+   questions. It sits at the right end because tabs are navigated constantly and
+   deserve the left edge, while the mode is set rarely.
+   Moved into the strip 2026-09-09; it used to own a 38px row of its own, which
+   was 7% of the results panel spent on a preference. */
+.mode-switch { display: flex; gap: 2px; margin-left: auto; padding: 6px 0; flex-shrink: 0; }
 .mode-btn { padding: 4px 12px; font-size: 11.5px; font-weight: 500; font-family: inherit; color: var(--kk-gray-500); background: var(--kk-gray-100); border: 1px solid var(--kk-gray-200); cursor: pointer; transition: all 0.15s; }
 .mode-btn:first-child { border-radius: 100px 0 0 100px; }
 .mode-btn:last-child { border-radius: 0 100px 100px 0; }
@@ -1946,6 +1958,11 @@ select.cell-input { cursor: pointer; }
   .results-tabs { overflow-x: auto; }
   .tab { padding: 10px 12px; font-size: 12px; white-space: nowrap; }
   .topbar-center { display: none; }
+  /* The even split between logo and right cluster exists to centre
+     .topbar-center, which is hidden at this width. Left on, it hands the logo
+     half the bar and squeezes "Pling på" and "Om verktyget" into three-line
+     wraps. */
+  .topbar-logo { flex: 0 0 auto; }
   .topbar-new-btn { padding: 0 9px; }
   .topbar-new-btn span { display: none; }
 }
@@ -2070,16 +2087,16 @@ select.cell-input { cursor: pointer; }
 
   <!-- Results panel -->
   <div class="results-panel" id="results">
-    <div class="mode-switch" id="modeSwitch" role="group" aria-label="Vy">
-      <button class="mode-btn active" id="mode-stepwise" onclick="setMode('stepwise')" title="Sex steg med bekr&#xE4;ftelse mellan varje">Stegvis</button>
-      <button class="mode-btn" id="mode-document" onclick="setMode('document')" title="Allt i ett ark, ingen best&#xE4;md ordning">Arbetsblad</button>
-      <button class="mode-btn" id="mode-followup" onclick="setMode('followup')" title="Vad som faktiskt installerades, mot baslinje och plan">Uppf&#xF6;ljning</button>
-    </div>
-    <div class="results-tabs" id="resultTabs" style="display:none">
+    <div class="results-tabs tabs-hidden" id="resultTabs">
       <button class="tab" id="tab-projekt" onclick="switchTab('projekt')" disabled>Projekt</button>
       <button class="tab" id="tab-baslinje" onclick="switchTab('baslinje')" disabled>Baslinje</button>
       <button class="tab" id="tab-alternativ" onclick="switchTab('alternativ')" disabled>Alternativ</button>
       <button class="tab" id="tab-rapport" onclick="switchTab('rapport')" disabled>Rapport</button>
+      <div class="mode-switch" id="modeSwitch" role="group" aria-label="Vy">
+        <button class="mode-btn active" id="mode-stepwise" onclick="setMode('stepwise')" title="Sex steg med bekr&#xE4;ftelse mellan varje">Stegvis</button>
+        <button class="mode-btn" id="mode-document" onclick="setMode('document')" title="Allt i ett ark, ingen best&#xE4;md ordning">Arbetsblad</button>
+        <button class="mode-btn" id="mode-followup" onclick="setMode('followup')" title="Vad som faktiskt installerades, mot baslinje och plan">Uppf&#xF6;ljning</button>
+      </div>
     </div>
     <div class="results-content" id="resultContent">
       <div class="empty-state">
@@ -2694,6 +2711,16 @@ function isSheet() { return isDoc() || isFollowup(); }
 
 let _anyTabEnabled = false;
 
+// The strip is the mode switch's row too, so it never leaves the screen. Only
+// the tab buttons come and go: before any section exists, and in the sheet
+// modes where every section is already on one page. Three call sites used to
+// set the strip's display directly and could drift apart; the decision lives
+// here so each of them only has to say "re-decide".
+function applyTabStripChrome() {
+  const strip = document.getElementById('resultTabs');
+  if (strip) strip.classList.toggle('tabs-hidden', isSheet() || !_anyTabEnabled);
+}
+
 // The furthest section that exists, in the order restoreUI already uses. Null
 // means the analysis has not started.
 function defaultTab() {
@@ -2740,11 +2767,9 @@ function applyModeChrome() {
     const b = document.getElementById('mode-' + m);
     if (b) b.classList.toggle('active', m === state.mode);
   });
-  const doc = isSheet();
-  const tabs = document.getElementById('resultTabs');
-  if (tabs) tabs.style.display = (!doc && _anyTabEnabled) ? 'flex' : 'none';
+  applyTabStripChrome();
   const rail = document.querySelector('.progress-bar');
-  if (rail) rail.style.display = doc ? 'none' : '';
+  if (rail) rail.style.display = isSheet() ? 'none' : '';
 }
 
 // Ask the server for the outcome table and redraw. Called when the mode is
@@ -2825,7 +2850,7 @@ function enableTab(name) {
   const tab = document.getElementById('tab-' + name);
   if (tab) tab.disabled = false;
   _anyTabEnabled = true;
-  if (!isSheet()) document.getElementById('resultTabs').style.display = 'flex';
+  applyTabStripChrome();
 }
 
 function switchTab(name) {
@@ -5977,7 +6002,11 @@ function createNewProject() {
   ['projekt','baslinje','alternativ','rapport'].forEach(t => {
     const el = document.getElementById('tab-' + t); if (el) el.disabled = true;
   });
-  document.getElementById('resultTabs').style.display = 'none';
+  // Also reset the flag, not just the buttons. It stayed true across a new
+  // project before, so a mode round-trip could bring the strip back with four
+  // dead tabs in it.
+  _anyTabEnabled = false;
+  applyTabStripChrome();
   document.getElementById('resultContent').innerHTML = '<div class="empty-state"><p>Beskriv ditt projekt i chatten till vänster för att börja.</p></div>';
   document.getElementById('progressFill').style.width = '0%';
   document.querySelectorAll('.step-circle').forEach((c, i) => { c.className = 'step-circle'; c.textContent = i + 1; });
