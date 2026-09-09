@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from functools import wraps
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -882,6 +883,60 @@ def _get_epd_client():
     return _epd_client
 
 
+# Declarations from registers Environdec does not carry. Forbo publishes through
+# EPD Norge and UL Environment, JELD-WEN through EPD Hub, so a search of the
+# Environdec index alone returns nothing for Marmoleum or Swedoor -- the first
+# two things a Karlstad byggledare types. `external_epds.json` is the file where
+# those are entered by hand; adding a product is a row there and nothing else.
+_EXTERNAL_EPD_PATH = Path(__file__).resolve().parent.parent / 'data' / 'external_epds.json'
+_external_epds_cache = None
+_external_epds_lock = threading.Lock()
+
+
+def _external_epds() -> list[dict]:
+    """The hand-entered declarations, read once per process.
+
+    Failing to read the file is not an error worth refusing a search over: the
+    Environdec hits are still worth showing. It is worth a log line, because the
+    silent version of this is a search that quietly stops finding Marmoleum
+    again and looks exactly like the day before the fix.
+    """
+    global _external_epds_cache
+    if _external_epds_cache is None:
+        with _external_epds_lock:
+            if _external_epds_cache is None:
+                try:
+                    with open(_EXTERNAL_EPD_PATH, encoding='utf-8') as f:
+                        _external_epds_cache = [r for r in json.load(f) if r.get('uuid')]
+                except (OSError, json.JSONDecodeError, TypeError) as e:
+                    logger.error("Kunde inte läsa externa EPD:er: %s", e)
+                    _external_epds_cache = []
+    return _external_epds_cache
+
+
+def _search_external_epds(query: str, limit: int) -> list[dict]:
+    """Substring match over name and owner, which is all six rows need.
+
+    No ranking and no fuzziness on purpose. The list is tens of rows, entered by
+    us, and every term a user would reach for ("Marmoleum", "Forbo", "Swedoor")
+    is literally in the name or the owner. A scorer here would be machinery
+    guarding a decision that has not been reached yet.
+    """
+    q = query.strip().lower()
+    if not q:
+        return []
+    return [r for r in _external_epds()
+            if q in (r.get('name') or '').lower()
+            or q in (r.get('owner') or '').lower()][:limit]
+
+
+def _external_epd_by_id(epd_id: str) -> dict | None:
+    for r in _external_epds():
+        if r.get('uuid') == epd_id:
+            return r
+    return None
+
+
 def resolve_epd(epd_id: str, version: str = '') -> dict | None:
     """Look up one declaration and return it in the shape `bind_epd` stores.
 
@@ -893,9 +948,29 @@ def resolve_epd(epd_id: str, version: str = '') -> dict | None:
     GWP-fossil A1-A3 only, and None when the declaration has no fossil figure.
     Falling back to GWP-total would silently mix in a biogenic credit and make
     the row incomparable to the Boverket baseline the rest of the tool uses.
+
+    The external rows are the one place the sentence above is not literally
+    true: their figure was transcribed from a published declaration by us, not
+    fetched from a register API. That is still a declaration behind the number
+    and not a guess, but it is a weaker chain of custody, so every row carries
+    `gwp_source` and the two rows whose figure was inferred rather than read say
+    so all the way into the klimatredovisning.
     """
     if not epd_id:
         return None
+    ext = _external_epd_by_id(epd_id)
+    if ext is not None:
+        # gwp_a1a3 is the fossil figure in this file, by the same rule as above.
+        gwp = ext.get('gwp_a1a3')
+        return {
+            'id': ext['uuid'],
+            'name': ext.get('name', ''),
+            'gwp_per_unit': gwp if isinstance(gwp, (int, float)) else None,
+            'unit': ext.get('unit', ''),
+            'gwp_basis': 'fossil' if isinstance(gwp, (int, float)) else '',
+            'reg_no': ext.get('reg_no', ''),
+            'gwp_source': ext.get('gwp_source', 'estimated'),
+        }
     detail = _get_epd_client().fetch_epd_detail(epd_id, version=version)
     if detail is None:
         return None
@@ -913,6 +988,9 @@ def resolve_epd(epd_id: str, version: str = '') -> dict | None:
         'unit': detail.declared_unit,
         'gwp_basis': basis if gwp is not None else '',
         'reg_no': detail.reg_no or _reg_no_from_index(detail.uuid),
+        # Every outcome carries the field, so a later source cannot be added
+        # without someone deciding what its chain of custody is.
+        'gwp_source': 'declared',
     }
 
 
@@ -956,6 +1034,15 @@ def api_match():
     search that cannot find it would push the user towards a typvärde for no
     reason other than our own curation.
 
+    Plus `external_epds.json`, and that is not a second helping of the same
+    thing. Environdec is one register among several, and the ones it does not
+    carry are not obscure: Forbo publishes Marmoleum through EPD Norge and UL
+    Environment, JELD-WEN publishes Swedoor through EPD Hub. Searching the index
+    alone returned nothing for either, so the tool answered "no declaration
+    exists" about products whose figure it was already shipping in the
+    alternatives catalog. Those rows go first in the list, because a hand-entered
+    row only exists at all because somebody decided the product mattered.
+
     The GWP is deliberately not fetched for every candidate. That is one API call
     per row, and the list exists to be looked at, not summed. It arrives when a
     row is bound, which is also when it starts to matter.
@@ -972,17 +1059,40 @@ def api_match():
     except (TypeError, ValueError):
         limit = 12
 
-    try:
-        hits = _get_epd_client().search_index(
-            query,
-            geo_filter=(data.get('geo') or '').strip(),
-            component_hint=(data.get('component_hint') or '').strip(),
-            max_results=limit,
-        )
-    except Exception as e:
-        return step_failed(e, 'EPD-sökningen')
+    external = _search_external_epds(query, limit)
+    remaining = limit - len(external)
 
-    return jsonify({'candidates': [{
+    hits = []
+    if remaining > 0:
+        try:
+            hits = _get_epd_client().search_index(
+                query,
+                geo_filter=(data.get('geo') or '').strip(),
+                component_hint=(data.get('component_hint') or '').strip(),
+                max_results=remaining,
+            )
+        except Exception as e:
+            # Only when the index was the whole answer. A reachable Marmoleum row
+            # should not be withheld because Environdec happened to be down.
+            if not external:
+                return step_failed(e, 'EPD-sökningen')
+            logger.warning("Environdec svarade inte, visar bara externa träffar: %s", e)
+
+    candidates = [{
+        'id': r['uuid'],
+        'version': '',
+        'name': r.get('name', ''),
+        'owner': r.get('owner', ''),
+        'geo': r.get('geo', ''),
+        'reg_no': r.get('reg_no', ''),
+        'valid_until': '',
+        # The badge the search results show. It travels with the row into the
+        # bind and out into the klimatredovisning, so what a user was told at
+        # the moment of choosing is what the document says afterwards.
+        'gwp_source': r.get('gwp_source', 'estimated'),
+    } for r in external]
+
+    candidates += [{
         'id': h.uuid,
         'version': h.version,
         'name': h.name,
@@ -990,7 +1100,13 @@ def api_match():
         'geo': h.geo,
         'reg_no': h.reg_no,
         'valid_until': h.valid_until,
-    } for h in hits]})
+        'gwp_source': 'declared',
+    } for h in hits]
+
+    # The cap is this endpoint's promise, not the index client's. Passing
+    # max_results and trusting it makes the response size a property of a
+    # dependency, and `limit` exists to bound what crosses the wire.
+    return jsonify({'candidates': candidates[:limit]})
 
 
 @app.route('/api/followup', methods=['POST'])
@@ -1373,14 +1489,23 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 
 /* === Top bar (karlstad.se: white with warm accent line) === */
 .topbar { background: white; color: var(--kk-charcoal); height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; border-bottom: 3px solid var(--kk-gold-light); }
-.topbar-logo { display: flex; align-items: center; gap: 10px; }
+/* The two sides share the free space equally, so the project name sits in the
+   middle of the bar and not in the middle of whatever is left over. With plain
+   space-between it drifted left every time a button was added to the right.
+   flex-shrink is 0 on purpose: below roughly 900px the sides keep their content
+   width and the middle gives way, which is a squeeze rather than a break. */
+.topbar-logo { flex: 1 0 0; display: flex; align-items: center; gap: 10px; }
 .topbar-logo svg { width: 28px; height: 28px; color: var(--kk-red-orange); }
 .topbar-logo span { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: var(--kk-charcoal); }
 .topbar-center { font-size: 14px; color: var(--kk-gray-500); }
-.topbar-right { font-size: 12px; color: var(--kk-gray-400); }
+.topbar-right { flex: 1 0 0; justify-content: flex-end; font-size: 12px; color: var(--kk-gray-400); }
 
 /* === Progress tracker (mockup: numbered circles with line) === */
-.progress-bar { padding: 24px 48px 16px; flex-shrink: 0; }
+/* No bottom padding here. The gap under the step rail belongs to .main, which
+   is the only element present in every mode: applyModeChrome hides this rail in
+   Arbetsblad and Uppföljning, and the gap went with it, so the chat panel sat
+   flush against the gold line under the top bar. */
+.progress-bar { padding: 24px 48px 0; flex-shrink: 0; }
 .progress-track { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
 .progress-line { position: absolute; top: 16px; left: 40px; right: 40px; height: 2px; background: var(--kk-gray-200); }
 .progress-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--kk-charcoal); transition: width 0.5s ease; }
@@ -1393,7 +1518,7 @@ body { font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; hei
 .step-label.done { color: var(--kk-charcoal); }
 
 /* === Main layout === */
-.main { display: flex; flex: 1; overflow: hidden; padding: 0 24px 0 24px; gap: 24px; }
+.main { display: flex; flex: 1; overflow: hidden; padding: 16px 24px 0; gap: 24px; }
 
 /* === Chat panel (mockup: rounded, warm bg) === */
 .chat-panel { width: 40%; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -1799,10 +1924,10 @@ select.cell-input { cursor: pointer; }
 
 /* === Responsive (Feature 9) === */
 @media (max-width: 768px) {
-  .main { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 0 12px; gap: 12px; }
+  .main { flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 8px 12px 0; gap: 12px; }
   .chat-panel { width: 100%; min-height: 300px; max-height: 50vh; }
   .results-panel { width: 100%; }
-  .progress-bar { padding: 12px 16px 8px; }
+  .progress-bar { padding: 12px 16px 0; }
   .step-label { display: none; }
   .progress-track { gap: 0; }
   .step-circle { width: 26px; height: 26px; font-size: 12px; }
@@ -3944,6 +4069,16 @@ function gwpBasisBadge(alt) {
     + 'använda.">GWP-GHG</span> ';
 }
 
+// On the search hit, not on the row after binding. The choice between two
+// declarations is made here, and a marking that only appears once the row is
+// bound arrives after the decision it was meant to inform.
+function estimatedBadge(c) {
+  if (!c || c.gwp_source !== 'estimated') return '';
+  return '<span class="source-badge source-aggregate" title="Deklarationen är '
+    + 'riktig och går att slå upp, men siffran är uppskattad ur den i stället '
+    + 'för avläst ur den. Det står också i klimatredovisningen.">Uppskattad</span>';
+}
+
 function formatSource(source) {
   if (!source) return '';
   if (source.startsWith('[EPD]')) return '<span class="source-badge source-verified">EPD</span>' + esc(source.replace('[EPD] ', ''));
@@ -5053,7 +5188,7 @@ function matchFormRow(r) {
     _matchResults.forEach(c => {
       html += '<button type="button" class="match-hit" onclick="bindMatch(\'' + esc(r.component_id)
         + '\',\'' + esc(c.id) + '\',\'' + esc(c.version || '') + '\')">'
-        + '<span class="match-hit-name">' + esc(c.name) + '</span>'
+        + '<span class="match-hit-name">' + esc(c.name) + ' ' + estimatedBadge(c) + '</span>'
         + '<span class="match-hit-meta">' + esc(c.owner || '') + (c.geo ? ' · ' + esc(c.geo) : '')
         + (c.reg_no ? ' · ' + esc(c.reg_no) : '') + '</span></button>';
     });

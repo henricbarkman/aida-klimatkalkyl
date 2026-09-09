@@ -10,7 +10,8 @@
     "reg_no": "4790859342.102.2 (UL Environment)",
     "uuid": "external-forbo-marmoleum-striato-25",
     "source_registry": "ul_environment",
-    "notes": "GWP-fossil 4.36, GWP-total -1.24 (carbon negative due to biogenic uptake -5.60). Weight 2.9 kg/m2. No CO2 certificates used."
+    "notes": "GWP-fossil 4.36, GWP-total -1.24 (carbon negative due to biogenic uptake -5.60). Weight 2.9 kg/m2. No CO2 certificates used.",
+    "gwp_source": "declared"
   },
   {
     "category": "golv",
@@ -23,7 +24,8 @@
     "reg_no": "NEPD-3410-2062-EN (EPD Norge)",
     "uuid": "external-forbo-marmoleum-sheet-25",
     "source_registry": "epd_norge",
-    "notes": "Similar GWP profile to Striato variant. Bio-based linoleum (linseed oil, wood flour, jute backing). Carbon negative A1-A3."
+    "notes": "Similar GWP profile to Striato variant. Bio-based linoleum (linseed oil, wood flour, jute backing). Carbon negative A1-A3.",
+    "gwp_source": "declared"
   },
   {
     "category": "golv",
@@ -36,7 +38,8 @@
     "reg_no": "NEPD-3574-2167-EN (EPD Norge)",
     "uuid": "external-forbo-marmoleum-decibel-35",
     "source_registry": "epd_norge",
-    "notes": "Thicker variant (3.5mm) with acoustic backing. Higher GWP than 2.5mm due to additional material. Estimated from 2024 EPD."
+    "notes": "Thicker variant (3.5mm) with acoustic backing. Higher GWP than 2.5mm due to additional material. Estimated from 2024 EPD.",
+    "gwp_source": "estimated"
   },
   {
     "category": "dörr",
@@ -49,7 +52,8 @@
     "reg_no": "HUB-1205 (EPD Hub)",
     "uuid": "external-swedoor-advance-40mm-unique",
     "source_registry": "epd_hub",
-    "notes": "Declared unit 1 m2. Mass 14.9 kg/m2. Reference door 0.825x2.040m = 1.683 m2. Per door: GWP-fossil ~54.3 kg, GWP-total ~17.7 kg. Bio-based 90%. Valid until 2029-03-07."
+    "notes": "Declared unit 1 m2. Mass 14.9 kg/m2. Reference door 0.825x2.040m = 1.683 m2. Per door: GWP-fossil ~54.3 kg, GWP-total ~17.7 kg. Bio-based 90%. Valid until 2029-03-07.",
+    "gwp_source": "declared"
   },
   {
     "category": "dörr",
@@ -62,7 +66,8 @@
     "reg_no": "HUB-0445 (EPD Hub)",
     "uuid": "external-swedoor-advance-exterior-92mm",
     "source_registry": "epd_hub",
-    "notes": "Exterior door 92.3mm. Declared unit 1 m2. Reference door 0.925x2.033m = 1.881 m2. Per door: ~98.8 kg CO2e. Heavier than interior variant."
+    "notes": "Exterior door 92.3mm. Declared unit 1 m2. Reference door 0.925x2.033m = 1.881 m2. Per door: ~98.8 kg CO2e. Heavier than interior variant.",
+    "gwp_source": "declared"
   },
   {
     "category": "dörr",
@@ -75,6 +80,7 @@
     "reg_no": "HUB-0988 (EPD Hub)",
     "uuid": "external-swedoor-advance-glazed-stable",
     "source_registry": "epd_hub",
-    "notes": "Interior glazed and stable doors. Estimated GWP from EPD published 2024-01-05, valid until 2029-01-05."
+    "notes": "Interior glazed and stable doors. Estimated GWP from EPD published 2024-01-05, valid until 2029-01-05.",
+    "gwp_source": "estimated"
   }
 ]

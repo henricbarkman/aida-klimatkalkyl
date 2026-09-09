@@ -578,6 +578,30 @@ def render_followup_report(project: dict, result: dict, overrides=None,
             + "\n"
         )
 
+    # Same principle as the section above, one step weaker: not a different
+    # indicator but a different chain of custody. The figure comes from a real
+    # published declaration, named by its registration number in the table, but
+    # it was inferred from that document rather than read out of it. A reader who
+    # checks the row against the source will find a number that does not match to
+    # the decimal, and the honest place to say so is here and not afterwards.
+    estimated = [r for r in rows
+                 if isinstance(r.get("epd"), dict)
+                 and r["epd"].get("gwp_source") == "estimated"]
+    if estimated:
+        out += (
+            "## Uppskattat ur miljödeklaration\n\n"
+            "Byggdelarna nedan är bundna till en miljödeklaration som Aida inte "
+            "hämtar maskinellt, utan som är inlagd för hand. För just de här "
+            "raderna är siffran uppskattad ur deklarationen i stället för avläst "
+            "ur den, till exempel för en variant som deklarationen inte redovisar "
+            "separat. Deklarationen är riktig och går att slå upp på sitt "
+            "registreringsnummer. Talet är en tolkning av den.\n\n"
+            "| Byggdel | Miljödeklaration |\n|---|---|\n"
+            + "".join(f"| {cell(r.get('name', ''))} | {cell(r['epd'].get('name') or r['epd'].get('id'))} |\n"
+                      for r in estimated)
+            + "\n"
+        )
+
     override_rows = overrides_mod.listing(project, overrides)
     if override_rows:
         out += render_override_caveats(override_rows) + "\n"

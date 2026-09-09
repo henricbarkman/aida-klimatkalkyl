@@ -104,6 +104,15 @@ def normalize_epd(epd) -> dict | None:
         "unit": _text(epd.get("unit"), 16),
         "gwp_basis": _text(epd.get("gwp_basis"), 16),
         "reg_no": _text(epd.get("reg_no"), _MAX_NAME),
+        # "estimated" = the figure was inferred from a declaration rather than
+        # read off one. Only that exact value marks the row, and absence means
+        # "declared" on purpose: every EPD bound before this field existed came
+        # from the Environdec API, and defaulting the other way would stamp
+        # "uppskattad" across every klimatredovisning already saved. The
+        # fail-closed default belongs in resolve_epd, where a missing field
+        # means a new hand-entered row nobody classified.
+        "gwp_source": ("estimated" if epd.get("gwp_source") == "estimated"
+                       else "declared"),
     }
 
 
